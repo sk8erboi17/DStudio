@@ -1,6 +1,8 @@
 # Project layout
 
 - `src/`: native desktop host and domain-specific C modules.
+- `src/ocr/`: `dstudio-ocr`, the macOS helper that reads scanned PDF pages with
+  Apple's Vision framework (bundled next to the app binary).
 - `web/`: interface and loading screen.
 - `extension/`: feature implementations and their assets.
 - `patch/`: versioned engine adaptations, separate from upstream checkouts.

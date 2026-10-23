@@ -477,6 +477,41 @@ int main(void) {
     close(fd1);
     close(fd2);
 
+    /* SHA-256 of LAN device tokens and pairing codes, against Python's
+     * hashlib as the oracle (padding boundaries included). */
+    {
+        static const struct { size_t n; const char *hex; } vectors[] = {
+            {0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+            {3, "6ab0dba1f4f1dfbb37b4f9eeb092c09fca4900ad32bdcd147d8dde35d6c87c35"},
+            {55, "1deace58c745f3ecadde68a5923f494c3703fa73f0306483ccb898a5826e8d70"},
+            {56, "06dbe23685750e4d3881ded95047abaf93fa8f9c5d3501dc57c717a72ff1398e"},
+            {63, "47fb38b12335c9298d09280515c0666489a189d1554bb0ac1a0740806ce9d8b6"},
+            {64, "dfa798724b1a8014994f363e5da7474ed26ce3757fb29e07aa47ad5a9352d37b"},
+            {65, "dd2eab5a5507d7717c63ce953d9ac61752c21e664425ad1227054722a0d97f69"},
+            {119, "c6e0f435df5d7d265baacca31e0602c00aa22fa6d3819aed664649294c743756"},
+            {120, "17eb8960823a644bde3065620bb9d45931fe8993fd8eb692a17aff0fd725db6a"},
+            {128, "3a9c1e22e20578eebe442238f431befd688bd56698eb7c77d95d3f97d8f58207"},
+            {1000, "a9425c416f534025a4e2422bd14adba4ec3d4a68d10c3329be8df612964d2b6e"},
+        };
+        unsigned char msg[1000];
+        for (size_t i = 0; i < sizeof msg; i++) msg[i] = (unsigned char)((i * 7 + 3) % 251);
+        char hex[65];
+        for (size_t v = 0; v < sizeof vectors / sizeof vectors[0]; v++) {
+            lan_sha256_hex(msg, vectors[v].n, hex);
+            assert(!strcmp(hex, vectors[v].hex));
+        }
+        lan_sha256_hex("abc", 3, hex);
+        assert(!strcmp(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        char *million = malloc(1000000);
+        assert(million);
+        memset(million, 'a', 1000000);
+        lan_sha256_hex(million, 1000000, hex);
+        free(million);
+        assert(!strcmp(hex, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"));
+        assert(lan_digest_equal(hex, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"));
+        assert(!lan_digest_equal(hex, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd1"));
+    }
+
     puts("lan_unit: ok");
     return 0;
 }

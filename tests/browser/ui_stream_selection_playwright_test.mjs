@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi, sseDelta, sseDone } from '../support/ui_mock_server.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 fs.mkdirSync('tests/.artifacts/ui-selection', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-selection/${browserName}-`);
 const receipt = { scope: 'Production UI, real mouse selection, simulated slow/fast engines only', cases: [] };
 const lines = Array.from({ length: 50 }, (_, i) => `Selectable line ${String(i).padStart(3, '0')}: stable text for reading and copying.`).join('\n\n') + '\n\n';
 const initial = '# Simulated explanation\n\n**Formatted prose** with a list, equation and code.\n\n- First item\n- Second item\n\n$$x^2 + y^2 = z^2$$\n\n```javascript\nfunction fixture() {\n    return 42;\n}\n```\n\n' + lines;
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const poll = async (fn, label) => {
   const until = Date.now() + 8000;
   while (Date.now() < until) { if (fn()) return; await new Promise(resolve => setTimeout(resolve, 25)); }

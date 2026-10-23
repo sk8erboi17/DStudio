@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 let browserEngine;
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName), 'supported browser');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'supported browser');
 try {
   browserEngine = (await import('playwright'))[browserName];
 } catch {

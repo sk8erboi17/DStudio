@@ -24,12 +24,14 @@ for (const testCase of casesDoc.cases) {
   assert.equal(ids.has(testCase.id), false, `duplicate Cowork case: ${testCase.id}`);
   ids.add(testCase.id);
   assert.ok(String(testCase.prompt || '').length >= 40, `${testCase.id}: prompt is too shallow`);
-  assert.ok(['fresh', 'fresh-long', 'continue-long'].includes(testCase.session),
+  assert.ok(['fresh', 'fresh-long', 'continue-long', 'interrupt', 'restart'].includes(testCase.session),
     `${testCase.id}: invalid session policy`);
+  if (testCase.session === 'interrupt')
+    assert.ok(String(testCase.resumePrompt || '').length >= 40, `${testCase.id}: an interrupted case needs a resume prompt`);
 }
 
 for (const [profile, selected] of Object.entries(casesDoc.profiles)) {
-  assert.ok(['smoke', 'standard', 'long'].includes(profile));
+  assert.ok(['smoke', 'standard', 'long', 'resume'].includes(profile));
   assert.ok(Array.isArray(selected) && selected.length > 0);
   for (const id of selected) assert.ok(ids.has(id), `${profile}: unknown case ${id}`);
   assert.equal(baseline.profiles[profile].minimumPassRate, 1,

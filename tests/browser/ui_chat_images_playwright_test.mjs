@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { uiMockServer, jsonReply, requestBody, seedUi, sseDelta, sseDone } from '../support/ui_mock_server.mjs';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const documentFixture = process.env.DSTUDIO_TEST_DOCUMENT_FIXTURE;
 const document = documentFixture ? JSON.parse(fs.readFileSync(documentFixture, 'utf8')) : undefined;
 const inputs = Array.from({ length: 6 }, (_, i) => path.resolve(`tests/fixtures/ui-images/image-${i + 1}.png`));
@@ -42,7 +42,7 @@ const server = await uiMockServer(async (req, res, url) => {
 fs.mkdirSync('tests/.artifacts/chat-images', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/chat-images/${browserName}-`);
 const receipt = { scope: 'Real browser, production UI, all engine replies simulated; no models started', browserName, cases: [] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 try {
   for (const theme of ['dark', 'light']) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
@@ -93,8 +93,12 @@ try {
       const gallery = page.locator('.msg--user .image-gallery');
       assert.equal(await gallery.getByRole('button').count(), 2);
       const frames = gallery.locator('.image-frame');
-      assert.equal((await frames.first().boundingBox()).height, 168);
-      assert.equal((await frames.first().boundingBox()).y, (await frames.last().boundingBox()).y);
+      // Layout coordinates are floats: WebKit and Chromium return values such as
+      // 167.99999 or 84.968 vs 84.969 for the same CSS (seen on HEAD under load).
+      // The requirement is a 168 px frame on one row, so compare within half a pixel.
+      const first = await frames.first().boundingBox(), lastFrame = await frames.last().boundingBox();
+      assert.ok(Math.abs(first.height - 168) < 0.5, `frame height ${first.height}`);
+      assert.ok(Math.abs(first.y - lastFrame.y) < 0.5, `frames on one row: ${first.y} vs ${lastFrame.y}`);
       assert.ok(chatRequests.at(-1).messages.some(message => Array.isArray(message.content) && message.content.filter(part => part.type === 'image_url').length === 2), 'actual produced request carries both images');
       await page.screenshot({ path: path.join(dir, `${theme}-sent.png`) });
       await page.reload();

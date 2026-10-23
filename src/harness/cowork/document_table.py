@@ -14,7 +14,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import zipfile
 from contextlib import contextmanager
 from collections import Counter
@@ -23,11 +25,19 @@ from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 
 FORMAT = "dstudio.document-table.v1"
-MAX_ROWS, MAX_COLUMNS, MAX_SOURCES = 200, 32, 64
-MAX_TEXT, MAX_STATE = 2_000_000, 8_000_000
+# Bounds of one table. MAX_CELLS (rows x columns) keeps validation, the JSON
+# state and exports proportional; rows and columns trade within it.
+MAX_ROWS, MAX_COLUMNS, MAX_SOURCES, MAX_CELLS = 5000, 128, 512, 100_000
+MAX_PDF_PAGES, MAX_SEGMENTS = 2000, 100_000
+MAX_TEXT, MAX_STATE = 32_000_000, 128_000_000   # extracted chars per source; table JSON bytes
+MAX_EXPORT_CELLS, XLSX_SHEET_ROWS = 4_000_000, 1_048_576
+EXTRACTOR = "dstudio.document-table.extract.v2"  # change whenever extraction output changes
 NOTICE = ("Source match checks literal evidence, not semantic correctness. Missing means "
           "not extracted, not proven absent. Checks apply only to the supplied rows. "
-          "No automatic OCR, inference, unit conversion or completeness guarantee.")
+          "Text read with OCR from page images can misread characters and always needs review. "
+          "No inference, unit conversion or completeness guarantee.")
+OCR_PAGES_PER_CALL = 64   # new OCR pages per tool call, across all sources; cached pages are free
+OCR_MIN_CHARS = 24        # a PDF page with fewer visible characters has no usable text layer
 LABELS = {"sourced": "Source matched", "missing": "Not extracted", "needs_review": "Review needed",
           "conflict": "Conflicting candidates", "stale_source": "Source changed", "unavailable": "Source unavailable"}
 
@@ -69,6 +79,290 @@ def tool(name, office):
     return found
 
 
+def run_owned(cmd, office, **kwargs):
+    """Run an extraction subprocess with no elapsed-time cutoff (slow hardware
+    must not fail valid work), but never outlive the runtime that asked for it:
+    when this helper's parent exits (Stop, runtime death), the child is killed."""
+    parent = os.getppid()
+    with subprocess.Popen(cmd, **kwargs) as child:
+        while True:
+            try:
+                out, err = child.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                if os.getppid() != parent:
+                    child.kill()
+                    child.communicate()
+                    raise office.ToolError("the Cowork runtime stopped; extraction was cancelled")
+    if child.returncode:
+        raise subprocess.CalledProcessError(child.returncode, cmd, out, err)
+    return out
+
+
+_POPPLER = {}
+
+
+def poppler_version(office):
+    if "v" not in _POPPLER:
+        out = run_owned([tool("pdftotext", office), "-v"], office, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        _POPPLER["v"] = (out.decode("utf-8", "replace").strip().splitlines() or ["unknown"])[0]
+    return _POPPLER["v"]
+
+
+# ---- Extraction cache ----------------------------------------------------
+# Owner: this helper (a new process per tool call), in the user's cache
+# directory, never in the workspace. Key: SHA-256 of the captured source bytes,
+# the suffix, EXTRACTOR and, for PDFs, the Poppler version: changed bytes or a
+# changed extractor are a different key, so an entry cannot go stale. Value:
+# the segments exactly as extraction returned them; on a hit the stored key and
+# shape are checked, and a mismatched or corrupt entry is deleted and
+# recomputed. Bounds: CACHE_ENTRIES entries and CACHE_BYTES bytes; the least
+# recently used entries are evicted after each insert. Entries are written
+# atomically (temp + rename), so a cancelled helper never leaves a partial one.
+# Any cache failure only costs a re-extraction. It holds text extracted from
+# the user's documents, so the directory is private (0700).
+# DSTUDIO_TABLE_CACHE_DIR overrides the location; "off" disables the cache.
+CACHE_ENTRIES, CACHE_BYTES = 2048, 1 << 30
+
+
+def cache_dir():
+    configured = os.environ.get("DSTUDIO_TABLE_CACHE_DIR")
+    if configured:
+        return None if configured == "off" else Path(configured)
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Caches" / "DStudio"
+    elif os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "DStudio" / "Cache"
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "dstudio"
+    return base / "document-table-sources"
+
+
+def cache_key(digest, suffix, office):
+    key = {"extractor": EXTRACTOR, "sha256": digest, "suffix": suffix}
+    if suffix == ".pdf":
+        key["poppler"] = poppler_version(office)
+        key["ocr"] = ocr_engine(office)
+    name = hashlib.sha256(encode(key).encode("utf-8")).hexdigest()
+    return key, name
+
+
+def cache_get(key, name):
+    folder = cache_dir()
+    if folder is None:
+        return None
+    entry = folder / (name + ".json")
+    try:
+        stored = json.loads(entry.read_text(encoding="utf-8"))
+        segments, extraction = stored["segments"], stored["extraction"]
+        if stored.get("key") != key or not isinstance(segments, list) or not isinstance(extraction, str) or \
+                not all(isinstance(s, dict) and isinstance(s.get("id"), str) and isinstance(s.get("text"), str) for s in segments):
+            raise ValueError("cache entry does not match its key")
+        os.utime(entry)  # recency for eviction
+        return segments, extraction
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError):
+        try:
+            entry.unlink()
+        except OSError:
+            pass
+        return None
+
+
+def cache_put(key, name, segments, extraction):
+    folder = cache_dir()
+    if folder is None:
+        return
+    try:
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        data = encode({"key": key, "segments": segments, "extraction": extraction}).encode("utf-8")
+        if len(data) > CACHE_BYTES // 4:
+            return
+        fd, tmp = tempfile.mkstemp(prefix=".entry-", suffix=".tmp", dir=folder)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.replace(tmp, folder / (name + ".json"))
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        entries = []
+        for item in folder.iterdir():
+            if item.suffix == ".json":
+                try:
+                    st = item.stat()
+                    entries.append((st.st_mtime_ns, st.st_size, item))
+                except OSError:
+                    pass
+        entries.sort(reverse=True)
+        kept_bytes = 0
+        for index, (_, size, item) in enumerate(entries):
+            kept_bytes += size
+            if index >= CACHE_ENTRIES or kept_bytes > CACHE_BYTES:
+                try:
+                    item.unlink()
+                except OSError:
+                    pass
+    except OSError:
+        return
+
+
+# ---- OCR for PDF pages without a text layer ---------------------------------
+# The host passes the dstudio-ocr helper (macOS Vision; src/ocr/dstudio_ocr.m)
+# as DSTUDIO_OCR_HELPER. Readings are cached per document and engine in the
+# extraction cache folder (same owner, bounds and eviction as above), so work
+# spread over several calls is not repeated. At most OCR_PAGES_PER_CALL new
+# pages per tool call; the rest is reported as pending and is read by the
+# next call. The extraction itself is cached only once nothing is pending.
+_OCR = {"engine": None, "budget": OCR_PAGES_PER_CALL}
+
+
+def ocr_helper():
+    helper = os.environ.get("DSTUDIO_OCR_HELPER", "")
+    return helper if helper and os.access(helper, os.X_OK) else None
+
+
+def ocr_engine(office):
+    if _OCR["engine"] is None:
+        helper, engine = ocr_helper(), ""
+        if helper:
+            try:
+                out = run_owned([helper, "--version"], office, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                engine = out.decode("utf-8", "replace").strip().splitlines()[0]
+            except (subprocess.SubprocessError, OSError, IndexError):
+                engine = ""
+        _OCR["engine"] = engine
+    return _OCR["engine"]
+
+
+def visible(text):
+    return sum(1 for c in text if not c.isspace())
+
+
+def ocr_pdf_pages(captured, digest, segments, office):
+    """Fill text-less PDF pages from OCR. Returns (pending page count, engine)."""
+    blank = [s for s in segments if visible(s["text"]) < OCR_MIN_CHARS]
+    engine = ocr_engine(office)
+    if not blank or not engine:
+        return 0, engine  # nothing to read, or no engine: unavailable, not pending
+    key = {"ocr": EXTRACTOR, "sha256": digest, "engine": engine}
+    name = "ocr-" + hashlib.sha256(encode(key).encode("utf-8")).hexdigest()
+    stored = None
+    folder = cache_dir()
+    entry = folder / (name + ".json") if folder else None
+    try:
+        stored = json.loads(entry.read_text(encoding="utf-8")) if entry else None
+        if not isinstance(stored, dict) or stored.get("key") != key or not isinstance(stored.get("pages"), dict):
+            stored = None
+    except (OSError, ValueError):
+        stored = None
+    pages = dict(stored["pages"]) if stored else {}
+    todo = [s["page"] for s in blank if str(s["page"]) not in pages][: max(_OCR["budget"], 0)]
+    if todo:
+        _OCR["budget"] -= len(todo)
+        try:
+            out = run_owned([ocr_helper(), str(captured), ",".join(map(str, todo))], office,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as exc:
+            out = exc.output or b""
+        for line in out.decode("utf-8", "replace").splitlines():
+            try:
+                reading = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(reading, dict) and isinstance(reading.get("text"), str) and "error" not in reading:
+                pages[str(reading.get("page"))] = {"text": reading["text"], "confidence": reading.get("confidence")}
+        if entry is not None and len(pages) > len(stored["pages"] if stored else {}):
+            try:
+                folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(prefix=".entry-", suffix=".tmp", dir=folder)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(encode({"key": key, "pages": pages}).encode("utf-8"))
+                os.replace(tmp, entry)
+            except OSError:
+                pass
+    pending = 0
+    for segment in blank:
+        reading = pages.get(str(segment["page"]))
+        if reading is None:
+            pending += 1
+        elif visible(reading["text"]) >= OCR_MIN_CHARS:
+            segment["text"], segment["ocr"] = reading["text"], True
+    return pending, engine
+
+
+def sheet_segments(zf, name, target, shared, office):
+    """One segment per worksheet row, as office.xlsx_matrix + tsv would give for
+    the declared dimension, but built from the stored cells only: no dense
+    rows x columns matrix and no 8,000-cell read window."""
+    root = office.ET.fromstring(zf.read(target))
+    dim = root.find(f"{{{office.NS_MAIN}}}dimension")
+    require(dim is not None and dim.get("ref"), "sheet dimensions missing; export to text first", office)
+    ref = dim.get("ref").strip().rsplit("!", 1)[-1].split(":", 1)
+    r1, c1 = office.parse_cell(ref[0])
+    r2, c2 = office.parse_cell(ref[-1])
+    require(r2 >= r1 and c2 >= c1, "sheet dimension runs backwards; repair dimensions or export to text first", office)
+    values, chars, extent = {}, 0, office.SheetExtent()
+    for row, col, value in office.xlsx_cells(zf, target, shared):
+        if not value:
+            continue
+        extent.include(row, col)
+        values[(row, col)] = value
+        chars += len(value)
+        require(chars <= MAX_TEXT, "source extraction too large; split the source", office)
+    require(not extent.omitted((r1, c1, r2, c2)),
+            "sheet dimension metadata omits stored cells; repair dimensions or export to text first", office)
+    if not values:
+        return []
+    last_row = max(r for r, _ in values)
+    width = max(c for _, c in values) - c1 + 1
+    require(last_row - r1 + 1 <= MAX_SEGMENTS, "source extraction too large; split the source", office)
+    return [{"id": f"sheet:{name}:row:{row}",
+             "text": office.tsv([[values.get((row, col), "") for col in range(c1, c1 + width)]])}
+            for row in range(r1, last_row + 1)]
+
+
+def extract(captured, suffix, office, digest=""):
+    """(segments, extraction, OCR pages still pending)."""
+    if suffix == ".pdf":
+        try:
+            info = run_owned([tool("pdfinfo", office), str(captured)], office,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            match = re.search(rb"(?m)^Pages:\s+(\d+)", info)
+            require(match and 0 < int(match[1]) <= MAX_PDF_PAGES,
+                    f"PDF must have 1..{MAX_PDF_PAGES} pages; split larger inputs", office)
+            count = int(match[1])
+            output = captured.with_name("pages.txt")
+            run_owned([tool("pdftotext", office), "-layout", "-enc", "UTF-8", str(captured), str(output)], office,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            require(output.stat().st_size <= MAX_TEXT * 4, "PDF extracted text is too large; split the source", office)
+            pages = output.read_text(encoding="utf-8").split("\f")
+            if pages and not pages[-1].strip():
+                pages.pop()
+            require(len(pages) == count, "PDF page count mismatch; evidence cannot be anchored", office)
+            segments = [{"id": f"page:{i}", "page": i, "text": text} for i, text in enumerate(pages, 1)]
+            pending, _ = ocr_pdf_pages(captured, digest, segments, office)
+            extraction = "pdf-text-layer+ocr" if any(s.get("ocr") for s in segments) else "pdf-text-layer"
+            return segments, extraction, pending
+        except (subprocess.SubprocessError, UnicodeError) as exc:
+            raise office.ToolError(f"PDF text extraction failed ({type(exc).__name__}); no evidence verified") from exc
+    if suffix == ".xlsx":
+        segments = []
+        with office.open_office_zip(captured) as zf:
+            sheets, _, shared = office.workbook_parts(zf)
+            for name, target in sheets:
+                segments.extend(sheet_segments(zf, name, target, shared, office))
+                require(len(segments) <= MAX_SEGMENTS, "source extraction too large; split the source", office)
+        return segments, "document-text", 0
+    text = office.read_document_text(captured)
+    # Line anchors refer to extractor output, not DOCX physical pages.
+    return [{"id": f"line:{i}", "text": text} for i, text in enumerate(text.splitlines(), 1)], "document-text", 0
+
+
 def source(ws, relative, office):
     """Hash and extract the SAME captured bytes, not two racing reads of a file."""
     path = ws.resolve(relative)
@@ -81,55 +375,45 @@ def source(ws, relative, office):
     require(len(data) <= office.MAX_INPUT_BYTES, "source exceeds 64 MiB", office)
     digest = hashlib.sha256(data).hexdigest()
     suffix = path.suffix.lower()
-    with tempfile.TemporaryDirectory(prefix="dstudio-table-source-") as tmp:
-        captured = Path(tmp) / ("source" + suffix)
-        captured.write_bytes(data)
-        if suffix == ".pdf":
-            try:
-                info = subprocess.run([tool("pdfinfo", office), str(captured)], capture_output=True, timeout=20, check=True)
-                match = re.search(rb"(?m)^Pages:\s+(\d+)", info.stdout)
-                require(match and 0 < int(match[1]) <= 400, "PDF must have 1..400 pages; split larger inputs", office)
-                count = int(match[1])
-                output = Path(tmp) / "pages.txt"
-                subprocess.run([tool("pdftotext", office), "-layout", "-enc", "UTF-8", str(captured), str(output)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30, check=True)
-                require(output.stat().st_size <= MAX_TEXT, "PDF extracted text exceeds 2 MB; split the source", office)
-                pages = output.read_text(encoding="utf-8").split("\f")
-                if pages and not pages[-1].strip():
-                    pages.pop()
-                require(len(pages) == count, "PDF page count mismatch; evidence cannot be anchored", office)
-                segments = [{"id": f"page:{i}", "page": i, "text": text} for i, text in enumerate(pages, 1)]
-            except (subprocess.SubprocessError, UnicodeError) as exc:
-                raise office.ToolError(f"PDF text extraction failed ({type(exc).__name__}); no evidence verified") from exc
-        elif suffix == ".xlsx":
-            segments = []
-            with office.open_office_zip(captured) as zf:
-                sheets, _, shared = office.workbook_parts(zf)
-                for name, target in sheets:
-                    # Respect the same bounded sheet reads as the Office helper.
-                    root = office.ET.fromstring(zf.read(target))
-                    dim = root.find(f"{{{office.NS_MAIN}}}dimension")
-                    require(dim is not None and dim.get("ref"), "sheet dimensions missing; export to text first", office)
-                    bounds = office.parse_range(dim.get("ref"))
-                    extent = office.SheetExtent()
-                    matrix = office.xlsx_matrix(zf, target, shared, bounds, extent=extent)
-                    require(not extent.omitted(bounds),
-                            "sheet dimension metadata omits stored cells; repair dimensions or export to text first", office)
-                    for index, row in enumerate(matrix, bounds[0]):
-                        segments.append({"id": f"sheet:{name}:row:{index}", "text": office.tsv([row])})
-        else:
-            text = office.read_document_text(captured)
-            # Line anchors refer to extractor output, not DOCX physical pages.
-            segments = [{"id": f"line:{i}", "text": text} for i, text in enumerate(text.splitlines(), 1)]
-    require(sum(len(s["text"]) for s in segments) <= MAX_TEXT and len(segments) <= 20_000,
-            "source extraction too large; split the source", office)
-    return {"path": str(path.relative_to(ws.root)), "sha256": digest, "segments": segments,
-            "emptySegments": [s["id"] for s in segments if not s["text"].strip()],
-            "extraction": "pdf-text-layer" if suffix == ".pdf" else "document-text"}
+    key, name = cache_key(digest, suffix, office)
+    cached = cache_get(key, name)
+    pending = 0
+    if cached is None:
+        with tempfile.TemporaryDirectory(prefix="dstudio-table-source-") as tmp:
+            captured = Path(tmp) / ("source" + suffix)
+            captured.write_bytes(data)
+            segments, extraction, pending = extract(captured, suffix, office, digest)
+        require(sum(len(s["text"]) for s in segments) <= MAX_TEXT and len(segments) <= MAX_SEGMENTS,
+                "source extraction too large; split the source", office)
+        if not pending:
+            cache_put(key, name, segments, extraction)
+    else:
+        segments, extraction = cached
+    result = {"path": str(path.relative_to(ws.root)), "sha256": digest, "segments": segments,
+              "emptySegments": [s["id"] for s in segments if not s["text"].strip()],
+              "extraction": extraction}
+    if suffix == ".pdf":
+        result["ocrSegments"] = [s["id"] for s in segments if s.get("ocr")]
+        result["ocrPendingPages"] = pending
+        result["ocrAvailable"] = bool(key.get("ocr"))
+    return result
+
+
+def segment_lookup(doc, segment_id):
+    """O(1) segment and normalized-text lookup, built once per source per call."""
+    if "_index" not in doc:
+        doc["_index"] = {s["id"]: s for s in doc["segments"]}
+        doc["_norm"] = {}
+    segment = doc["_index"].get(segment_id)
+    if segment is None:
+        return None, ""
+    if segment_id not in doc["_norm"]:
+        doc["_norm"][segment_id] = norm(segment["text"])
+    return segment, doc["_norm"][segment_id]
 
 
 def columns(spec, office):
-    require(isinstance(spec, list) and 0 < len(spec) <= MAX_COLUMNS, "columns_json needs 1..32 columns", office)
+    require(isinstance(spec, list) and 0 < len(spec) <= MAX_COLUMNS, f"columns_json needs 1..{MAX_COLUMNS} columns", office)
     out, ids = [], set()
     for col in spec:
         require(isinstance(col, dict), "each column must be an object", office)
@@ -191,8 +475,13 @@ def cell(raw, office):
     return {"candidates": [candidate(value, office) for value in values], "note": note}
 
 
+def require_cells(row_count, cols, office):
+    require(row_count * len(cols) <= MAX_CELLS,
+            f"table exceeds {MAX_CELLS:,} cells (rows x columns); split it into several tables", office)
+
+
 def rows(spec, cols, office):
-    require(isinstance(spec, list) and len(spec) <= MAX_ROWS, "rows_json must have at most 200 rows", office)
+    require(isinstance(spec, list) and len(spec) <= MAX_ROWS, f"rows_json must have at most {MAX_ROWS} rows", office)
     result, ids = [], set()
     keys = {c["id"] for c in cols}
     for row in spec:
@@ -239,7 +528,7 @@ def validate(table, ws, office):
                 for ref in item["evidence"]:
                     path = ref["path"]
                     if path not in cache:
-                        require(len(cache) < MAX_SOURCES, "table exceeds 64 unique sources", office)
+                        require(len(cache) < MAX_SOURCES, f"table exceeds {MAX_SOURCES} unique sources", office)
                         try:
                             cache[path] = source(ws, path, office)
                         except (office.ToolError, OSError, UnicodeError, office.ET.ParseError, zipfile.BadZipFile) as exc:
@@ -253,12 +542,15 @@ def validate(table, ws, office):
                         state = "stale_source" if state != "unavailable" else state
                         issues.append("Source bytes changed since read_source; re-read and re-extract")
                     else:
-                        segment = next((s for s in doc["segments"] if s["id"] == ref["segment"]), None)
+                        segment, segment_text = segment_lookup(doc, ref["segment"])
                         quote = norm(ref["quote"])
                         ref["match"] = bool(segment and quote and re.search(
-                            r"(?<![\w.,+\-])" + re.escape(quote) + r"(?![\w.,])", norm(segment["text"])))
+                            r"(?<![\w.,+\-])" + re.escape(quote) + r"(?![\w.,])", segment_text))
                         if not ref["match"]:
                             issues.append("Quote does not occur in the specified source segment")
+                        elif segment.get("ocr"):
+                            issues.append("Quote matched text read with OCR from the page image; characters can be "
+                                          "misread, compare with the page")
                         literal = norm(item["value"])
                         # Number/token boundaries prevent 12 matching 312 or 12.5.
                         if col["type"] == "number":
@@ -313,7 +605,7 @@ def check_results(table, office):
             try:
                 target = number(expected, cols[key])
                 with localcontext() as context:
-                    context.prec = 5000  # bounded values <=2000 chars, <=200 rows
+                    context.prec = 5000  # exact: values <=2000 digits, <=5000 rows add <4 digits
                     total = sum((number(v["value"], cols[key]) for v in items), Decimal(0))
             except (ValueError, InvalidOperation) as exc:
                 raise office.ToolError(str(exc)) from exc
@@ -385,14 +677,22 @@ def export_xlsx(table, path, office):
     meta = [["Property", "Value"], ["Title", table["title"]], ["Revision", table["revision"]],
             ["Checked at", table["checkedAt"]], ["Meaning", NOTICE]]
     checks = [["Check", "Result"]] + [[c["column"], encode(c)] for c in table["checks"]]
-    require(sum(len(row) for sheet in [data, statuses, refs, checks, meta] for row in sheet) <= office.MAX_WRITE_CELLS,
-            "Excel export exceeds 100,000 cells including evidence; split the table or export HTML", office)
+    require(sum(len(row) for sheet in [data, statuses, refs, checks, meta] for row in sheet) <= MAX_EXPORT_CELLS,
+            f"Excel export exceeds {MAX_EXPORT_CELLS:,} cells including evidence; split the table or export HTML", office)
+    # A worksheet holds 1,048,576 rows: a longer sheet continues in "Name 2",
+    # "Name 3"..., each repeating the header row.
+    sheets = []
+    for name, sheet in [("Data", data), ("Status", statuses), ("Evidence", refs), ("Checks", checks), ("About", meta)]:
+        body, part = sheet[1:], 1
+        for start in range(0, max(len(body), 1), XLSX_SHEET_ROWS - 1):
+            sheets.append((name if part == 1 else f"{name} {part}", [sheet[0]] + body[start:start + XLSX_SHEET_ROWS - 1]))
+            part += 1
     # Literal text, including = prefixes and leading zeroes, must round-trip.
-    office.create_xlsx(path, [("Data", data), ("Status", statuses), ("Evidence", refs), ("Checks", checks), ("About", meta)], header=True, literal=True)
+    office.create_xlsx(path, sheets, header=True, literal=True)
 
 
 def load(path, office):
-    require(path.stat().st_size <= MAX_STATE, "table exceeds 8 MB", office)
+    require(path.stat().st_size <= MAX_STATE, f"table exceeds {MAX_STATE // 1_000_000} MB", office)
     table = json.loads(path.read_text(encoding="utf-8"))
     require(isinstance(table, dict) and table.get("format") == FORMAT, "not a DStudio document table", office)
     require(type(table.get("revision")) is int and table["revision"] > 0, "invalid table revision", office)
@@ -408,6 +708,7 @@ def load(path, office):
             if not item.get("candidates"):
                 item["missing"] = True
         clean_rows.append(clean)
+    require_cells(len(clean_rows), cols, office)
     return {"format": FORMAT, "title": string(table.get("title"), "title", office, 200),
             "revision": table["revision"], "columns": cols, "rows": rows(clean_rows, cols, office),
             "checks_spec": table.get("checks_spec", [])}
@@ -460,6 +761,18 @@ def run(ws, args, office):
         return run_locked(ws, args, office)
 
 
+def read_source_notice(doc):
+    notice = "Use these exact path, sha256, segment IDs and verbatim quotes."
+    if doc.get("ocrSegments"):
+        notice += " Segments in ocrSegments were read with OCR from page images and can contain misread characters."
+    if doc.get("ocrPendingPages"):
+        notice += (f" {doc['ocrPendingPages']} pages without a text layer are not OCR-read yet; call read_source "
+                   "again to continue (at most 64 new pages per call).")
+    elif doc.get("ocrAvailable") is False and doc.get("emptySegments"):
+        notice += " Pages without a text layer could not be OCR-read: no OCR engine is available on this system."
+    return notice
+
+
 def run_locked(ws, args, office):
     action = office.arg(args, "action")
     offset = office.arg(args, "offset", "0")
@@ -482,7 +795,7 @@ def run_locked(ws, args, office):
         return encode({**{k: v for k, v in doc.items() if k != "segments"}, "segments": selected,
                        "totalSegments": len(segments), "offset": offset,
                        "nextOffset": offset + len(selected) if offset + len(selected) < len(segments) else None,
-                       "notice": "Use these exact path, sha256, segment IDs and verbatim quotes. Empty pages are not OCR-read."})
+                       "notice": read_source_notice(doc)})
     require(action in {"create", "update", "inspect", "export"}, "action: read_source, create, update, inspect or export", office)
     path = ws.resolve(relative, write=action == "create")
     require(path.name.endswith(".table.json"), "table path must end in .table.json", office)
@@ -493,6 +806,7 @@ def run_locked(ws, args, office):
                  "columns": cols, "rows": rows(office.json_arg(args, "rows_json", []), cols, office),
                  "checks_spec": office.json_arg(args, "checks_json", [])}
         string(table["title"], "title", office, 200)
+        require_cells(len(table["rows"]), cols, office)
     else:
         table = load(path, office)
     if action == "update":
@@ -524,13 +838,14 @@ def run_locked(ws, args, office):
                 elif old["cells"][key] != value:
                     raise office.ToolError(f"Existing cell {token} is preserved; list it in replace_json only for an explicit correction")
         require(used == set(replace), "replace_json contains unknown or unused cells", office)
-        require(len(table["rows"]) <= MAX_ROWS, "table exceeds 200 rows", office)
+        require(len(table["rows"]) <= MAX_ROWS, f"table exceeds {MAX_ROWS} rows", office)
+        require_cells(len(table["rows"]), table["columns"], office)
         table["revision"] += 1
     checked = validate(table, ws, office)
     require(all(len(encode(row).encode("utf-8")) <= 160_000 for row in checked["rows"]),
             "one row exceeds 160 KB of evidence; use shorter, precise quotes", office)
     encoded = encode(checked)
-    require(len(encoded.encode("utf-8")) <= MAX_STATE, "table exceeds 8 MB", office)
+    require(len(encoded.encode("utf-8")) <= MAX_STATE, f"table exceeds {MAX_STATE // 1_000_000} MB", office)
     if action == "create":
         publish_new(path, encoded.encode("utf-8"), office)
     elif action == "update":

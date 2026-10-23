@@ -3,19 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { seedUi } from '../support/ui_mock_server.mjs';
 import { streamSeed, uiStreamFixture, startFixtureStream, fixtureTextSaved } from '../support/ui_stream_fixture.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 fs.mkdirSync('tests/.artifacts/ui-stability', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-stability/${browserName}-`);
 const sourceFile = process.env.DSTUDIO_STABILITY_DOCUMENT || 'web/index.html';
 const source = fs.readFileSync(sourceFile, 'utf8');
 const receipt = { scope: 'Real browser mouse/keyboard, animation-frame and raster observations; all inference simulated',
   sourceFile, sourceSha256: createHash('sha256').update(source).digest('hex'), cases: [] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const point = (locator, offset = 8) => locator.evaluate((element, offset) => {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();

@@ -112,8 +112,13 @@ try {
     assert.match(a.content,/ZEBRA-7319/);assert.match(b.content,/Pagina 8/);
     assert.match(a.documentId,/^[a-f0-9]{64}$/);assert.equal(entries.get(a.id).pdfBytes,undefined);assert.equal(entries.get(b.id).pdfBytes,undefined);
     plans=0;calls.length=0;
-    const c=add('visual',visual);await api.preparePdfAttachments([c],'Describe this PDF',{nativeVision:true});
-    assert.equal(plans,0);assert.equal(pending.length,2);assert.equal(calls.length,1);
+    // Rendered pages are prepared privately; the caller (preparePendingAttachments)
+    // publishes them to the pending attachments only after revalidation.
+    const c=add('visual',visual),preparedImages=[];
+    await api.preparePdfAttachments([c],'Describe this PDF',{nativeVision:true,preparedImages});
+    assert.equal(plans,0);assert.equal(calls.length,1);assert.equal(pending.length,0,'preparation must not publish attachments');
+    assert.deepEqual(preparedImages.map(p=>p.attachment.name),['visual.pdf · page 1','visual.pdf · page 2']);
+    for(const p of preparedImages) assert.match(p.data.dataUri,/^data:image\/jpeg;base64,/);
     // Older host / transient probe error must preserve original bytes and route.
     const original=sandbox.fetch;let first=true;
     sandbox.fetch=async(url,opts)=>{if(first&&url==='/api/pdf/describe'){first=false;return new Response(JSON.stringify({ok:true,text:'partial'}));}return original(url,opts);};

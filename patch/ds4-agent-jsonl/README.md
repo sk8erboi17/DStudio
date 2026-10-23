@@ -243,7 +243,37 @@ For the frozen v86 oracle only, reverse tool preview → image → structured �
 interruption deltas; forward replay uses the opposite order and must reproduce
 exact bytes.
 
-`remote-tool-preview.patch` records the newest first-party fragment delta: in
+Version 106 stops Cowork from declaring the shell tools it refuses. Cowork
+returns an error for `bash`, `bash_status` and `bash_stop`, but its DSML and
+GLM/Laguna prompts reused the upstream schema text that lists them. Real runs
+called them, and one spent thousands of reasoning tokens on whether the listed
+tool existed. [cowork-tools.cfrag](cowork-tools.cfrag) removes those tools'
+schema units and upstream's paragraph on bash jobs from the Cowork prompt only.
+Agent's prompt is unchanged, and the structured list already excluded them.
+Each variant's change from its version-105 output is recorded as
+`<variant>-cowork-tools.patch` (`postV106Fix` in [bases.json](bases.json)).
+Version 105 did the same for `write_document`'s `final_newline` argument
+(`<variant>-final-newline.patch`, `postV105Fix`): the runtime had forwarded
+only a fixed list of argument names and dropped it. The migration gate
+reverses these deltas newest first and replays them to exact bytes.
+`make test-cowork-tools-unit` and `make test-cowork-tool-prompt` exercise the
+filter and the built runtimes; `make test-cowork-runtime-args` covers
+`final_newline`.
+
+`remote-session.patch` (version 105) records the newest first-party fragment
+delta: the native Agent and Cowork runtimes in remote-model mode (llama.cpp,
+MLX, a LAN host) save their transcript after every turn to
+`<session cache>/remote-sessions/<sha>.jsonl` and restore it with `/switch`;
+`/list`, `/del` and `/save` work as in native mode. The model server keeps no
+restorable state, so a restored conversation is sent again and prefilled; no KV
+is saved. Tool-call groups are kept as their exact wire JSON, the current
+system prompt replaces the saved one, and restored tool-call IDs re-enter the
+session ledger, so an old call is never admitted or run again. A damaged file
+is refused without touching the live conversation. `make test-remote-session`
+runs the built runtimes across a restart with simulated model frames; the
+migration gate reverses and replays this delta first.
+
+`remote-tool-preview.patch` records the previous first-party fragment delta: in
 structured remote mode (llama.cpp, MLX) the Agent and Cowork runtimes pass a
 preview callback to `dstudio_remote_chat_stream_tools_preview`, so the argument
 fragments the host relays (`model_tool_delta`) become the same live

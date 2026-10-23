@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'Unknown browser');
 let chromium;
 try {
   chromium = (await import('playwright'))[browserName];

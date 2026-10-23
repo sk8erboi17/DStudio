@@ -10099,6 +10099,7 @@ typedef struct {
     uint64_t session_created_at;
     dstudio_remote_buf remote_messages;
     int remote_message_count;
+    size_t remote_system_len;   /* bytes of "[" + the system message in remote_messages */
 } design_agent;
 
 static ds4_think_mode agent_think_mode(const design_agent *a) {
@@ -13492,6 +13493,242 @@ static void design_remote_reset_messages(design_agent *a) {
     dstudio_remote_messages_append(&a->remote_messages, &a->remote_message_count,
                                    "system", sys);
     free(sys);
+    a->remote_system_len = a->remote_messages.len;
+}
+
+/* ---- Saved remote-model Design sessions (llama.cpp, MLX, LAN host) -------
+ * As in the Agent/Cowork runtime (patch/ds4-agent-jsonl/remote-session.patch):
+ * the model server keeps no restorable state, so a session is its message
+ * list. After every turn the messages after the system prompt are written,
+ * exactly as sent, to <design cache>/remote-sessions/<sha>.jsonl: a header
+ * line, then {"messages":"<the message objects, comma separated>"}. /switch
+ * rebuilds the list behind the CURRENT system prompt and the server prefills
+ * it again; project files are already in the workspace. Temp file + fsync +
+ * rename; a damaged file restores nothing and keeps the live conversation. */
+#define DESIGN_REMOTE_SESSION_FORMAT "dstudio.design-remote-session.v1"
+#define DESIGN_REMOTE_SESSION_MAX (64u * 1024u * 1024u)
+
+static char *design_remote_session_dir(design_agent *a) {
+    design_buf b = {0};
+    buf_puts(&b, a->cache_dir ? a->cache_dir : ".");
+    if (b.len && b.ptr[b.len - 1] != '/') buf_puts(&b, "/");
+    buf_puts(&b, "remote-sessions");
+    return buf_take(&b);
+}
+
+static bool design_remote_hex(const char *s, size_t min, size_t max) {
+    size_t n = strlen(s);
+    if (n < min || n > max) return false;
+    for (size_t i = 0; i < n; i++)
+        if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f'))) return false;
+    return true;
+}
+
+static bool design_remote_session_save(design_agent *a) {
+    if (!a->session_sha[0] || a->remote_message_count < 2 ||
+        a->remote_messages.len <= a->remote_system_len) return false;
+    char *dir = design_remote_session_dir(a);
+    bool ok = design_mkdir_p(dir);
+    /* The messages after "[" + system + ",". */
+    const char *rest = a->remote_messages.ptr + a->remote_system_len + 1;
+    size_t rest_len = a->remote_messages.len - a->remote_system_len - 1;
+    design_buf out = {0};
+    if (ok) {
+        char head[200];
+        snprintf(head, sizeof head, "{\"format\":\"%s\",\"sha\":\"%s\",\"title\":", DESIGN_REMOTE_SESSION_FORMAT, a->session_sha);
+        buf_puts(&out, head);
+        design_json_string(&out, a->session_title ? a->session_title : "");
+        snprintf(head, sizeof head, ",\"createdAt\":%llu,\"messages\":%d}\n{\"messages\":\"",
+                 (unsigned long long)a->session_created_at, a->remote_message_count - 1);
+        buf_puts(&out, head);
+        json_escape_buf(&out, rest, rest_len);
+        buf_puts(&out, "\"}\n");
+        ok = out.ptr && out.len <= DESIGN_REMOTE_SESSION_MAX;
+    }
+    char path[PATH_MAX], tmp[PATH_MAX + 32];
+    snprintf(path, sizeof path, "%s/%s.jsonl", dir, a->session_sha);
+    snprintf(tmp, sizeof tmp, "%s/.%s.jsonl.XXXXXX", dir, a->session_sha);
+    int fd = ok ? mkstemp(tmp) : -1;
+    size_t written = 0;
+    ok = fd >= 0;
+    while (ok && written < out.len) {
+        ssize_t n = write(fd, out.ptr + written, out.len - written);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) ok = false; else written += (size_t)n;
+    }
+    if (ok && fsync(fd) != 0) ok = false;
+    if (fd >= 0 && close(fd) != 0) ok = false;
+    if (ok && rename(tmp, path) != 0) ok = false;
+    if (!ok && fd >= 0) unlink(tmp);
+    if (ok) { int dfd = open(dir, O_RDONLY); if (dfd >= 0) { (void)fsync(dfd); close(dfd); } }
+    free(out.ptr);
+    free(dir);
+    return ok;
+}
+
+static bool design_remote_session_find(design_agent *a, const char *prefix, char sha[41], char *err, size_t errsz) {
+    if (!design_remote_hex(prefix, 4, 40)) { snprintf(err, errsz, "invalid session id %.40s", prefix); return false; }
+    char *dir = design_remote_session_dir(a);
+    DIR *d = opendir(dir);
+    int found = 0;
+    for (struct dirent *e; d && (e = readdir(d)); ) {
+        if (strlen(e->d_name) != 46 || strcmp(e->d_name + 40, ".jsonl") || strncmp(e->d_name, prefix, strlen(prefix))) continue;
+        char name[41];
+        memcpy(name, e->d_name, 40); name[40] = '\0';
+        if (design_remote_hex(name, 40, 40) && !found++) memcpy(sha, name, 41);
+    }
+    if (d) closedir(d);
+    free(dir);
+    if (found == 1) return true;
+    snprintf(err, errsz, found ? "session id %.40s is ambiguous" : "no saved session matches %.40s", prefix);
+    return false;
+}
+
+/* The decoded value of one string field of a one-line JSON object. */
+static char *design_remote_line_string(const char *line, const char *key) {
+    int limit = 64;
+    dtg_json_token tok[64];
+    int count = dtg_json_tokenize(line, strlen(line), tok, limit);
+    if (count <= 0 || tok[0].type != DTG_JSON_OBJECT) return NULL;
+    int at = dtg_json_object_field(line, tok, count, 0, key);
+    if (at < 0 || tok[at].type != DTG_JSON_STRING) return NULL;
+    size_t cap = (size_t)(tok[at].end - tok[at].start) + 1;
+    char *out = malloc(cap);
+    if (out && !dtg_json_token_string(line, &tok[at], out, cap)) { free(out); out = NULL; }
+    return out;
+}
+
+static long long design_remote_line_number(const char *line, const char *key) {
+    dtg_json_token tok[64];
+    int count = dtg_json_tokenize(line, strlen(line), tok, 64);
+    if (count <= 0 || tok[0].type != DTG_JSON_OBJECT) return -1;
+    int at = dtg_json_object_field(line, tok, count, 0, key);
+    if (at < 0 || tok[at].type != DTG_JSON_PRIMITIVE) return -1;
+    return strtoll(line + tok[at].start, NULL, 10);
+}
+
+static char *design_remote_read_session(design_agent *a, const char *sha) {
+    char *dir = design_remote_session_dir(a);
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/%s.jsonl", dir, sha);
+    free(dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    design_buf b = {0};
+    char chunk[65536];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+        if (b.len + n > DESIGN_REMOTE_SESSION_MAX) { ok = false; break; }
+        buf_append(&b, chunk, n);
+    }
+    if (ferror(f)) ok = false;
+    fclose(f);
+    if (!ok || !b.ptr) { free(b.ptr); return NULL; }
+    return buf_take(&b);
+}
+
+static bool design_remote_session_switch(design_agent *a, const char *prefix, char *err, size_t errsz) {
+    char sha[41] = "";
+    if (!design_remote_session_find(a, prefix, sha, err, errsz)) return false;
+    char *text = design_remote_read_session(a, sha);
+    char *nl = text ? strchr(text, '\n') : NULL;
+    char *second = nl ? nl + 1 : NULL;
+    char *end = second ? strchr(second, '\n') : NULL;
+    if (nl) *nl = '\0';
+    if (end) *end = '\0';
+    char *format = text ? design_remote_line_string(text, "format") : NULL;
+    char *saved = text ? design_remote_line_string(text, "sha") : NULL;
+    char *title = text ? design_remote_line_string(text, "title") : NULL;
+    long long created = text ? design_remote_line_number(text, "createdAt") : -1;
+    long long count = text ? design_remote_line_number(text, "messages") : -1;
+    /* The messages line is long: tokenize it with room for its one string. */
+    char *messages = second && *second ? design_remote_line_string(second, "messages") : NULL;
+    bool ok = format && !strcmp(format, DESIGN_REMOTE_SESSION_FORMAT) && saved && !strcmp(saved, sha) &&
+              title && created >= 0 && count >= 1 && messages && messages[0] == '{';
+    if (ok) {
+        /* Count the restored top-level objects; it must equal the header. */
+        size_t mlen = strlen(messages);
+        design_buf probe = {0};
+        buf_puts(&probe, "[");
+        buf_append(&probe, messages, mlen);
+        buf_puts(&probe, "]");
+        int limit = 65536;
+        dtg_json_token *tok = malloc((size_t)limit * sizeof(*tok));
+        int tc = tok ? dtg_json_tokenize(probe.ptr, probe.len, tok, limit) : -1;
+        ok = tc > 0 && tok[0].type == DTG_JSON_ARRAY && tok[0].size == count;
+        free(tok);
+        free(probe.ptr);
+    }
+    if (ok) {
+        design_remote_reset_messages(a);
+        dstudio_remote_buf_puts(&a->remote_messages, ",");
+        dstudio_remote_buf_append(&a->remote_messages, messages, strlen(messages));
+        a->remote_message_count += (int)count;
+        free(a->session_title);
+        a->session_title = title;
+        title = NULL;
+        a->session_created_at = (uint64_t)created;
+        memcpy(a->session_sha, sha, sizeof a->session_sha);
+    } else {
+        snprintf(err, errsz, "session %.8s is damaged or from another format; nothing restored", sha);
+    }
+    free(text); free(format); free(saved); free(title); free(messages);
+    return ok;
+}
+
+static void design_remote_session_list(design_agent *a) {
+    if (!g_jsonl) return;
+    char *dir = design_remote_session_dir(a);
+    DIR *d = opendir(dir);
+    design_buf b = {0};
+    buf_puts(&b, "\x1e{\"type\":\"sessions\",\"sessions\":[");
+    int shown = 0;
+    for (struct dirent *e; d && (e = readdir(d)); ) {
+        if (strlen(e->d_name) != 46 || strcmp(e->d_name + 40, ".jsonl")) continue;
+        char path[PATH_MAX];
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        FILE *f = fopen(path, "rb");
+        char head[4096] = "";
+        if (f) { if (!fgets(head, sizeof head, f)) head[0] = '\0'; fclose(f); }
+        head[strcspn(head, "\n")] = '\0';
+        char *title = head[0] ? design_remote_line_string(head, "title") : NULL;
+        long long created = head[0] ? design_remote_line_number(head, "createdAt") : -1;
+        struct stat st;
+        if (!title || created < 0 || stat(path, &st) != 0) { free(title); continue; }
+        char age[32], mb[32];
+        design_format_age((uint64_t)st.st_mtime, age, sizeof(age));
+        snprintf(mb, sizeof(mb), "%.2f", (double)st.st_size / (1024.0 * 1024.0));
+        bool current = a->session_sha[0] && strncmp(e->d_name, a->session_sha, 40) == 0;
+        if (shown++) buf_puts(&b, ",");
+        buf_puts(&b, "{\"sha\":\"");
+        json_escape_buf(&b, e->d_name, 8);
+        buf_puts(&b, "\",\"title\":\"");
+        json_escape_buf(&b, title, strlen(title));
+        buf_puts(&b, "\",\"age\":\"");
+        json_escape_buf(&b, age, strlen(age));
+        buf_puts(&b, "\",\"tokens\":0,\"mb\":");
+        buf_puts(&b, mb);
+        buf_puts(&b, ",\"current\":");
+        buf_puts(&b, current ? "true" : "false");
+        buf_puts(&b, ",\"transcriptOnly\":true}");
+        free(title);
+    }
+    if (d) closedir(d);
+    free(dir);
+    buf_puts(&b, "]}\n");
+    emit_event_line(&b);
+}
+
+static bool design_remote_session_delete(design_agent *a, const char *prefix, char sha[41], char *err, size_t errsz) {
+    if (!design_remote_session_find(a, prefix, sha, err, errsz)) return false;
+    char *dir = design_remote_session_dir(a);
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/%s.jsonl", dir, sha);
+    free(dir);
+    if (unlink(path) == 0) return true;
+    snprintf(err, errsz, "delete failed: %s", strerror(errno));
+    return false;
 }
 
 static void design_remote_steer_append(void *owner, const char *text) {
@@ -13826,13 +14063,6 @@ static bool design_remote_slash_is(const char *p, const char *cmd) {
            (p[n] == '\0' || p[n] == ' ' || p[n] == '\t');
 }
 
-static void design_remote_emit_empty_sessions(void) {
-    if (!g_jsonl) return;
-    design_buf b = {0};
-    buf_puts(&b, "\x1e{\"type\":\"sessions\",\"sessions\":[]}\n");
-    emit_event_line(&b);
-}
-
 static void design_remote_handle_slash(design_agent *a, const char *input) {
     const char *p = input;
     while (*p == ' ' || *p == '\t') p++;
@@ -13846,15 +14076,36 @@ static void design_remote_handle_slash(design_agent *a, const char *input) {
         design_exact_copy_extract(&a->project, NULL);
     } else if (design_remote_slash_is(p, "/list") ||
                design_remote_slash_is(p, "/sessions")) {
-        design_remote_emit_empty_sessions();
-    } else if (design_remote_slash_is(p, "/save") ||
-               design_remote_slash_is(p, "/switch") ||
-               design_remote_slash_is(p, "/del") ||
-               design_remote_slash_is(p, "/compact")) {
-        /* Remote Design keeps the workspace local but does not own local KV
-         * sessions. The UI may still send session commands while syncing; keep
-         * them successful and silent instead of surfacing repeated status
-         * events to the user. */
+        design_remote_session_list(a);
+    } else if (design_remote_slash_is(p, "/save")) {
+        if (design_remote_session_save(a)) emit_session_status("info", "session saved");
+        else emit_session_status("error", a->session_sha[0] ? "save failed: could not write the session transcript"
+                                                            : "save failed: nothing to save yet");
+    } else if (design_remote_slash_is(p, "/switch") || design_remote_slash_is(p, "/del")) {
+        bool sw = design_remote_slash_is(p, "/switch");
+        const char *arg = p + (sw ? 7 : 4);
+        while (*arg == ' ' || *arg == '\t') arg++;
+        char sha[41] = "", err[160] = "", m[200];
+        if (!*arg) {
+            emit_session_status("error", sw ? "usage: /switch <sha>" : "usage: /del <sha>");
+        } else if (sw) {
+            if (design_remote_session_switch(a, arg, err, sizeof err)) {
+                snprintf(m, sizeof m, "switched to %.8s (transcript restored; the model server reads it again)", a->session_sha);
+                emit_session_status("info", m);
+            } else {
+                snprintf(m, sizeof m, "switch failed: %s", err);
+                emit_session_status("error", m);
+            }
+        } else if (design_remote_session_delete(a, arg, sha, err, sizeof err)) {
+            snprintf(m, sizeof m, "deleted %.8s", sha);
+            emit_session_status("info", m);
+        } else {
+            snprintf(m, sizeof m, "%s%s", strncmp(err, "delete failed", 13) ? "delete failed: " : "", err);
+            emit_session_status("error", m);
+        }
+    } else if (design_remote_slash_is(p, "/compact")) {
+        /* Remote Design keeps its full message list (bounded by the transport);
+         * there is no local KV to compact. */
     } else {
         char m[96];
         snprintf(m, sizeof(m), "unknown command: %.40s", p);
@@ -13889,6 +14140,10 @@ static int design_run_remote(design_agent *a) {
         char *prompt = buf_take(&input);
         int rc = design_remote_run_turn(a, prompt);
         free(prompt);
+        /* End-of-turn autosave before the next WAITING; the UI's /list then
+         * binds this conversation to the session marked current. */
+        if (a->session_sha[0] && !design_remote_session_save(a))
+            emit_session_status("error", "save failed: could not write the session transcript");
         if (rc != 0) break;
     }
     free(input.ptr);

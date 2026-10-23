@@ -15,6 +15,9 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 test -x "$APP/Contents/MacOS/DStudio"
+# Local OCR for scanned PDF pages ships next to the app binary.
+test -x "$APP/Contents/MacOS/dstudio-ocr"
+"$APP/Contents/MacOS/dstudio-ocr" --version | grep -q '^dstudio-ocr 1 (Apple Vision'
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --verify --deep --strict "$APP"
 test ! -e "$APP/Contents/Resources/DStudio/ds4"

@@ -6,7 +6,7 @@ import path from 'node:path';
 // Real browser interactions with a simulated launcher. No weights or inference.
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 const playwright = await import('playwright');
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const webRoot = path.resolve('web');
 const artifactRoot = path.resolve('tests/.artifacts/model-picker', browserName);
 fs.mkdirSync(artifactRoot, { recursive: true });

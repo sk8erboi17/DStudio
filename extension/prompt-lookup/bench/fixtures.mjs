@@ -33,6 +33,9 @@ export const cases=[
     prompt:'Use read_document on source.txt, then write_document to create copy.txt with exactly the same text. Reopen copy.txt to verify. Do not modify source.txt. Finish with DONE.'},
   {id:'cowork-edit',surface:'cowork',family:'document-revision',files:{'source.txt':quote+'\n'},output:'revision.txt',expected:quote.replace('17.25','18.50')+'\n',
     prompt:'Read source.txt. Use write_document to create revision.txt, changing only 17.25 to 18.50 and preserving all other text. Reopen revision.txt to verify. Do not modify source.txt. Finish with DONE.'},
+  // The opposite boundary: a source WITHOUT a final newline must stay without one.
+  {id:'cowork-copy-nonl',surface:'cowork',family:'document-write',files:{'source.txt':quote},output:'copy.txt',expected:quote,
+    prompt:'Use read_document on source.txt, then write_document to create copy.txt with exactly the same text. Reopen copy.txt to verify. Do not modify source.txt. Finish with DONE.'},
   {id:'cowork-new',surface:'cowork',family:'new-document-control',files:{},output:'answer.txt',expected:'437\n',
     prompt:'Calculate 19 times 23. Use write_document to create answer.txt containing only the integer result and a final newline, no title or commentary. Reopen it to verify. Finish with DONE.'},
 ];

@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi } from '../support/ui_mock_server.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'Unknown browser');
 fs.mkdirSync('tests/.artifacts/ui-workflow', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-workflow/${browserName}-`);
 const workspace = '/tmp/dstudio-workflow-ui-test-with-a-long-folder-name-for-public-architecture-and-session-boundary-review';
@@ -172,7 +172,7 @@ const server = await uiMockServer(async (req, res, url) => {
   return false;
 });
 
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
 page.setDefaultTimeout(10000);
 const now = Date.now();

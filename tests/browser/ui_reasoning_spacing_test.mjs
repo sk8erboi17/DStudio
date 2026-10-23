@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {chromium, webkit} from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 
 const html = fs.readFileSync('web/index.html', 'utf8');
 const script = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
@@ -31,8 +31,8 @@ const report = {scope: 'Production renderer/styles, synthetic layout fixture; no
 console.log(run);
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER;
-assert.ok(!browserName || ['webkit', 'chromium'].includes(browserName));
-for (const [name, engine] of [['webkit', webkit], ['chromium', chromium]].filter(([name]) => !browserName || name === browserName)) {
+assert.ok(!browserName || ['webkit', 'chromium', 'firefox'].includes(browserName));
+for (const [name, engine] of [['webkit', webkit], ['chromium', chromium], ['firefox', firefox]].filter(([name]) => !browserName || name === browserName)) {
   const browser = await engine.launch();
   let page;
   const result = {name, passed: false, cases: []};

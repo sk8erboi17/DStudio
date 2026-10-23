@@ -362,6 +362,8 @@ static int lan_public_path_allowed(const char *method, const char *path) {
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/remote/chat")) return 1;
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) return 1;
     if (lan_on && !strcmp(method, "POST") && lan_web_tool_path(path)) return 1;
+    /* Pairing for Cowork over the LAN (the code itself is the authorization). */
+    if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/lan/cowork/pair")) return 1;
     if (lan_on && !strcmp(method, "POST") && path_eq_clean(path, "/api/image/generate")) return 1;
     if (lan_on && get && (path_eq_clean(path, "/api/image/file") ||
                           path_eq_clean(path, "/api/image/progress"))) return 1;
@@ -370,4 +372,132 @@ static int lan_public_path_allowed(const char *method, const char *path) {
         (path_eq_clean(path, "/api/pdf/thumb") || path_eq_clean(path, "/api/pdf/describe"))) return 1;
     if (lan_on && !strncmp(path, "/v1/", 4)) return 1;
     return 0;
+}
+
+/* ---- Host and Origin checks ----
+ * DNS rebinding: a web page can point a name it controls at 127.0.0.1 and
+ * then call this server same-origin, as if it were the local UI, even with
+ * the LAN off. A browser always sends the name it resolved as Host, so a
+ * request is served only when Host is an IP literal, localhost, this
+ * machine's own name, or a name the owner listed in DS4UI_ALLOWED_HOSTS
+ * (comma separated). A request without Host is not from a browser.
+ * CORS: the Origin of a cross-origin caller is echoed only when it is
+ * another DStudio page on a loopback or private-network address (or an
+ * allowed name); a public web site gets no CORS grant. */
+
+/* 1 and the value when the header occurs once; 0 when absent; -1 when it is
+ * repeated or too long (never guess which copy a proxy would use). */
+static int request_header_value(const char *req, size_t hlen, const char *name_lower, char *out, size_t cap) {
+    size_t nl = strlen(name_lower);
+    const char *end = req + hlen;
+    const char *line = memchr(req, '\n', hlen);
+    int found = 0;
+    out[0] = '\0';
+    while (line && ++line < end) {
+        const char *eol = memchr(line, '\n', (size_t)(end - line));
+        if (!eol) eol = end;
+        size_t ll = (size_t)(eol - line);
+        int match = ll > nl && line[nl] == ':';
+        for (size_t i = 0; match && i < nl; i++)
+            if (tolower((unsigned char)line[i]) != name_lower[i]) match = 0;
+        if (match) {
+            if (found) return -1;
+            found = 1;
+            const char *v = line + nl + 1, *ve = eol;
+            while (v < ve && (*v == ' ' || *v == '\t')) v++;
+            while (ve > v && (ve[-1] == '\r' || ve[-1] == ' ' || ve[-1] == '\t')) ve--;
+            if ((size_t)(ve - v) >= cap) return -1;
+            memcpy(out, v, (size_t)(ve - v));
+            out[ve - v] = '\0';
+        }
+        line = eol < end ? eol : NULL;
+    }
+    return found;
+}
+
+/* "name[:port]" or "[v6][:port]" -> lowercased name without port or one
+ * trailing dot. 0 when malformed. */
+static int host_authority_name(const char *value, char *host, size_t cap) {
+    const char *start = value, *stop, *rest;
+    if (*value == '[') {
+        start = value + 1;
+        stop = strchr(start, ']');
+        if (!stop) return 0;
+        rest = stop + 1;
+    } else {
+        stop = value + strcspn(value, ":");
+        rest = stop;
+        if (*rest && strchr(rest + 1, ':')) return 0;
+    }
+    if (*rest == ':') {
+        if (!rest[1] || strlen(rest + 1) > 5) return 0;
+        for (const char *d = rest + 1; *d; d++) if (!isdigit((unsigned char)*d)) return 0;
+    } else if (*rest) return 0;
+    size_t n = (size_t)(stop - start);
+    if (n && start[n - 1] == '.') n--;
+    if (!n || n >= cap) return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)start[i];
+        if (!(isalnum(c) || c == '.' || c == '-' || c == ':' || c == '_')) return 0;
+        host[i] = (char)tolower(c);
+    }
+    host[n] = '\0';
+    return 1;
+}
+
+static int host_is_own_name(const char *host) {
+    if (!strcmp(host, "localhost")) return 1;
+    size_t hl = strlen(host);
+    if (hl > 10 && !strcmp(host + hl - 10, ".localhost")) return 1;
+    char me[256] = "";
+    if (gethostname(me, sizeof me - 1) == 0 && me[0]) {
+        for (char *c = me; *c; c++) *c = (char)tolower((unsigned char)*c);
+        size_t ml = strlen(me);
+        if (ml > 6 && !strcmp(me + ml - 6, ".local")) me[ml -= 6] = '\0';
+        if (!strcmp(host, me)) return 1;
+        if (hl == ml + 6 && !strncmp(host, me, ml) && !strcmp(host + ml, ".local")) return 1;
+    }
+    const char *list = getenv("DS4UI_ALLOWED_HOSTS");
+    while (list && *list) {
+        list += strspn(list, ", \t");
+        size_t n = strcspn(list, ", \t");
+        if (n == hl && !strncasecmp(list, host, n)) return 1;
+        list += n;
+    }
+    return 0;
+}
+
+static int host_header_allowed(const char *req, size_t hlen) {
+    char value[300], host[260];
+    int r = request_header_value(req, hlen, "host", value, sizeof value);
+    if (r == 0) return 1;
+    if (r < 0 || !host_authority_name(value, host, sizeof host)) return 0;
+    struct in_addr a4;
+    struct in6_addr a6;
+    if (inet_pton(AF_INET, host, &a4) == 1 || inet_pton(AF_INET6, host, &a6) == 1) return 1;
+    return host_is_own_name(host);
+}
+
+static int ipv4_private_or_loopback(uint32_t ip) {
+    return (ip >> 24) == 127 || (ip >> 24) == 10 || (ip >> 20) == 0xAC1 /* 172.16/12 */ ||
+           (ip >> 16) == 0xC0A8 || (ip >> 16) == 0xA9FE /* 169.254/16 */ ||
+           (ip >> 22) == (0x64400000u >> 22) /* 100.64/10, e.g. Tailscale */;
+}
+
+static int cors_origin_allowed(const char *origin) {
+    const char *auth = !strncmp(origin, "http://", 7) ? origin + 7 :
+                       !strncmp(origin, "https://", 8) ? origin + 8 : NULL;
+    char host[260];
+    if (!auth || !host_authority_name(auth, host, sizeof host)) return 0;
+    struct in_addr a4;
+    struct in6_addr a6;
+    if (inet_pton(AF_INET, host, &a4) == 1) return ipv4_private_or_loopback(ntohl(a4.s_addr));
+    if (inet_pton(AF_INET6, host, &a6) == 1) {
+        const unsigned char *b = a6.s6_addr;
+        if (IN6_IS_ADDR_V4MAPPED(&a6))
+            return ipv4_private_or_loopback(((uint32_t)b[12] << 24) | ((uint32_t)b[13] << 16) | ((uint32_t)b[14] << 8) | b[15]);
+        return IN6_IS_ADDR_LOOPBACK(&a6) || (b[0] & 0xFE) == 0xFC /* fc00::/7 */ ||
+               (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) /* fe80::/10 */;
+    }
+    return host_is_own_name(host);
 }

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi, sseDelta, sseDone } from '../support/ui_mock_server.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const requests = [], held = [];
 let behavior = 'hold';
 const server = await uiMockServer(async (req, res, url) => {
@@ -20,7 +20,7 @@ const server = await uiMockServer(async (req, res, url) => {
 fs.mkdirSync('tests/.artifacts/chat-controls', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/chat-controls/${browserName}-`);
 const receipt = { scope: 'Production Chat controls in a real browser; all generation and clipboard writes simulated', browserName, cases: [] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
 page.setDefaultTimeout(5000);
 const evidence = await seedUi(page, server.origin);

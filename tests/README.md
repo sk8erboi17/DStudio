@@ -1550,7 +1550,13 @@ and shell with explicitly simulated pixels. `make test-image-runtime` compares
 all four presets, seven aspect ratios and every CFG step to the installed
 official Ideogram/Comfy scheduler, including progress and the unchanged MAX
 default; it does not generate images. `make test-http-lan` checks native HTTP
-dispatch and rejects invalid presets. The Settings browser test runs in Chromium
+dispatch and rejects invalid presets. It also runs
+`tests/integration/http_lan_security_test.mjs`, which sends real requests from
+this machine's LAN address. They check four boundaries. Web tools refuse every
+spelling of a loopback/link-local target and every redirect to one, while LAN
+pages stay readable. A foreign `Host` is refused (DNS rebinding). CORS is
+granted only to loopback/private origins. The chat mirror needs the CSRF header
+and stays bounded. Without a LAN IPv4 address it reports BLOCKED, not a pass. The Settings browser test runs in Chromium
 and WebKit; the video browser and native Design interrupt tests check that the
 saved preset reaches image requests without changing editing or video profiles.
 
@@ -2158,3 +2164,54 @@ built through the app's `--install-engine llama` CLI, with no weights or model
 inference. Packaging and source installation are separate
 from the operator's full model-quality rerun. See
 [provenance, source omissions and refresh workflow](../docs/BUNDLED_ENGINES.md).
+
+## LAN, sessions, OCR and Cowork limits (October 3, 2026)
+
+These checks run real DStudio code. None of them loads model weights, unless
+the entry says otherwise.
+
+- `make test-http-lan` adds two tests. `http_lan_security_test.mjs` is
+  described above. `http_lan_cowork_test.mjs` uses the real host and Cowork
+  runtime with a simulated model, sending requests from the LAN address. It
+  checks pairing (single-use code, five wrong attempts void it), token scope,
+  the forced shared folder, prompts only (no commands, control frames or
+  goals), pausing, revocation and restart. It needs a ds4 checkout with a
+  built `ds4-cowork` (`LAN_COWORK_ENGINE`); without one it fails rather than
+  passing.
+- `make test-ui-lan-cowork` runs the same flow through the production UI on
+  both sides (host Settings, device LAN shell) in Chromium and WebKit.
+- `make test-remote-session` runs the real Agent, Cowork and Design runtimes in
+  remote-model (llama.cpp/MLX) mode across a process restart. The restored
+  conversation must be resent byte for byte. An old tool-call ID must not run
+  again. A damaged session file must restore nothing.
+- `make test-cowork-runtime-args` sends every `write_document` argument through
+  the real runtime with structured and DSML tool calls. It retains the
+  regression where `final_newline` was dropped.
+- `make test-cowork-tools-unit` (in `check-fast`) runs the filter that removes
+  the refused shell tools from Cowork's tool prompt, on both upstream schema
+  formats. `make test-cowork-tool-prompt` checks the tools the real runtimes
+  declare, with simulated model frames. Cowork's DSML prompt and structured
+  list must not offer `bash`, `bash_status` or `bash_stop`; Agent's prompt
+  still does. A Cowork `bash` call must still be refused. Against runtime v105
+  it fails on the DSML prompt (`run-0UTqUI`, retained).
+- `make test-pdf-ocr` (macOS) runs the real reader and Vision OCR on generated
+  scans. It checks labels, the cache, the per-read bound, a missing helper,
+  OCR-line citations and that the helper stops when its reader is gone. That
+  includes a reader that exited before the helper started. An earlier
+  helper missed that case and kept reading under load; the check fails on it.
+- `make test-document-table-scale` builds a 5,000 × 20 table from 512 synthetic
+  sources and records timings. `tests/unit/document_table_test.py` covers the
+  extraction cache, the bounds, large XLSX sources, split exports and
+  cancellation.
+- Real weights: `make test-real-cowork-resume` stops a
+  Cowork turn after a tool has returned and then resumes it. It also restarts
+  the runtime, restores the saved session and grades the follow-up. Receipts
+  stay in `tests/.artifacts/cowork-quality-real/run-*`.
+- Real weights, long profile (`make test-real-cowork-long`, DeepSeek V4 Flash
+  Vision-Exp IQ2XXS, 393,216-token context, Max thinking; October 4):
+  `run-AFmGNa` passed the first 10 cases. `ambiguous-edit` failed: after
+  inspecting the files the model reasoned in a loop for over 25,000 tokens
+  until the one-hour turn limit. That run then stopped, because a still-running
+  turn blocked the next case; the test now stops a timed-out turn and starts
+  the runtime again. The second sample (`run-d1MriS`) was interrupted on
+  request and is not graded. Five cases remain not run.

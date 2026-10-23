@@ -24,6 +24,7 @@ const receipt = { scope: `Native ${backend} compilation/linking and real tools w
   buildHost, started: new Date().toISOString(), runs: [], passed: false };
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const supportFiles = ['patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/remote-tools.cfrag',
+  'patch/ds4-agent-jsonl/cowork-tools.cfrag',
   ...['manifest','main-qwen.patch','main-v41.patch','main-current.patch','main-previous.patch','laguna.patch','qwen38.patch','qwen38-next.patch','pld_core.c',
     'pld_agent.inc','pld_agent_rewind.h','pld_agent_compaction.h','compaction_text.h'].map(f => `patch/ds4-agent-jsonl/${f}`),
   'patch/ds4-agent-jsonl/build.mk', 'extension/remote/dstudio_remote_llm.c', 'extension/remote/dstudio_remote_llm.h',

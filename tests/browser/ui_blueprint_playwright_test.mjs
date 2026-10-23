@@ -12,11 +12,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi } from '../support/ui_mock_server.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const hostBinary = path.resolve(process.argv[2] || 'tests/.build/agent_workspace_host');
 fs.mkdirSync('tests/.artifacts/ui-blueprint', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-blueprint/${browserName}-`);
@@ -150,7 +150,7 @@ const server = await uiMockServer(async (req, res, url) => {
 const now = Date.now();
 const seed = { theme: 'dark', settings: { workdirs: { agent: workspace } },
   chats: [{ id: 'bp-agent', mode: 'agent', title: 'Blueprint fixture', createdAt: now, updatedAt: now, messages: [], transcript: '', workdir: workspace }] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const context = await browser.newContext({ viewport: { width: 1360, height: 860 }, acceptDownloads: true });
 const page = await context.newPage();
 page.setDefaultTimeout(8000);

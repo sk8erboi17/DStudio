@@ -856,7 +856,7 @@ NODE
 
 mirror='{"clientId":"client-one","clientName":"Linux box","updatedAt":1710000000000,"chats":[{"id":"chat-1","mode":"chat","title":"Chat one","updatedAt":1710000000001,"messages":[{"role":"user","content":"hi"}]},{"id":"agent-1","mode":"agent","title":"Agent one","updatedAt":1710000000002,"messages":[{"role":"user","content":"ship"}],"transcript":"agent transcript"},{"id":"design-1","mode":"design","title":"Design one","updatedAt":1710000000003,"messages":[{"role":"assistant","content":"mockup"}],"transcript":"design transcript"}]}'
 curl -fsS --max-time 2 -X POST "${base}/api/lan-client/chats" \
-  -H 'Content-Type: application/json' -d "${mirror}" >"${tmp}/mirror-set.json"
+  -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' -d "${mirror}" >"${tmp}/mirror-set.json"
 curl -fsS --max-time 2 "${base}/api/lan-client/chats" >"${tmp}/mirror-get.json"
 node - "${tmp}/mirror-set.json" "${tmp}/mirror-get.json" <<'NODE'
 const fs = require('fs');
@@ -872,14 +872,17 @@ NODE
 
 invalid_code="$(
   curl -sS -o "${tmp}/mirror-invalid.txt" -w '%{http_code}' --max-time 2 \
-    -X POST "${base}/api/lan-client/chats" -H 'Content-Type: application/json' \
+    -X POST "${base}/api/lan-client/chats" -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
     -d '{"clientId":"bad id","chats":[]}'
 )"
 [ "${invalid_code}" = "400" ] || { echo "expected invalid mirror snapshot to be 400, got ${invalid_code}"; exit 1; }
 
-curl -isS --max-time 2 -X OPTIONS "${base}/api/lan-client/chats" >"${tmp}/options.txt"
+# CORS is granted to the caller's Origin when it is a DStudio page on a
+# loopback/private address (tests/integration/http_lan_security_test.mjs
+# covers refused origins); never to "*".
+curl -isS --max-time 2 -X OPTIONS "${base}/api/lan-client/chats" -H 'Origin: http://192.168.1.20:5500' >"${tmp}/options.txt"
 grep -q '204 No Content' "${tmp}/options.txt"
-grep -qi 'Access-Control-Allow-Origin: \*' "${tmp}/options.txt"
+grep -qi 'Access-Control-Allow-Origin: http://192.168.1.20:5500' "${tmp}/options.txt"
 
 lan_json="$(
   curl -sS --max-time 3 -X POST "${base}/api/lan" \
@@ -912,9 +915,9 @@ if (r.httpPort !== requested) throw new Error(`LAN should stay on the running ap
 NODE
 
   lan_base="http://${lan_addr}"
-  curl -isS --max-time 4 "${lan_base}/api/lan-health" >"${tmp}/lan-health.txt" || true
+  curl -isS --max-time 4 -H 'Origin: http://192.168.1.20:5500' "${lan_base}/api/lan-health" >"${tmp}/lan-health.txt" || true
   if grep -q '^HTTP/1.1 200' "${tmp}/lan-health.txt"; then
-    grep -qi 'Access-Control-Allow-Origin: \*' "${tmp}/lan-health.txt"
+    grep -qi 'Access-Control-Allow-Origin: http://192.168.1.20:5500' "${tmp}/lan-health.txt"
     sed -n '/^\r$/,$p' "${tmp}/lan-health.txt" | tr -d '\r' >"${tmp}/lan-health-body.json"
     node - "${tmp}/lan-health-body.json" <<'NODE'
 const fs = require('fs');
@@ -944,37 +947,37 @@ NODE
 
   lan_v1_code="$(
     curl -isS -o "${tmp}/lan-v1.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \
-      "${lan_base}/v1/models" || true
+      -H 'Origin: http://192.168.1.20:5500' "${lan_base}/v1/models" || true
   )"
   if [ "${lan_v1_code}" != "000" ]; then
-    grep -qi 'Access-Control-Allow-Origin: \*' "${tmp}/lan-v1.txt"
+    grep -qi 'Access-Control-Allow-Origin: http://192.168.1.20:5500' "${tmp}/lan-v1.txt"
   fi
 
   for ep in /api/web-search /api/web-read /api/http-probe; do
     name="${ep##*/}"
     lan_web_options_code="$(
       curl -isS -o "${tmp}/lan-${name}-options.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \
-        -X OPTIONS "${lan_base}${ep}" || true
+        -X OPTIONS -H 'Origin: http://192.168.1.20:5500' "${lan_base}${ep}" || true
     )"
     if [ "${lan_web_options_code}" != "000" ] && [ "${lan_web_options_code}" != "204" ]; then
       echo "expected LAN OPTIONS ${ep} to be 204 or unreachable in CI, got ${lan_web_options_code}"
       exit 1
     fi
     if [ "${lan_web_options_code}" = "204" ]; then
-      grep -qi 'Access-Control-Allow-Origin: \*' "${tmp}/lan-${name}-options.txt"
+      grep -qi 'Access-Control-Allow-Origin: http://192.168.1.20:5500' "${tmp}/lan-${name}-options.txt"
     fi
 
     lan_web_post_code="$(
       curl -isS -o "${tmp}/lan-${name}-post.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \
         -X POST "${lan_base}${ep}" -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
-        -d '{}' || true
+        -H 'Origin: http://192.168.1.20:5500' -d '{}' || true
     )"
     if [ "${lan_web_post_code}" != "000" ] && [ "${lan_web_post_code}" != "400" ]; then
       echo "expected LAN POST ${ep} with invalid JSON body to be 400 or unreachable in CI, got ${lan_web_post_code}"
       exit 1
     fi
     if [ "${lan_web_post_code}" = "400" ]; then
-      grep -qi 'Access-Control-Allow-Origin: \*' "${tmp}/lan-${name}-post.txt"
+      grep -qi 'Access-Control-Allow-Origin: http://192.168.1.20:5500' "${tmp}/lan-${name}-post.txt"
     fi
   done
 
@@ -1045,7 +1048,7 @@ NODE
 
   lan_post_code="$(
     curl -sS -o "${tmp}/lan-mirror-post.txt" -w '%{http_code}' --connect-timeout 2 --max-time 4 \
-      -X POST "${lan_base}/api/lan-client/chats" -H 'Content-Type: application/json' \
+      -X POST "${lan_base}/api/lan-client/chats" -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' \
       -d '{"clientId":"client-two","clientName":"LAN browser","chats":[{"id":"chat-2","mode":"chat","messages":[{"role":"user","content":"from lan"}]}]}' || true
   )"
   if [ "${lan_post_code}" = "200" ]; then

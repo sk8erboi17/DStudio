@@ -33,6 +33,10 @@
       "long-followup",
       "long-revision",
       "long-deck"
+    ],
+    "resume": [
+      "resume-interrupt",
+      "resume-restart"
     ]
   },
   "cases": [
@@ -115,6 +119,17 @@
       "id": "long-deck",
       "session": "continue-long",
       "prompt": "Concludi la sessione creando outputs/aurora-handoff.pptx con 3 slide: Snapshot, Rischio operativo, Azioni. Riusa correttamente i fatti consolidati nei turni precedenti, poi riapri la presentazione e verifica che non ci siano placeholder o contraddizioni."
+    },
+    {
+      "id": "resume-interrupt",
+      "session": "interrupt",
+      "prompt": "Leggi finance.xlsx e brief.docx e crea outputs/status-report.md con owner, data di lancio, budget approvato, ricavi totali del trimestre e margine totale del trimestre. Rileggi il file creato per verificare i valori.",
+      "resumePrompt": "Il turno precedente è stato interrotto con Stop. Riprendi da dove eri rimasto e completa outputs/status-report.md senza creare duplicati, poi rileggilo per verificare i valori."
+    },
+    {
+      "id": "resume-restart",
+      "session": "restart",
+      "prompt": "DStudio è stato riavviato. Senza rileggere brief.docx né finance.xlsx, aggiungi a outputs/status-report.md una riga finale 'Verificato dopo il riavvio' e dimmi owner e budget approvato come li hai verificati prima del riavvio."
     }
   ]
 }

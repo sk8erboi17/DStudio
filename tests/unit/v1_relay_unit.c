@@ -72,18 +72,22 @@ static size_t receive_all(int fd, char *out, size_t cap) {
 }
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
-    for (int c = 0; c < 2; c++) {
-        int e[2], p[2]; pthread_t thread = start(e, p, c);
+    /* 0: loopback caller; 1: LAN caller with an accepted Origin (echoed);
+     * 2: LAN caller whose Origin was not accepted (no grant at all). */
+    for (int c = 0; c < 3; c++) {
+        snprintf(g_cors_origin, sizeof g_cors_origin, "%s", c == 1 ? "http://192.168.1.20:5500" : "");
+        int e[2], p[2]; pthread_t thread = start(e, p, c != 0);
         const char h[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n";
         const char b[] = "{\"error\":\"preserved\"}\n\0binary\303\250";
         assert(!send_all(e[1], h, 13)); assert(!send_all(e[1], h + 13, sizeof h - 1 - 13));
         assert(!send_all(e[1], b, sizeof b - 1)); close(e[1]);
         char out[1024]; size_t n = receive_all(p[1], out, sizeof out); close(p[1]);
         assert(!pthread_join(thread, NULL));
-        const char extra[] = "\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Accept, X-Requested-With";
+        const char extra[] = "\r\nAccess-Control-Allow-Origin: http://192.168.1.20:5500\r\nVary: Origin"
+            "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Accept, X-Requested-With";
         char expected[1024]; size_t len = sizeof h - 1 - 4;
         memcpy(expected, h, len);
-        if (c) { memcpy(expected + len, extra, sizeof extra - 1); len += sizeof extra - 1; }
+        if (c == 1) { memcpy(expected + len, extra, sizeof extra - 1); len += sizeof extra - 1; }
         memcpy(expected + len, "\r\n\r\n", 4); len += 4;
         memcpy(expected + len, b, sizeof b - 1); len += sizeof b - 1;
         assert(n == len && !memcmp(out, expected, len));
@@ -95,6 +99,6 @@ int main(void) {
     assert(poll(&peer, 1, 5000) > 0);
     assert(read(e[1], &byte, 1) < 0 && errno == ECONNRESET); close(e[1]);
     assert(!pthread_join(thread, NULL));
-    puts("PASS: silent prefill, exact fragmented/error/binary response, CORS, TCP reset cancels abandoned inference");
+    puts("PASS: silent prefill, exact fragmented/error/binary response, CORS only for an accepted Origin, TCP reset cancels abandoned inference");
     return 0;
 }

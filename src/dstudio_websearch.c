@@ -15,6 +15,165 @@ static int web_url_ok(const char *url) {
     return url && (!strncmp(url, "http://", 7) || !strncmp(url, "https://", 8));
 }
 
+/* ---- Targets a LAN device may make the host fetch -----------------------
+ * The web tools run on the host. A request from another device must never
+ * reach the host's loopback services through them (DStudio's host-only API,
+ * engines, other local servers), nor the unspecified address or
+ * link-local/metadata ranges. Every address the name resolves to is checked;
+ * curl connects only to the checked address (--resolve) and its reported
+ * remote IP must equal it, so DNS cannot change between check and connect.
+ * Redirects are not followed blindly: each hop is checked again. */
+static int g_request_from_lan = 0; /* set per request by handle_connection */
+#ifndef _WIN32 /* the web probe/read helpers are POSIX-only (501 on Windows) */
+
+typedef struct { char host[256]; char port[8]; char addr[64]; char resolve[400]; } web_pin;
+
+static int web_addr_forbidden(const struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        uint32_t ip = ntohl(((const struct sockaddr_in *)sa)->sin_addr.s_addr);
+        unsigned a = ip >> 24, b = (ip >> 16) & 0xff;
+        return a == 127 || a == 0 || (a == 169 && b == 254) || a >= 224;
+    }
+#ifdef AF_INET6
+    if (sa->sa_family == AF_INET6) {
+        const struct in6_addr *v6 = &((const struct sockaddr_in6 *)sa)->sin6_addr;
+        if (IN6_IS_ADDR_LOOPBACK(v6) || IN6_IS_ADDR_UNSPECIFIED(v6) || IN6_IS_ADDR_LINKLOCAL(v6) ||
+            IN6_IS_ADDR_MULTICAST(v6)) return 1;
+        if (IN6_IS_ADDR_V4MAPPED(v6) || IN6_IS_ADDR_V4COMPAT(v6)) {
+            struct sockaddr_in v4; memset(&v4, 0, sizeof v4);
+            v4.sin_family = AF_INET;
+            memcpy(&v4.sin_addr, &v6->s6_addr[12], 4);
+            return web_addr_forbidden((const struct sockaddr *)&v4);
+        }
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+/* Host and port exactly as a plain http(s) URL names them. Userinfo,
+ * backslashes, whitespace and control characters are refused instead of
+ * guessing how another parser would read them. */
+static int web_url_authority(const char *url, char *host, size_t hcap, char *port, size_t pcap) {
+    int https = !strncmp(url, "https://", 8);
+    if (!https && strncmp(url, "http://", 7)) return 0;
+    const char *a = url + (https ? 8 : 7);
+    size_t n = strcspn(a, "/?#");
+    if (!n || n >= 300) return 0;
+    char auth[300];
+    memcpy(auth, a, n); auth[n] = '\0';
+    for (const char *c = auth; *c; c++)
+        if (*c == '@' || *c == '\\' || (unsigned char)*c <= ' ' || *c == 0x7f) return 0;
+    const char *h = auth, *rest;
+    size_t hl;
+    if (*h == '[') {
+        const char *close = strchr(h, ']');
+        if (!close) return 0;
+        h++; hl = (size_t)(close - h); rest = close + 1;
+    } else {
+        const char *colon = strchr(h, ':');
+        hl = colon ? (size_t)(colon - h) : strlen(h);
+        rest = h + hl;
+    }
+    if (!hl || hl >= hcap) return 0;
+    memcpy(host, h, hl); host[hl] = '\0';
+    for (char *c = host; *c; c++) *c = (char)tolower((unsigned char)*c);
+    if (*rest == ':') {
+        rest++;
+        if (!*rest || strlen(rest) > 5 || strspn(rest, "0123456789") != strlen(rest) || atoi(rest) < 1 || atoi(rest) > 65535) return 0;
+        snprintf(port, pcap, "%d", atoi(rest));
+    } else if (*rest) return 0;
+    else snprintf(port, pcap, "%s", https ? "443" : "80");
+    return 1;
+}
+
+static int web_target_pin(const char *url, web_pin *pin, char *err, size_t errsz) {
+    memset(pin, 0, sizeof *pin);
+    if (!web_url_authority(url, pin->host, sizeof pin->host, pin->port, sizeof pin->port)) {
+        snprintf(err, errsz, "the URL has no plain host name the host can check");
+        return 0;
+    }
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(pin->host, pin->port, &hints, &res) != 0 || !res) {
+        snprintf(err, errsz, "could not resolve %s", pin->host);
+        return 0;
+    }
+    int ok = 1;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        if (web_addr_forbidden(ai->ai_addr)) { ok = 0; break; }
+        if (!pin->addr[0]) {
+            const void *raw = ai->ai_family == AF_INET ? (const void *)&((struct sockaddr_in *)ai->ai_addr)->sin_addr
+                                                     : (const void *)&((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr;
+            if (!inet_ntop(ai->ai_family, raw, pin->addr, sizeof pin->addr)) { ok = 0; break; }
+            snprintf(pin->resolve, sizeof pin->resolve, ai->ai_family == AF_INET ? "%s:%s:%s" : "%s:%s:[%s]",
+                     pin->host, pin->port, pin->addr);
+        }
+    }
+    freeaddrinfo(res);
+    if (!ok || !pin->addr[0]) {
+        snprintf(err, errsz, "a device on the LAN cannot make DStudio fetch the host's own, unspecified or link-local addresses");
+        return 0;
+    }
+    return 1;
+}
+
+/* curl -w meta written after the body: status, final URL, connected IP. */
+#define WEB_PIN_META "\n__DSTUDIO_CURL_META__%{http_code} %{remote_ip} %{url_effective}\n"
+
+static int web_pin_meta(char *raw, int *status, char *ip, size_t ipcap) {
+    char *marker = strstr(raw, "\n__DSTUDIO_CURL_META__");
+    if (!marker) return 0;
+    *marker = '\0';
+    const char *meta = marker + strlen("\n__DSTUDIO_CURL_META__");
+    char ipbuf[64] = "";
+    int code = 0;
+    if (sscanf(meta, "%d %63s", &code, ipbuf) < 1) return 0;
+    *status = code;
+    snprintf(ip, ipcap, "%s", ipbuf);
+    return 1;
+}
+
+static int web_ascii_prefix_ci(const char *s, const char *prefix) {
+    for (; *prefix; s++, prefix++)
+        if (tolower((unsigned char)*s) != *prefix) return 1;
+    return 0;
+}
+
+/* Location header of a single-response curl -i capture (no -L), resolved
+ * against base for the absolute, scheme-relative and path forms. Only the
+ * header block is searched: a body line saying "Location:" is page text. */
+static int web_redirect_target(const char *headers, const char *base, char *out, size_t cap) {
+    const char *loc = NULL;
+    const char *end = strstr(headers, "\r\n\r\n");
+    const char *lf = strstr(headers, "\n\n");
+    if (!end || (lf && lf < end)) end = lf;
+    for (const char *p = headers; (p = strchr(p, '\n')) && (!end || p < end); p++)
+        if (!web_ascii_prefix_ci(p + 1, "location:")) loc = p + 10;
+    if (!loc) return 0;
+    while (*loc == ' ' || *loc == '\t') loc++;
+    size_t n = strcspn(loc, "\r\n");
+    if (!n || n >= 2000) return 0;
+    char target[2048];
+    memcpy(target, loc, n); target[n] = '\0';
+    if (web_url_ok(target)) { snprintf(out, cap, "%s", target); return 1; }
+    const char *scheme_end = strstr(base, "://");
+    if (!scheme_end) return 0;
+    if (target[0] == '/' && target[1] == '/') {
+        snprintf(out, cap, "%.*s:%s", (int)(scheme_end - base), base, target);
+        return web_url_ok(out);
+    }
+    if (target[0] == '/') {
+        const char *path = strpbrk(scheme_end + 3, "/?#");
+        size_t origin = path ? (size_t)(path - base) : strlen(base);
+        snprintf(out, cap, "%.*s%s", (int)origin, base, target);
+        return 1;
+    }
+    return 0;
+}
+#endif /* !_WIN32 */
+
 static int web_sources_push(web_source_list *list, const char *title, size_t tl, const char *url, size_t ul) {
     if (list->len >= list->cap) {
         int nc = list->cap ? list->cap * 2 : 16;
@@ -850,6 +1009,65 @@ static char *web_curl_visit_page(const char *url, char *err, size_t err_len) {
     return md.ptr;
 #endif
 }
+
+#ifndef _WIN32
+/* web-read for a LAN device: plain curl to the pinned, checked address, with
+ * each redirect re-checked (at most 6 hops). No browser: it would resolve the
+ * name again on its own. Same page-to-text extraction as the curl fallback. */
+static char *web_lan_visit_page(const char *start, int *forbidden, char *err, size_t err_len) {
+    char url[2048];
+    snprintf(url, sizeof url, "%s", start);
+    *forbidden = 0;
+    for (int hop = 0; hop <= 6; hop++) {
+        web_pin pin;
+        if (!web_target_pin(url, &pin, err, err_len)) { *forbidden = 1; return NULL; }
+        char *argv[28];
+        int n = 0;
+        argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "--compressed"; argv[n++] = "-i";
+        argv[n++] = "--max-redirs"; argv[n++] = "0";
+        argv[n++] = "--proto"; argv[n++] = "=http,https";
+        argv[n++] = "--resolve"; argv[n++] = pin.resolve;
+        argv[n++] = "--connect-timeout"; argv[n++] = "12";
+        argv[n++] = "--max-time"; argv[n++] = "45";
+        argv[n++] = "-A"; argv[n++] = "Mozilla/5.0 DStudio/1.0";
+        argv[n++] = "-w"; argv[n++] = WEB_PIN_META;
+        argv[n++] = url;
+        argv[n] = NULL;
+        int st = 0, status = 0;
+        char ip[64] = "";
+        char *raw = web_curl_capture(argv, 60000, &st);
+        if (!raw) { snprintf(err, err_len, "curl failed to start"); return NULL; }
+        if (!web_pin_meta(raw, &status, ip, sizeof ip) || strcmp(ip, pin.addr)) {
+            free(raw);
+            snprintf(err, err_len, st == 124 ? "curl timed out" : "the page was not read from the checked address; nothing returned");
+            return NULL;
+        }
+        if (status >= 300 && status < 400) {
+            char next[2048];
+            int moved = web_redirect_target(raw, url, next, sizeof next);
+            free(raw);
+            if (!moved) { snprintf(err, err_len, "redirect without a usable Location"); return NULL; }
+            snprintf(url, sizeof url, "%s", next);
+            continue;
+        }
+        char *text = web_html_text_excerpt(raw, 24000);
+        free(raw);
+        if (!text || strlen(text) < 24) {
+            free(text);
+            snprintf(err, err_len, "page returned no readable text");
+            return NULL;
+        }
+        json_dyn_buf md = {0};
+        int ok = json_dyn_puts(&md, "# Page\n\nURL: ") && json_dyn_puts(&md, url) &&
+                 json_dyn_printf(&md, "\n\nHTTP status: %d\n\n## Content\n\n", status) && json_dyn_puts(&md, text);
+        free(text);
+        if (!ok) { free(md.ptr); snprintf(err, err_len, "out of memory"); return NULL; }
+        return md.ptr;
+    }
+    snprintf(err, err_len, "too many redirects");
+    return NULL;
+}
+#endif
 
 static const char *web_last_header_split(const char *s) {
     const char *last = NULL;

@@ -3,19 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { seedUi } from '../support/ui_mock_server.mjs';
 import { streamSeed, uiStreamFixture } from '../support/ui_stream_fixture.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 fs.mkdirSync('tests/.artifacts/ui-roadmap-hover', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-roadmap-hover/${browserName}-`);
 const sourceFile = process.env.DSTUDIO_ROADMAP_HOVER_DOCUMENT || 'web/index.html';
 const source = fs.readFileSync(sourceFile, 'utf8');
 const receipt = { scope: 'Real mouse and keyboard; isolated roadmap and simulated runtime only', browserName,
   sourceFile, sourceSha256: createHash('sha256').update(source).digest('hex'), cases: [] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const paint = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
 try {

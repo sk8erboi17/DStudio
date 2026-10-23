@@ -35,13 +35,47 @@ not change the engine's token speed or the Cowork `read_pdf` tool protocol.
   responses. Changed document bytes retain a different source identity.
 
 Complete *extraction* is not proof of correct interpretation, correct hidden PDF
-text layers, or understanding of diagrams. Text-only models still cannot read
-image-only evidence. A matching citation verifies the quotation, not the
-answer's reasoning. No universal correctness or speed multiplier is claimed.
+text layers, or understanding of diagrams. A matching citation verifies the
+quotation, not the answer's reasoning. No universal correctness or speed
+multiplier is claimed.
+
+## Scanned pages (local OCR)
+
+A page whose text layer has fewer than 24 visible characters is read with
+`dstudio-ocr` ([source](../src/ocr/dstudio_ocr.m)) when it is available: the
+page is rendered with PDFKit at 300 dpi and recognized with Apple's Vision
+framework (accurate level, language correction, automatic language detection).
+Nothing leaves the machine. The reader then treats the recognized text like a
+text layer, but labels the page `(OCR: testo riconosciuto dall'immagine, può
+contenere errori)` and adds a note to the reply. The JSON result reports
+`ocrPages`, `ocrNewPages`, `ocrPendingPages`, `ocrFailedPages`, `ocrAvailable`
+and `ocrEngine`.
+
+- Bounded work: at most 64 new pages per read, in page order inside the
+  requested range. Recognized pages are cached per document and engine (the
+  helper and macOS versions are part of the key), so the next read continues
+  where the previous one stopped. A read with pages still pending is not stored
+  in the result cache.
+- No time limit; the helper exits when the reader that started it is gone,
+  including a reader that exited before the helper started (the helper then
+  reads nothing).
+- Evidence: a quotation on a scanned page is searched in the page's OCR lines.
+  A unique match returns `ocr_matched` with whole-line boxes. Calculations
+  accept only `matched` (an exact text-layer passage), never OCR text.
+- The semantic index is keyed on the text it embeds, including OCR text.
+- Native vision models (DeepSeek Vision-Exp, GLM 5.3) still receive the
+  rendered scanned pages; OCR adds text, it does not replace the pixels.
+- Not available on Linux and Windows builds: scanned pages are reported as
+  unread there, as before.
+
+Vision's confidence is not a reliable error signal: on a generated test scan
+it read "Applied" as "AppLiea" at confidence 1.0. Treat OCR figures and names
+as readings to check.
 
 ## Verification
 
-Run `make test-pdf-complete` with Poppler, Node, Playwright and WebKit installed.
+Run `make test-pdf-complete` with Poppler, Node, Playwright and WebKit installed
+(on macOS it also runs `make test-pdf-ocr`).
 The test executes the native HTTP reader and production attachment functions:
 
 - complete output equals independent Poppler extraction byte for byte, page

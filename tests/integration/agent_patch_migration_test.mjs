@@ -54,9 +54,13 @@ try {
   command('git', ['init', '-q', fragmentWork]);
   const fragmentFile = path.join(fragmentWork, bases.migration.sharedInclude);
   fs.copyFileSync(path.join(assets, bases.migration.sharedInclude), fragmentFile);
-  // The structured tool-call preview is the newest additive first-party
-  // adaptation; image delivery is the one before it. Restore each exact
-  // predecessor before the older recorded deltas; never change the v86 oracle.
+  // Saved remote sessions are the newest additive first-party adaptation, the
+  // structured tool-call preview the one before, then image delivery. Restore
+  // each exact predecessor before the older recorded deltas; never change the
+  // v86 oracle.
+  const sessionFix = path.join(assets, 'remote-session.patch');
+  command('git', ['apply', '-R', '--check', sessionFix], fragmentWork);
+  command('git', ['apply', '-R', sessionFix], fragmentWork);
   const previewFix = path.join(assets, 'remote-tool-preview.patch');
   command('git', ['apply', '-R', '--check', previewFix], fragmentWork);
   command('git', ['apply', '-R', previewFix], fragmentWork);
@@ -79,6 +83,8 @@ try {
   command('git', ['apply', '--include=remote-agent.cfrag', visionFix], fragmentWork);
   command('git', ['apply', '--check', previewFix], fragmentWork);
   command('git', ['apply', previewFix], fragmentWork);
+  command('git', ['apply', '--check', sessionFix], fragmentWork);
+  command('git', ['apply', sessionFix], fragmentWork);
   assert.deepEqual(fs.readFileSync(fragmentFile), fs.readFileSync(path.join(assets, bases.migration.sharedInclude)));
   const visionWork = path.join(run, 'image-adaptation'); fs.mkdirSync(visionWork);
   command('git', ['init', '-q', visionWork]);
@@ -88,6 +94,8 @@ try {
   };
   for (const name of Object.keys(visionBases)) fs.copyFileSync(path.join(assets, name), path.join(visionWork, name));
   fs.writeFileSync(path.join(visionWork, 'unrelated.txt'), 'Preserve unrelated checkout data.');
+  command('git', ['apply', '-R', '--check', sessionFix], visionWork);
+  command('git', ['apply', '-R', sessionFix], visionWork);
   command('git', ['apply', '-R', '--check', previewFix], visionWork);
   command('git', ['apply', '-R', previewFix], visionWork);
   command('git', ['apply', '-R', '--check', visionFix], visionWork);
@@ -99,8 +107,12 @@ try {
   command('git', ['apply', '--check', previewFix], visionWork);
   command('git', ['apply', previewFix], visionWork);
   command('git', ['apply', '--check', previewFix], visionWork, false);
+  command('git', ['apply', '--check', sessionFix], visionWork);
+  command('git', ['apply', sessionFix], visionWork);
+  command('git', ['apply', '--check', sessionFix], visionWork, false);
   for (const name of Object.keys(visionBases)) assert.deepEqual(fs.readFileSync(path.join(visionWork, name)), fs.readFileSync(path.join(assets, name)));
   receipt.toolPreviewAdaptation = { patchSHA256: hash(fs.readFileSync(previewFix)), reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true };
+  receipt.remoteSessionAdaptation = { patchSHA256: hash(fs.readFileSync(sessionFix)), reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true };
   assert.equal(fs.readFileSync(path.join(visionWork, 'unrelated.txt'), 'utf8'), 'Preserve unrelated checkout data.');
   receipt.imageAdaptation = { patchSHA256: hash(fs.readFileSync(visionFix)), baseHashes: visionBases,
     reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true, unrelatedPreserved: true };
@@ -129,7 +141,7 @@ try {
     const derived = emit('native-apply', original);
     assert.equal(hash(derived), base.derivedSHA256);
     let migrationDerived = derived;
-    for (const key of ['postV101Fix', 'postV100Fix', 'postV99Fix', 'postV98Fix', 'postV97Fix']) {
+    for (const key of ['postV106Fix', 'postV105Fix', 'postV101Fix', 'postV100Fix', 'postV99Fix', 'postV98Fix', 'postV97Fix']) {
       if (!base[key]) continue;
       // Undo newest first. Every recorded predecessor remains frozen; a new
       // behavior cannot rewrite a frozen predecessor or the older v86 oracle.
@@ -150,7 +162,9 @@ try {
       assert.deepEqual(fs.readFileSync(target), current);
       command('git', ['apply', '--check', delta], staged, false);
       assert.equal(fs.readFileSync(path.join(staged, 'unrelated.txt'), 'utf8'), 'Keep unrelated data.');
-      row.checks.push(key === 'postV101Fix' ? 'progress-summary-roundtrip-and-frozen-v101-parity' :
+      row.checks.push(key === 'postV106Fix' ? 'cowork-tool-declarations-roundtrip-and-frozen-v105-parity' :
+        key === 'postV105Fix' ? 'cowork-final-newline-roundtrip-and-frozen-v104-parity' :
+        key === 'postV101Fix' ? 'progress-summary-roundtrip-and-frozen-v101-parity' :
         key === 'postV100Fix' ? 'durable-summary-roundtrip-and-frozen-v100-parity' :
         key === 'postV99Fix' ? 'worker-readiness-roundtrip-and-frozen-v99-parity' :
         key === 'postV98Fix' ? 'compaction-continuation-roundtrip-and-frozen-v98-parity' :

@@ -110,6 +110,63 @@ Those are model-free implementation checks, separate from the 78 real tasks.
 [Published measured data](results/2026-09-05-m2-max-minecraft-no-ssd.json) ·
 [Matplotlib chart](../../../assets/README%20images/benchmarks/prompt-lookup-minecraft-real-engine.png)
 
+## Follow-up: the lost final newline (3 October 2026)
+
+The Cowork copy and revision failures above were fixed and checked again on a
+real engine. The September model file (DeepSeek V4 Flash chat 0731) is no
+longer installed, so both sides of this comparison use **DeepSeek V4 Flash
+Vision-Exp IQ2XXS**, the same `ds4-cowork` build except where stated, PLD off,
+**16k context**, 2 runs per case, on the same M2 Max with Minecraft running.
+At 8k context the larger current Cowork prompt reaches context compaction (it
+writes `MEMORY.MD` into the workspace, which this harness correctly counts as an
+unexpected file), so 16k keeps both sides comparable.
+
+| Case | Before (HEAD tools) | After (tools + runtime v105) |
+| --- | ---: | ---: |
+| Copy a text file that ends with a newline | 0/2 | 2/2 |
+| Revise one value, file ends with a newline | 0/2 | 2/2 |
+| Copy a text file without a final newline (new case) | 2/2 | 2/2 |
+| Write a new one-line file | 2/2 | 2/2 |
+
+<div align="center">
+  <img src="../../../assets/README%20images/benchmarks/cowork-copy-fidelity-2026-10-03.png" width="900" alt="Cowork exact file bytes, before and after: copy with a final newline 0/2 then 2/2, revision 0/2 then 2/2, copy without a final newline 2/2 then 2/2, new one-line file 2/2 then 2/2; DeepSeek V4 Flash Vision-Exp IQ2XXS, 16k context, shared desktop.">
+</div>
+
+**What fixed it, honestly.** Before, every failing copy was byte-identical to
+the source except for the missing final newline. Two changes were tried:
+
+1. `read_document` shows `.txt`/`.md` as numbered lines (each line ends with a
+   break; a missing final break is marked `\ No newline at end of file`) and
+   states characters, lines and final line breaks; `write_document` reports the
+   same facts. **This alone did not change the model's behaviour**: it still
+   omitted the newline and declared the copy verified, even after noting
+   "does not end with a line break" in its own summary.
+2. `write_document` now ends `.txt`/`.md` text with a line break when the
+   content has none, and says so; `final_newline=false` writes the content
+   unchanged. In every passing copy/revision above, the model still omitted
+   the newline and this rule supplied it.
+
+The new no-final-newline case measures the opposite risk: the model must pass
+`final_newline=false`. A first run exposed a runtime defect: the Agent/Cowork
+runtime forwarded only a fixed list of argument names, so `final_newline`
+never reached the Office helper. The model worked around it with the native
+`write` tool (2/2 correct, but 274 and 337 seconds instead of about 80). Patch
+version 105 forwards the argument; with it, the model passed
+`final_newline=false` in both runs (about 80 seconds each).
+`make test-cowork-runtime-args` drives that argument through the real runtime
+with both tool protocols.
+
+Retained local runs that are not published: a refused start (host busy before
+`--allow-busy-host`), an interrupted facts-only run, an 8k run stopped by the
+harness because compaction made input tokens unreconstructable, a run aborted
+because `COWORK.md` changed between repetitions, and runs that overlapped with
+other test runtimes (the publisher refuses those). Published:
+[before](results/2026-10-03-cowork-baseline-ctx16k.json) and
+[before, no final newline](results/2026-10-03-cowork-baseline-no-final-newline.json),
+[after](results/2026-10-03-cowork-fixed-runtime-v105.json);
+chart: `python3 plot-cowork-fidelity.py OUT.png "Before=…" "After=…"`.
+Two runs per case on one model are descriptive, not a quality score.
+
 ## Method
 
 - Same model, weights, greedy sampling, context and power for every mode.

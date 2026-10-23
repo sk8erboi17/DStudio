@@ -90,6 +90,17 @@ downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/rele
 - **Linux and Windows prepared** for llama.cpp the way Ollama builds it
   (CPU variants plus CUDA, ROCm or Vulkan when installed). Compiled, **not run**
   on those systems yet.
+- **Sessions survive restarts on llama.cpp/MLX.** Agent, Cowork and Design save
+  their transcript after every turn and restore it after a restart; the server
+  reads it again (no KV snapshot).
+- **Scanned PDFs are read** with local OCR on macOS (Apple Vision, offline),
+  labelled as OCR everywhere, with OCR line highlights for citations.
+- **Cowork:** exact text copies (a lost final newline made copies fail),
+  comparison tables up to 5,000 rows, 128 columns and 512 files, and Cowork
+  from a phone or tablet through an explicitly shared, paired session.
+- **LAN hardening:** web tools refuse the host's loopback addresses for LAN
+  devices, unknown `Host` names are refused (DNS rebinding), CORS is limited to
+  DStudio pages on private addresses, and LAN chat mirrors are bounded.
 - Earlier in this cycle: Open IDE and Open Blueprint for Agent, live Design
   building in the IDE, 25 offline Design systems, automatic Task Graph checks,
   goals and mid-turn context, PDF source checking and faster PDF reading.
@@ -102,6 +113,8 @@ downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/rele
 | The same six checks on Qwen3.8-27B (llama.cpp) | **6/6** (Design took 37 minutes with thinking on) |
 | The same six checks on Qwen3.6 (MLX) | **6/6** |
 | pi and OpenCode × {Qwen3.6 llama.cpp, Qwen3.6 MLX, Qwen3.8-27B, DeepSeek V4 Flash}, three independently checked tasks each | **24/24** |
+| Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS (native, 393,216-token context, Max thinking): stop after a tool result and resume; restart and restore the saved session | **2/2** |
+| The same Cowork model, long profile (October 4; interrupted on request): 11 of 16 cases run | **10/11**; 1 failure, 5 not run |
 | `make check-fast` (model-free gate) and the macOS bundle smoke test | pass |
 
 Failed runs that led to fixes are kept, not replaced: see
@@ -110,8 +123,15 @@ These are focused development checks, not a quality score or a ranking.
 
 **Not done yet**
 
-- Disk-session checkpoints for the llama.cpp/MLX models (chat history is saved;
-  the engine session is not restored).
+- The Cowork long profile is incomplete. `ambiguous-edit` failed: the model
+  found no duplicates, then reasoned in a loop for over 25,000 tokens without
+  asking which file was meant, until the test's one-hour limit. A second sample
+  was stopped on request. `path-escape`, `long-seed`, `long-followup`,
+  `long-revision` and `long-deck` have not run.
+- KV snapshots for the llama.cpp/MLX models. Agent, Cowork and Design sessions
+  on these models are now restored after a restart from their saved
+  transcript, but the server then reads the whole conversation again (a fresh
+  prefill). pi/OpenCode sessions on these models are not restored.
 - The 100-task quality corpus has not been rerun on llama.cpp/MLX; the published
   Qwen scores were measured on the retired engines.
 - Linux, Windows, CUDA, ROCm and Vulkan have not been run. pi and OpenCode are
@@ -192,8 +212,8 @@ There is no engine or branch selector.
 | GLM 5.3 Flash | ds4 main | All four; images with its encoder | ~96.5 GB Q2. Full-model QA of the M2 optimization remains open. |
 | Laguna S 2.1 | ds4 `laguna-s2.1` | All four, text only | Experimental, macOS Metal; needs resident weights (no forced SSD streaming). |
 | Qwen3.8-Flash-Next | ds4 main | Experimental Chat, Agent, Cowork | Single-file Q2 (147.2 GB) or Q4 (177.3 GB); old base + PLE files are incompatible. Design and vision unqualified. |
-| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. No disk checkpoints. |
-| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. No disk checkpoints. |
+| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). |
+| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). |
 | Qwen3.8-27B | llama.cpp | All four; images in Chat, Agent and Cowork | 25.3 GB Q6_K_XL + 0.93 GB projector. Real workflows pass; Design is slow (37 min on an M2 Max with thinking on). Learn and PDF workflows unqualified. |
 
 Separate media workers provide **Ideogram 4** image generation,
@@ -231,9 +251,11 @@ does not reload it.
 - **Design** receives its tools as structured function calls; Qwen did not
   follow Design's DSML text protocol reliably.
 - **Not available:** power throttling, expert SSD streaming, DSpark, prompt
-  lookup, and disk checkpoints (the tools reach the model through DStudio's
-  model RPC and hold no engine session to save). Chat history is saved and the
-  running server reuses its live prompt cache.
+  lookup, and KV disk checkpoints (the tools reach the model through DStudio's
+  model RPC and hold no engine session to save). Agent, Cowork and Design save
+  their transcript after every turn and restore it after a restart; the server
+  then reads the conversation again. Chat history is saved and the running
+  server reuses its live prompt cache.
 - **The 27B** needs its matching F16 projector; DStudio downloads and checks
   both files and admits images in Chat, Agent and Cowork.
 
@@ -460,7 +482,7 @@ For newly read PDF attachments in local Chat, DStudio adds a source-checking wor
 
 - **See where a quotation comes from.** Click a PDF citation in the answer to open the original physical page, with the exact words highlighted. Zoom in for small text or tables.
 - **Handle repeated references.** If the model uses `[P1]` for several passages, the modal lets you choose the intended passage instead of guessing. Identical entries are merged. Internal evidence JSON is hidden, including malformed output; unreadable source details show an explanation, not a verification badge. Saved replies are reparsed too.
-- **Know when a source cannot be located.** Missing or repeated quotations are reported without selecting a misleading highlight. An image-only page can be opened, but this feature does not run OCR.
+- **Know when a source cannot be located.** Missing or repeated quotations are reported without selecting a misleading highlight. On a scanned page, a quotation is searched in the page's local OCR reading: whole recognized lines are highlighted and labelled as OCR, and they never count as an exact passage for calculations.
 - **Move around the document.** The attachment preview offers recognized numbered chapter/section headings, nested section hints and explicit “see section…” links. These are text-based hints, not a complete outline or a semantic knowledge graph.
 - **Check the arithmetic.** “Check passages and calculations” first locates the cited passages, then recalculates supported sums, differences, products, ratios and percentages using the quoted numbers. It shows the operands, sources, rounding and any difference from the answer. It does not verify units, whether the right numbers were chosen, or the answer’s interpretation.
 
@@ -495,6 +517,17 @@ semantically. DStudio extracts text locally and uses the small pinned
 router. With DeepSeek Vision-Exp or GLM 5.3 active, up to four selected pages
 are rendered and sent to that model's native encoder. Text-only models receive
 the extracted text and report any image-only pages they could not read.
+
+**Scanned pages.** On macOS, pages without a text layer are read with local
+OCR: the page is rendered on the Mac and recognized with Apple's Vision
+framework, offline. These pages are labelled OCR wherever their text appears,
+because recognition can misread characters: on a generated test scan it read
+"Applied" as "AppLiea" while reporting full confidence. One read recognizes at
+most 64 new pages (about 1 second each on an M2 Max); recognized pages are
+cached, and the reply says which page range to ask for next. Linux and Windows
+builds have no OCR yet and keep reporting scanned pages as unread.
+`make test-pdf-ocr` runs the real reader and Vision on generated scans, with no
+model.
 
 `make test-pdf-complete` checks complete text against Poppler byte for byte,
 fallbacks, real citation highlights and upload-to-Chat behavior with a
@@ -737,7 +770,7 @@ Faster but incorrect results did not count.
 |---|---:|---|
 | Chat | 14/14 | **2.84× observed speed**, comparing the same correct outputs |
 | Agent | 6/6 | **About the same overall**; long copies helped, new code did not |
-| Cowork | 2/6 | No useful overall conclusion: document-fidelity failures remained |
+| Cowork | 2/6 | No useful overall conclusion: document-fidelity failures remained (fixed since: see below) |
 
 <div align="center">
   <img src="assets/README%20images/benchmarks/prompt-lookup-minecraft-real-engine.png" width="1100" alt="Real engine tests with Minecraft running: Chat passes 14 of 14 per mode with 2.84 times observed experimental speed; Agent passes 6 of 6 with essentially unchanged speed; Cowork passes 2 of 6 in every mode. Shared-host timings are not an isolated speed guarantee.">
@@ -749,6 +782,14 @@ and a new function became slower (**21.8 to 28.3 seconds**). **66/78 checks
 passed**: the 12 failures were the same Cowork copy cases in every mode (a lost
 final newline). [Method and per-task results](extension/prompt-lookup/bench/README.md) ·
 [data](extension/prompt-lookup/bench/results/2026-09-05-m2-max-minecraft-no-ssd.json).
+
+**Cowork copies, fixed (October 3).** Rerun on DeepSeek V4 Flash Vision-Exp
+IQ2XXS at 16k context, 2 runs per case: copies and revisions of files that end
+with a newline went from **0/2 to 2/2**, and a new case copying a file
+*without* a final newline stays **2/2**. The model still drops the trailing
+newline; `write_document` now ends a text document with one unless
+`final_newline=false`, and the runtime now forwards that argument.
+[Details, retained failures and data](extension/prompt-lookup/bench/README.md#follow-up-the-lost-final-newline-3-october-2026).
 
 ### Cowork
 
@@ -762,6 +803,8 @@ symlink and traversal checks.
 
 The Office bridge is a small standard-library Python helper invoked with a
 bounded JSON request; there is no command shell or arbitrary Python in Cowork.
+Cowork's tool list no longer offers the shell tools it refuses (`bash`,
+`bash_status`, `bash_stop`). Before this, models called them and got an error.
 Spreadsheet and document text is framed as untrusted source content, so
 embedded instructions are not treated as tasks. Cowork uses the context size
 from Settings and the same conversation surface, Thinking view and action
@@ -774,7 +817,14 @@ and conflicting values stay explicit; sources are rechecked on inspection and
 export (expandable HTML or an Excel workbook with data, status and evidence
 sheets). A source match confirms the quote and value occur in the document, **not
 that the interpretation is correct**. Limits: text-layer PDFs and Office/text
-sources, no OCR, up to 200 rows, 32 columns and 64 files.
+sources (scanned PDF pages are read with local OCR on macOS, and quotes matched
+in OCR text are marked for review), up to 5,000 rows, 128 columns and 100,000 cells per table, and
+512 files (PDFs up to 2,000 pages). Extracted text is cached by content in the
+user's cache folder, so a recheck does not extract unchanged files again. In
+the [scale test](tests/integration/document_table_scale_test.py), a 5,000 × 20
+table built from 512 synthetic text files took 8–13 seconds per create, recheck
+or export, with a peak of about 0.5 GB of memory. That was one run on an M2 Max
+shared with a running game; it is not a speed guarantee.
 [Document-table tests](tests/unit/document_table_test.py) exercise real files
 without a model; they are not an extraction-accuracy benchmark.
 
@@ -1213,6 +1263,49 @@ leaves `127.0.0.1`: a LAN client only talks to DStudio.
 > proxy. Workspace, settings, store and Agent/Cowork/Design tool APIs remain
 > local-only, but use trusted networks and turn LAN access off when finished.
 
+What the host enforces, LAN on or off:
+
+- **Web tools from another device.** When a LAN device asks DStudio to probe or
+  read a page, the host does not connect to its own loopback services
+  (DStudio's API, engines, other local servers), the unspecified address or
+  link-local/metadata addresses. This holds for any spelling of the address
+  and through redirects. DStudio checks every resolved address, connects only
+  to the address it checked, and checks each redirect again. For a LAN device,
+  pages are read with curl, without the browser (no JavaScript rendering).
+- **Host names (DNS rebinding).** DStudio answers only when the `Host` is an IP
+  address, `localhost`, or this machine's own name (`name` / `name.local`).
+  This stops a web page that points its own domain at `127.0.0.1` from using
+  the local API. To allow another name, for example behind a reverse proxy,
+  list it in `DS4UI_ALLOWED_HOSTS` (comma separated).
+- **Cross-site callers.** CORS is granted only to DStudio pages on loopback or
+  private-network addresses (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`,
+  link-local, IPv6 ULA) and allowed names. A public web site opened on a LAN
+  device gets no grant.
+- **LAN chat mirrors.** Snapshots that LAN devices publish need DStudio's
+  request header. The host keeps at most 32 devices and 256 MiB in memory and
+  drops the least recently published one first. A dropped device reappears
+  when it next publishes.
+
+**Cowork from a phone or tablet.** A browser on another device can use the
+host's running Cowork session, which is off until the host user shares it:
+
+1. On the Mac, start Cowork in the folder to share, then choose **Settings →
+   Network → Cowork on the LAN → Share the running Cowork folder**. An 8-digit
+   pairing code appears.
+2. On the device, open the LAN address, choose **Cowork** and type the code.
+
+The code works once, for 10 minutes, and five wrong attempts void it. The
+device then holds its own token; the host stores only a hash of it and can
+revoke it in the same pane. A paired device can send prompts, read the
+answers, stop a turn and add files, only in the shared folder and only while
+the host runs Cowork there. Commands (`/list`, `/switch`, …), goals, Agent,
+Design, settings and other folders stay on the host. Sharing turns off at every
+restart; paired devices are kept until revoked. Sharing is a shared session: the
+device sees the conversation running in that folder. Not available in the
+Windows build. `make test-http-lan` and `tests/browser/ui_lan_cowork_playwright_test.mjs`
+check pairing, scope, the forced folder, pausing and revocation with the real
+host and Cowork runtime and a simulated model.
+
 ## How it works
 
 - **C launcher, not a script.** [`src/dstudio.c`](src/dstudio.c) is the local
@@ -1252,9 +1345,9 @@ leaves `127.0.0.1`: a LAN client only talks to DStudio.
   VLM, visual router or fallback is installed.
 - **KV cache.** Chat re-sends its history behind a stable prefix that compatible
   engines reuse (the blue *cached* count). Agent, Cowork and Design use
-  independent named KV sessions where the engine supports them (ds4); the
-  llama.cpp and MLX models save the conversation but cannot restore an engine
-  session yet.
+  independent named KV sessions where the engine supports them (ds4). On the
+  llama.cpp and MLX models they save the transcript instead: after a restart
+  `/switch` restores it and the server prefills it again; no KV is restored.
 
 ## Security
 
@@ -1343,7 +1436,25 @@ every model or a release. Exact acceptance criteria and retained failures are in
 
 ### Still required
 
-- [ ] Disk-session checkpoints for the llama.cpp and MLX models.
+- [x] Restore Agent, Cowork and Design sessions on llama.cpp/MLX (and a LAN
+  host) after a restart: the transcript is saved after every turn and `/switch`
+  rebuilds it; old tool calls can never run again. Real runtimes across a
+  restart with simulated model frames: `make test-remote-session`.
+- [ ] KV snapshots for llama.cpp/MLX sessions (a restored session is prefilled
+  again), and saved sessions for pi/OpenCode on these models.
+- [x] Refuse SSRF to the host's loopback from LAN devices, DNS rebinding and
+  cross-site CORS; bound and protect LAN chat mirrors.
+  `make test-http-lan` (real host, requests from the LAN address).
+- [x] Read scanned PDF pages with local OCR on macOS; labelled pages, bounded
+  work per read, cached readings, OCR line evidence. `make test-pdf-ocr`.
+  Linux/Windows OCR: not implemented.
+- [x] Raise Cowork comparison-table limits (5,000 rows, 128 columns, 100,000
+  cells, 512 sources) with a content-addressed extraction cache.
+  `make test-document-table-scale`.
+- [x] Fix Cowork text-copy fidelity (a lost final newline); real A/B on
+  DeepSeek V4 Flash Vision-Exp. [Results](extension/prompt-lookup/bench/README.md#follow-up-the-lost-final-newline-3-october-2026).
+- [x] Cowork from a LAN browser through an explicitly shared, paired session.
+  `make test-http-lan`, `tests/browser/ui_lan_cowork_playwright_test.mjs`.
 - [ ] Rerun the 100-task corpus and the long requests on llama.cpp and MLX
   (published Qwen scores come from retired engines); qualify Next Q2
   independently.

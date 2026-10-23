@@ -9,7 +9,7 @@ import { artifactRunDir, writeArtifact } from '../support/real_harness.mjs';
 // Actual production UI and HTTP messages with simulated discovery/model replies.
 // No external pages, model weights or inference are used.
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'webkit';
-assert.ok(['webkit', 'chromium'].includes(browserName));
+assert.ok(['webkit', 'chromium', 'firefox'].includes(browserName));
 const browserType = (await import('playwright'))[browserName];
 const webRoot = path.resolve('web');
 const originalHtml = fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8');

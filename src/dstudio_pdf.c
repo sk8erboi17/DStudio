@@ -6,9 +6,12 @@
  * a bounded whole-book overview, or hybrid retrieval across overlapping text
  * passages. Dense embeddings provide semantic recall, BM25 recovers exact
  * names/formulas, and every hit retains its physical page and byte offset.
- * Scanned/image-only pages are counted and reported but are never sent to a
- * secondary visual model. Native DeepSeek Vision-Exp and GLM 5.3 can inspect
- * explicitly attached rendered pages through their own encoders.
+ * Pages without a usable text layer (scans, image-only pages) are read with
+ * local OCR when the dstudio-ocr helper is available (macOS Vision; see
+ * pdf_ocr_pages): such pages are labelled as OCR, because recognized text can
+ * misread characters. Pages OCR cannot read stay reported as scanned. Native
+ * DeepSeek Vision-Exp and GLM 5.3 can also inspect explicitly attached
+ * rendered pages through their own encoders.
  *
  *   POST /api/pdf/thumb    — render page 1 → {ok, thumb: data-URI} (attach-time preview)
  *   POST /api/pdf/describe — text read → {ok, text, pages, total, first,
@@ -35,6 +38,8 @@
 #define PDF_RAG_EMBED_BATCH 4             /* best end-to-end latency; oversized inputs split recursively */
 #define PDF_RAG_MAX_QUERY_TERMS 16
 #define PDF_TEXT_CACHE_MAX_FILES 32
+#define PDF_OCR_MAX_PAGES_PER_READ 64     /* new OCR work per read; cached pages are free */
+#define PDF_OCR_CACHE_MAX_FILES 64
 #define PDF_EMBED_CACHE_MAX_FILES 32
 #define PDF_EMBED_INDEX_MAGIC 0x44504532u /* "DPE2": overlapping chunk vectors */
 typedef struct {
@@ -921,9 +926,221 @@ static void pdf_describe_need_embedding(int fd, int want_text) {
     }
 }
 
-#include "dstudio_pdf_evidence.c"
 
 /* POST /api/pdf/describe — text layer plus optional semantic retrieval. */
+/* ---- OCR for pages without a text layer ---------------------------------
+ * dstudio-ocr (src/ocr/dstudio_ocr.m) renders a page and recognizes its text
+ * with the macOS Vision framework, locally. Its location: DSTUDIO_OCR_HELPER,
+ * else next to this executable (DStudio.app/Contents/MacOS), else build/ in
+ * the checkout. Without it, scanned pages stay reported as unread.
+ *
+ * Cache: per document and engine, ocr-v1-<document fnv>-<engine fnv>.pdfocr in
+ * the PDF cache folder, one helper JSON line per page. The engine identity
+ * (helper version + macOS version) is part of the name, so an OS update that
+ * changes recognition does not reuse old readings. At most
+ * PDF_OCR_CACHE_MAX_FILES documents, oldest first out; written to a unique
+ * temporary file and renamed, so a concurrent read sees an old or a new
+ * complete file. A lost update between two concurrent reads only costs OCR.
+ *
+ * Work is bounded by pages, not time: at most PDF_OCR_MAX_PAGES_PER_READ new
+ * pages per read, in page order inside the requested range; the rest are
+ * reported as pending with the range to ask for. The helper exits when this
+ * job process exits. */
+typedef struct {
+    int available, done, used, failed, empty, pending, first_pending, cap;
+    char engine[200];
+    unsigned long long digest;  /* page numbers + recognized text, for cache keys */
+    char *texts[PDF_MAX_TOTAL_PAGES];
+    char *raw[PDF_MAX_TOTAL_PAGES];  /* the helper's JSON line: line boxes for evidence */
+} pdf_ocr_result;
+
+static int pdf_ocr_helper(char *out, size_t outsz) {
+    const char *env = getenv("DSTUDIO_OCR_HELPER");
+    if (env && env[0]) { cstr_copy(out, outsz, env); return access(out, X_OK) == 0; }
+    if (g_launch_executable[0]) {
+        char dir[DSTUDIO_PATH_MAX];
+        cstr_copy(dir, sizeof dir, g_launch_executable);
+        char *slash = strrchr(dir, '/');
+        if (slash) {
+            *slash = '\0';
+            snprintf(out, outsz, "%s/dstudio-ocr", dir);
+            if (access(out, X_OK) == 0) return 1;
+        }
+    }
+    if (g_web_dir[0]) {
+        snprintf(out, outsz, "%s/build/dstudio-ocr", g_web_dir);
+        if (access(out, X_OK) == 0) return 1;
+    }
+    return 0;
+}
+
+static unsigned long long pdf_fnv(unsigned long long h, const char *s, size_t n) {
+    for (size_t i = 0; i < n; i++) { h ^= (unsigned char)s[i]; h *= 1099511628211ULL; }
+    return h;
+}
+
+/* Engine identity for cache keys; empty when no helper answers. */
+static void pdf_ocr_engine(char *helper, size_t helpersz, char *engine, size_t enginesz) {
+    engine[0] = '\0';
+    if (!pdf_ocr_helper(helper, helpersz)) return;
+    char *argv[] = { helper, "--version", NULL };
+    int st = -1;
+    char *out = web_curl_capture(argv, 30000, &st);
+    if (out && st == 0) {
+        size_t n = strcspn(out, "\r\n");
+        if (n >= enginesz) n = enginesz - 1;
+        memcpy(engine, out, n);
+        engine[n] = '\0';
+    }
+    free(out);
+}
+
+static int pdf_ocr_line_page(const char *line) {
+    const char *p = strstr(line, "\"page\":");
+    return p ? atoi(p + 7) : 0;
+}
+
+static void pdf_ocr_cache_path(unsigned long long docfnv, const char *engine, char *out, size_t outsz) {
+    char dir[DSTUDIO_PATH_MAX];
+    pdf_cache_dir_path(dir, sizeof dir);
+    snprintf(out, outsz, "%s/ocr-v1-%016llx-%016llx.pdfocr", dir, docfnv,
+             pdf_fnv(1469598103934665603ULL, engine, strlen(engine)));
+}
+
+/* Keep one successful reading per page: an error line is never cached. */
+static void pdf_ocr_take_line(pdf_ocr_result *r, const char *line, json_dyn_buf *keep) {
+    int page = pdf_ocr_line_page(line);
+    if (page < 1 || page > PDF_MAX_TOTAL_PAGES || r->texts[page - 1] || strstr(line, "\"error\":")) return;
+    char *text = json_get_string_alloc_rpc(line, "text");
+    if (!text) return;
+    r->texts[page - 1] = text;
+    r->raw[page - 1] = ds4_strdup_local(line);
+    if (keep) { (void)json_dyn_puts(keep, line); (void)json_dyn_puts(keep, "\n"); }
+}
+
+static void pdf_ocr_pages(const char *pdf, unsigned long long docfnv, const char *jobpath,
+                          const char *helper, int first, int last, const char **pstart, int *plen,
+                          int *pvis, unsigned char *pocr, pdf_ocr_result *r) {
+    r->available = r->engine[0] != '\0';
+    r->digest = 1469598103934665603ULL;
+    int wanted = 0;
+    for (int i = first - 1; i < last; i++) if (pvis[i] < PDF_TEXT_MIN_CHARS) wanted++;
+    if (!wanted || !r->available) { r->pending = r->available ? 0 : wanted; return; }
+
+    char cpath[DSTUDIO_PATH_MAX];
+    pdf_ocr_cache_path(docfnv, r->engine, cpath, sizeof cpath);
+    json_dyn_buf keep = {0};
+    size_t cn = 0;
+    char *cached = jsonl_read_file(cpath, &cn);
+    for (char *line = cached; line && *line; ) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        pdf_ocr_take_line(r, line, &keep);
+        if (!nl) break;
+        line = nl + 1;
+    }
+    free(cached);
+
+    /* The new pages for this read, in page order, bounded. A smaller bound
+     * may be configured (DSTUDIO_OCR_PAGES_PER_READ), never a larger one. */
+    int cap = PDF_OCR_MAX_PAGES_PER_READ;
+    const char *cap_env = getenv("DSTUDIO_OCR_PAGES_PER_READ");
+    if (cap_env && atoi(cap_env) >= 1 && atoi(cap_env) < cap) cap = atoi(cap_env);
+    r->cap = cap;
+    char spec[PDF_OCR_MAX_PAGES_PER_READ * 6 + 8] = "";
+    size_t used = 0;
+    int todo = 0;
+    r->first_pending = 0;
+    for (int i = first - 1; i < last; i++) {
+        if (pvis[i] >= PDF_TEXT_MIN_CHARS || r->texts[i]) continue;
+        if (todo == cap) {
+            r->pending++;
+            if (!r->first_pending) r->first_pending = i + 1;
+            continue;
+        }
+        used += (size_t)snprintf(spec + used, sizeof spec - used, "%s%d", todo ? "," : "", i + 1);
+        todo++;
+    }
+    if (todo) {
+        pdf_job_write(jobpath, "{\"phase\":\"ocr\",\"done\":false,\"page\":0,\"pages\":%d}", todo);
+        int out_pipe[2];
+        pid_t child = -1;
+        if (pipe(out_pipe) == 0) {
+            child = fork();
+            if (child == 0) {
+                dup2(out_pipe[1], STDOUT_FILENO);
+                close(out_pipe[0]);
+                close(out_pipe[1]);
+                int devnull = open("/dev/null", O_RDWR);
+                if (devnull >= 0) { dup2(devnull, STDIN_FILENO); dup2(devnull, STDERR_FILENO); close(devnull); }
+                execl(helper, helper, pdf, spec, (char *)NULL);
+                _exit(127);
+            }
+            close(out_pipe[1]);
+            if (child < 0) close(out_pipe[0]);
+        }
+        if (child > 0) {
+            FILE *in = fdopen(out_pipe[0], "r");
+            char *line = NULL;
+            size_t cap = 0;
+            int seen = 0;
+            while (in && getline(&line, &cap, in) > 0) {
+                line[strcspn(line, "\n")] = '\0';
+                int page = pdf_ocr_line_page(line);
+                int had = page >= 1 && page <= PDF_MAX_TOTAL_PAGES && r->texts[page - 1];
+                pdf_ocr_take_line(r, line, &keep);
+                if (!had && page >= 1 && page <= PDF_MAX_TOTAL_PAGES && r->texts[page - 1]) r->done++;
+                else r->failed++;
+                pdf_job_write(jobpath, "{\"phase\":\"ocr\",\"done\":false,\"page\":%d,\"pages\":%d}", ++seen, todo);
+            }
+            free(line);
+            if (in) fclose(in); else close(out_pipe[0]);
+            int status = 0;
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            if (seen < todo) r->failed += todo - seen;
+        } else {
+            r->failed += todo;
+        }
+        if (r->done) {
+            /* Unique temporary name, then rename: never a partial cache file. */
+            char tmp[DSTUDIO_PATH_MAX + 16];
+            snprintf(tmp, sizeof tmp, "%s.XXXXXX", cpath);
+            char dir[DSTUDIO_PATH_MAX];
+            pdf_cache_dir_path(dir, sizeof dir);
+            (void)mkdir(dir, 0755);
+            int f = keep.ptr ? mkstemp(tmp) : -1;
+            if (f >= 0) {
+                size_t len = strlen(keep.ptr), off = 0;
+                while (off < len) { ssize_t w = write(f, keep.ptr + off, len - off); if (w <= 0) break; off += (size_t)w; }
+                close(f);
+                if (off == len && rename(tmp, cpath) == 0) pdf_cache_prune_suffix(dir, ".pdfocr", PDF_OCR_CACHE_MAX_FILES);
+                else unlink(tmp);
+            }
+        }
+    }
+    free(keep.ptr);
+
+    /* Substitute the readings for the pages of this range. */
+    for (int i = first - 1; i < last; i++) {
+        if (pvis[i] >= PDF_TEXT_MIN_CHARS || !r->texts[i]) continue;
+        int vis = 0;
+        for (const char *c = r->texts[i]; *c; c++) if (!isspace((unsigned char)*c)) vis++;
+        if (vis < PDF_TEXT_MIN_CHARS) { r->empty++; continue; }  /* blank or nearly blank page */
+        pstart[i] = r->texts[i];
+        plen[i] = (int)strlen(r->texts[i]);
+        pvis[i] = vis;
+        pocr[i] = 1;
+        char num[16];
+        int n = snprintf(num, sizeof num, "|%d|", i + 1);
+        r->digest = pdf_fnv(pdf_fnv(r->digest, num, (size_t)n), r->texts[i], (size_t)plen[i]);
+        r->used++;
+    }
+}
+
+/* After the OCR helpers: evidence for a page without a text layer uses its
+ * OCR line boxes. */
+#include "dstudio_pdf_evidence.c"
+
 static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     char fmt[16] = "";
     (void)json_get_string(body, "format", fmt, sizeof fmt);
@@ -1025,13 +1242,19 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     /* Cache lookup — overview/full reads are question-independent. Semantic
      * reads include the model-produced retrieval query; embedding indexes stay
      * reusable across questions. */
+    static pdf_ocr_result ocr;
+    memset(&ocr, 0, sizeof ocr);
+    char ocr_helper[DSTUDIO_PATH_MAX] = "";
+    pdf_ocr_engine(ocr_helper, sizeof ocr_helper, ocr.engine, sizeof ocr.engine);
     unsigned long long key = docfnv;
     {
         /* Bump this salt on ANY pipeline-behavior change (thresholds, prompts,
          * classification): cached entries carry the OLD behavior and would
-         * silently mask the fix for already-seen documents. */
-        static const char *salt = "|text-native-v4-complete-budget|";
+         * silently mask the fix for already-seen documents. The OCR engine is
+         * part of the key: a read without OCR is never reused once it exists. */
+        static const char *salt = "|text-native-v4-complete-budget|ocr-v1|";
         for (const char *s = salt; *s; s++)     { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
+        for (const char *s = ocr.engine; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         for (const char *s = document_id; *s; s++) { key ^= (unsigned char)*s; key *= 1099511628211ULL; }
         if (interactive) {
             static const char *ip = "|interactive-adaptive|";
@@ -1135,6 +1358,21 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     }
     int npages = total > PDF_MAX_TOTAL_PAGES ? PDF_MAX_TOTAL_PAGES : total;
 
+    /* Pages pdftotext did not return are pages without text. Then OCR the
+     * pages of the requested range that have no usable text layer; the
+     * native-vision page picker keeps seeing the original text layer. */
+    while (tpages < npages) { pstart[tpages] = ""; plen[tpages] = 0; pvis[tpages] = 0; tpages++; }
+    static int pvis_layer[PDF_MAX_TOTAL_PAGES];
+    static unsigned char pocr[PDF_MAX_TOTAL_PAGES];
+    memcpy(pvis_layer, pvis, sizeof pvis_layer);
+    memset(pocr, 0, sizeof pocr);
+    {
+        int ofirst = has_range ? rq_first : 1;
+        int olast = has_range && rq_last > 0 && rq_last < npages ? rq_last : npages;
+        if (ofirst <= olast)
+            pdf_ocr_pages(pdf, docfnv, jobpath, ocr_helper, ofirst, olast, pstart, plen, pvis, pocr, &ocr);
+    }
+
     if (complete) {
         size_t full_bytes = 0;
         int readable = total == tpages && total <= PDF_INTERACTIVE_MAX_TEXT_PAGES;
@@ -1195,7 +1433,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int embedding_index_cached = 0;
     if (semantic) {
         pdf_job_write(jobpath, "{\"phase\":\"semantic\",\"done\":false}");
-        if (!pdf_hybrid_page_scores(docfnv, pstart, plen, tpages, npages,
+        if (!pdf_hybrid_page_scores(ocr.used ? docfnv ^ ocr.digest : docfnv, pstart, plen, tpages, npages,
                                     semantic_query, pscore, pmatch, &rag_chunks,
                                     &embedding_index_cached)) {
             free(layer); unlink(pdf); free(pdf);
@@ -1227,7 +1465,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int vision_page_numbers[PDF_NATIVE_VISION_MAX_PAGES] = {0};
     int vision_scanned_pages = 0;
     int vision_pages = native_vision
-        ? pdf_render_native_pages(pdf, page_selected, pvis, tpages,
+        ? pdf_render_native_pages(pdf, page_selected, pvis_layer, tpages,
                                   pfirst - 1, plast - 1,
                                   vision_page_numbers, vision_uris,
                                   &vision_scanned_pages)
@@ -1292,7 +1530,8 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         }
         int excerpt_match = pmatch[i];
         if (!semantic && i == pfirst - 1 && excerpt_match < 0) excerpt_match = 0;
-        ok = json_dyn_printf(&text, "\n--- Pagina %d (testo) ---\n", i + 1) &&
+        ok = json_dyn_printf(&text, pocr[i] ? "\n--- Pagina %d (OCR: testo riconosciuto dall'immagine, pu\xc3\xb2 contenere errori) ---\n"
+                                           : "\n--- Pagina %d (testo) ---\n", i + 1) &&
              pdf_append_page_excerpt(&text, pstart[i], (size_t)plen[i], take, excerpt_match) &&
              json_dyn_puts(&text, "\n");
         text_bytes += take;
@@ -1302,7 +1541,20 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     int pages_read = text_used;
     int range_partial = has_range ? (pfirst > 1 || plast < total) : (total > npages);
     int sampled = interactive && (pages_omitted > 0 || text_partial > 0);
+    int ocr_read = 0;
+    for (int i = pfirst - 1; i < plast; i++) if (page_selected[i] && pocr[i]) ocr_read++;
     int truncated = scanned_pages > 0 || text_skipped > 0 || range_partial || sampled;
+    if (ok && ocr_read > 0)
+        ok = json_dyn_printf(&text,
+            "\n[%d pagine senza livello testuale lette con OCR locale: il testo \xc3\xa8 riconosciuto "
+            "dall'immagine e pu\xc3\xb2 contenere errori; verificare cifre, nomi e citazioni sulla pagina.]\n", ocr_read);
+    if (ok && ocr.pending > 0 && ocr.first_pending)
+        ok = json_dyn_printf(&text,
+            "\n[%d pagine scansionate non ancora lette con OCR (massimo %d nuove pagine per lettura): "
+            "rileggere o chiedere le pagine %d-%d per continuare.]\n", ocr.pending, ocr.cap,
+            ocr.first_pending, plast);
+    if (ok && !ocr.available && scanned_pages > 0)
+        ok = json_dyn_printf(&text, "\n[OCR non disponibile su questo sistema (helper dstudio-ocr assente).]\n");
     if (ok && scanned_pages > 0) {
         if (vision_scanned_pages > 0)
             ok = json_dyn_printf(&text,
@@ -1355,6 +1607,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                                      "\"selectedPages\":%d,\"retrievalChunks\":%d,"
                                      "\"textLayerCached\":%s,\"embeddingIndexCached\":%s,"
                                      "\"textChars\":%zu,\"visionChars\":%zu,\"contentChars\":%zu,"
+                                     "\"ocrPages\":%d,\"ocrNewPages\":%d,\"ocrPendingPages\":%d,\"ocrFailedPages\":%d,\"ocrAvailable\":%s,"
                                      "\"semantic\":%s,\"hybrid\":%s,\"sampled\":%s,\"truncated\":%s,\"completeText\":%s,\"text\":",
                                pages_read, total, pfirst, plast, text_used, scanned_pages,
                                vision_pages, vision_scanned_pages,
@@ -1362,10 +1615,13 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
                                text_layer_cached ? "true" : "false",
                                embedding_index_cached ? "true" : "false",
                                text_bytes, vision_chars, text_bytes + vision_chars,
+                               ocr_read, ocr.done, ocr.pending, ocr.failed, ocr.available ? "true" : "false",
                                semantic ? "true" : "false", semantic ? "true" : "false", sampled ? "true" : "false",
                                truncated ? "true" : "false",
                                !truncated && !text_partial && text_used == total ? "true" : "false") &&
                json_dyn_put_escaped(&out, text.ptr ? text.ptr : "") &&
+               json_dyn_puts(&out, ",\"ocrEngine\":") &&
+               (ocr.available ? json_dyn_put_escaped(&out, ocr.engine) : json_dyn_puts(&out, "null")) &&
                json_dyn_puts(&out, ",\"vision\":[");
     for (int i = 0; good && i < vision_pages; i++) {
         if (i) good = json_dyn_puts(&out, ",");
@@ -1386,7 +1642,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         pdf_describe_fail(fd, want_text, "500 Internal Server Error", "oom");
         return;
     }
-    if (!native_vision && pages_read > 0)
+    if (!native_vision && pages_read > 0 && !ocr.pending && !ocr.failed)
         pdf_cache_write(cpath, out.ptr, ".json", PDF_CACHE_MAX_FILES);
     pdf_job_write(jobpath, "{\"phase\":\"done\",\"done\":true}");
     if (want_text) send_text(fd, "200 OK", text.ptr && text.ptr[0] ? text.ptr : "(empty PDF)", 0);
@@ -1394,6 +1650,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
     free(text.ptr);
     free(out.ptr);
     for (int i = 0; i < vision_pages; i++) free(vision_uris[i]);
+    for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) { free(ocr.texts[i]); free(ocr.raw[i]); }
 }
 
 /* Fork a detached worker because Poppler extraction and embedding can be slow. */

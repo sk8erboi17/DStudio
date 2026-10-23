@@ -57,6 +57,11 @@ TEST_UNIT  := $(TEST_BUILD)/lan_unit
 TEST_REMOTE_UTF8 := $(TEST_BUILD)/remote_utf8_unit
 TEST_COWORK_BRIDGE := $(TEST_BUILD)/ds4_cowork_bridge
 TEST_SERVER := $(TEST_BUILD)/dstudio-server-test
+# Tests never read or write the user's document-table extraction cache
+# (src/harness/cowork/document_table.py); they get their own, under artifacts.
+test-%: export DSTUDIO_TABLE_CACHE_DIR = $(CURDIR)/tests/.artifacts/document-table-cache
+check%: export DSTUDIO_TABLE_CACHE_DIR = $(CURDIR)/tests/.artifacts/document-table-cache
+check: export DSTUDIO_TABLE_CACHE_DIR = $(CURDIR)/tests/.artifacts/document-table-cache
 TEST_TASK_GRAPH := $(TEST_BUILD)/task_graph_unit
 LINUX_APP_ID := dev.ds4.DStudio
 DESKTOP  := $(LINUX_APP_ID).desktop
@@ -85,10 +90,21 @@ else
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
 
-.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-cowork-browser test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-image-runtime test-ideogram-vae-mps test-hunyuan-sdpa-mps test-frontend-unit test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
+.PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-document-table-scale test-cowork-browser test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-image-runtime test-ideogram-vae-mps test-hunyuan-sdpa-mps test-frontend-unit test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-resume test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
 # One `make` gives the right artifact per platform, both branded with the same
 # logo: the double-clickable bundle on macOS, the windowed binary on Linux.
+# Local OCR for PDF pages without a text layer (macOS Vision; see
+# src/ocr/dstudio_ocr.m). Other platforms build without it and report OCR as
+# unavailable.
+ifeq ($(UNAME),Darwin)
+OCR_HELPER := build/dstudio-ocr
+$(OCR_HELPER): src/ocr/dstudio_ocr.m
+	@mkdir -p build
+	clang -fobjc-arc -O2 -Wall -Wextra -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET) $< \
+	  -framework Foundation -framework PDFKit -framework Vision -framework CoreGraphics -o $@
+endif
+
 ifeq ($(UNAME),Darwin)
 all: app
 else
@@ -119,6 +135,7 @@ ifeq ($(UNAME),Darwin)
 	@rm -rf $(APPDIR)
 	@mkdir -p $(APPDIR)/Contents/MacOS $(APP_SUPPORT)/extension $(APP_SUPPORT)/src/harness/gsa/tools
 	@cp -X $(BIN) $(APPDIR)/Contents/MacOS/$(APPNAME)
+	@cp -X $(OCR_HELPER) $(APPDIR)/Contents/MacOS/dstudio-ocr
 	@cp $(ICNS) $(APPDIR)/Contents/Resources/ds4.icns
 	@cp $(PLIST) $(APPDIR)/Contents/Info.plist
 	@cp -R extension/design-systems extension/remote extension/craft extension/search extension/task-graph $(APP_SUPPORT)/extension/
@@ -240,7 +257,7 @@ build/app.o: $(APP) $(APP_DEPS)
 	@mkdir -p build
 	$(APPCXX) $(APP_CXXFLAGS) -c $(APP) -o $@
 
-$(BIN): build/dstudio.o build/app.o $(BIN_DEPS)
+$(BIN): build/dstudio.o build/app.o $(BIN_DEPS) $(OCR_HELPER)
 	$(APPCXX) build/dstudio.o build/app.o $(APP_LDFLAGS) -o $@
 ifeq ($(UNAME),Darwin)
 	@# custom icon in the resource fork; does not touch data fork or signature (see above)
@@ -881,6 +898,36 @@ test-remote-tool-preview:
 	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to one or more built native Agent binaries' && exit 1)
 	@node tests/integration/remote_tool_preview_runtime_test.mjs $(REMOTE_TOOL_AGENT)
 
+# Every write_document argument reaches the Office helper through the real
+# Cowork runtime, with structured and DSML tool calls (simulated model frames).
+COWORK_BINARY ?= ds4/ds4-cowork
+.PHONY: test-cowork-runtime-args
+test-cowork-runtime-args:
+	@node tests/integration/cowork_write_document_args_test.mjs $(COWORK_BINARY)
+
+# The tools each runtime declares: Cowork lists no shell tool it would refuse,
+# Agent keeps them. The filter alone (check-fast), then the actual Cowork and
+# Agent runtimes with simulated model frames (needs built runtimes).
+AGENT_BINARY ?= ds4/ds4-agent-jsonl
+.PHONY: test-cowork-tools-unit test-cowork-tool-prompt
+$(TEST_BUILD)/cowork-tools-unit: tests/unit/cowork_tools_unit.c patch/ds4-agent-jsonl/cowork-tools.cfrag
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) -Ipatch/ds4-agent-jsonl tests/unit/cowork_tools_unit.c -o $@
+test-cowork-tools-unit: $(TEST_BUILD)/cowork-tools-unit
+	@$<
+test-cowork-tool-prompt:
+	@node tests/integration/cowork_tool_prompt_test.mjs $(COWORK_BINARY) $(AGENT_BINARY)
+check-fast: test-cowork-tools-unit
+
+# Saved remote-model sessions across a runtime restart (simulated model frames):
+# Agent and Cowork (REMOTE_TOOL_AGENT), then Design (DESIGN_BINARY).
+DESIGN_BINARY ?= ds4/ds4-design
+.PHONY: test-remote-session
+test-remote-session:
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to one or more built native Agent binaries' && exit 1)
+	@node tests/integration/remote_session_restore_test.mjs $(REMOTE_TOOL_AGENT)
+	@node tests/integration/design_remote_session_test.mjs $(DESIGN_BINARY)
+
 check-fast: test-remote-tool-preview-unit
 
 # REAL weights: does output stream into the transcript the UI reads? Prose and
@@ -929,7 +976,12 @@ test-cowork-browser:
 test-cowork-http: $(TEST_SERVER)
 	@bash tests/integration/ds4_cowork_http_test.sh $(TEST_SERVER)
 
-test-cowork: test-cowork-unit test-cowork-browser test-cowork-http
+test-cowork: test-cowork-unit test-cowork-browser test-cowork-http test-document-table-scale
+
+# A table at its bounds (100,000 cells, 512 sources) through the real helper;
+# synthetic data, no model. Records timings in tests/.artifacts.
+test-document-table-scale:
+	@python3 tests/integration/document_table_scale_test.py
 
 test-cowork-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Cowork benchmark validation requires node" && exit 1)
@@ -1116,8 +1168,12 @@ test-pdf-evidence: $(TEST_SERVER)
 	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
 
 .PHONY: test-pdf-complete
-test-pdf-complete: $(TEST_SERVER)
+test-pdf-complete: $(TEST_SERVER) test-pdf-ocr
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
+
+# Real helper and Vision OCR on generated scans; no model. macOS only.
+test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)
+	@node tests/integration/pdf_ocr_test.mjs $(TEST_SERVER) $(OCR_HELPER)
 
 .PHONY: test-ui-loading
 test-ui-loading:
@@ -1243,8 +1299,18 @@ test-video-checkout:
 test-video-open-weight: test-video-checkout
 	@tests/live/h3_sdpa_query_chunk_equivalence_test.sh
 
+# LAN_COWORK_ENGINE: a ds4 checkout with a built ds4-cowork (remote-model mode;
+# the model is simulated, no weights are loaded).
+LAN_COWORK_ENGINE ?= ds4
 test-http-lan: $(TEST_SERVER)
 	@tests/integration/http_lan_test.sh $(TEST_SERVER)
+	@node tests/integration/http_lan_security_test.mjs $(TEST_SERVER)
+	@node tests/integration/http_lan_cowork_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)
+
+.PHONY: test-ui-lan-cowork
+test-ui-lan-cowork: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_lan_cowork_playwright_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_lan_cowork_playwright_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)
 
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node src/harness/gsa/bench/validate.mjs; else echo "node missing: NOT RUN GSA benchmark validation"; exit 1; fi
@@ -1262,6 +1328,11 @@ test-real-roadmap-quality: $(TEST_SERVER)
 test-real-cowork: $(TEST_SERVER) test-cowork-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: real Cowork quality tests require node" && exit 1)
 	@DSTUDIO_COWORK_PROFILE=standard node tests/live/real_cowork_quality_test.mjs $(TEST_SERVER)
+
+# REAL weights: Stop a turn after a tool returned and resume it; restart the
+# runtime, restore the saved session and continue.
+test-real-cowork-resume: $(TEST_SERVER) test-cowork-bench-validate
+	@DSTUDIO_COWORK_PROFILE=resume node tests/live/real_cowork_quality_test.mjs $(TEST_SERVER)
 
 test-real-cowork-long: $(TEST_SERVER) test-cowork-bench-validate
 	@command -v node >/dev/null 2>&1 || (echo "node missing: long Cowork quality tests require node" && exit 1)
@@ -1299,6 +1370,6 @@ windows:
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 
 clean:
-	rm -f $(BIN) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN) $(LOGO_HDR) $(ICNS) $(DESKTOP) build/dstudio.o build/app.o
+	rm -f $(BIN) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN) $(LOGO_HDR) $(ICNS) $(DESKTOP) build/dstudio.o build/app.o build/dstudio-ocr
 	rm -rf $(TEST_BUILD)
 	@rm -rf ds4.iconset .icontmp.icns .icontmp.rsrc

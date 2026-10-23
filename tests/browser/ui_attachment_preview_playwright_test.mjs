@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName), 'unknown browser');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'unknown browser');
 let browserType;
 try {
   browserType = (await import('playwright'))[browserName];

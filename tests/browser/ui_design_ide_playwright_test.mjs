@@ -12,12 +12,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi } from '../support/ui_mock_server.mjs';
 import { NATIVE_TITLEBAR_PX, simulateNativeTitlebar, windowStripReport } from '../support/native_titlebar.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const hostBinary = path.resolve(process.argv[2] || 'tests/.build/agent_workspace_host');
 fs.mkdirSync('tests/.artifacts/ui-design-ide', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-design-ide/${browserName}-`);
@@ -123,7 +123,7 @@ const server = await uiMockServer(async (req, res, url) => {
 const now = Date.now();
 const seed = { theme: 'dark', settings: { workdirs: { design: project } },
   chats: [{ id: 'design-ide', mode: 'design', title: 'New design', createdAt: now, updatedAt: now, messages: [], transcript: '', workdir: project }] };
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 } });
 page.setDefaultTimeout(8000);
 // As in DStudio.app: a 28px native title-bar strip holds the window controls.

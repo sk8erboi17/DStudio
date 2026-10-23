@@ -1,0 +1,57 @@
+--- a/ds4_agent.c
++++ b/ds4_agent.c
+@@ -1099,6 +1099,8 @@
+     const char *runtime = getenv("DS4UI_RUNTIME_NAME");
+     return runtime && !strcmp(runtime, "cowork");
+ }
++
++#include "cowork-tools.cfrag"   /*DS4UI_JSONL*/
+ 
+ static const char agent_cowork_dsml_tools_prompt_intro[] =
+     "You are DStudio Cowork, a local knowledge-work agent. Use tools to inspect source files, "
+@@ -1135,19 +1137,22 @@
+     const char *heading = cowork ? agent_cowork_dsml_schema_heading : "";
+     const char *office = cowork ? agent_cowork_tool_schemas : "";
+     const char *office_rules = cowork ? agent_cowork_dsml_schema_rules : "";
++    char *after_edit = cowork ? ds4ui_cowork_without_shell(agent_tools_prompt_after_edit)
++                              : xstrdup(agent_tools_prompt_after_edit);
+     size_t a = strlen(intro);
+     size_t b = strlen(edit);
+-    size_t c = strlen(agent_tools_prompt_after_edit);
++    size_t c = strlen(after_edit);
+     size_t d = strlen(heading);
+     size_t e = strlen(office);
+     size_t f = strlen(office_rules);
+     char *out = xmalloc(a + b + c + d + e + f + 1);
+     memcpy(out, intro, a);
+     memcpy(out + a, edit, b);
+-    memcpy(out + a + b, agent_tools_prompt_after_edit, c);
++    memcpy(out + a + b, after_edit, c);
+     memcpy(out + a + b + c, heading, d);
+     memcpy(out + a + b + c + d, office, e);
+     memcpy(out + a + b + c + d + e, office_rules, f + 1);
++    free(after_edit);
+     return out;
+ }
+ 
+@@ -1245,15 +1250,18 @@
+     const char *intro = cowork ? agent_cowork_laguna_tools_prompt_intro
+                                : agent_laguna_tools_prompt_intro;
+     const char *office = cowork ? agent_cowork_tool_schemas : "";
++    char *schemas = cowork ? ds4ui_cowork_without_shell(agent_glm_tool_schemas)
++                           : xstrdup(agent_glm_tool_schemas);
+     size_t a = strlen(intro);
+-    size_t b = strlen(agent_glm_tool_schemas);
++    size_t b = strlen(schemas);
+     size_t bo = strlen(office);
+     size_t c = strlen(agent_laguna_tools_prompt_after_schemas);
+     char *out = xmalloc(a + b + bo + c + 1);
+     memcpy(out, intro, a);
+-    memcpy(out + a, agent_glm_tool_schemas, b);
++    memcpy(out + a, schemas, b);
+     memcpy(out + a + b, office, bo);
+     memcpy(out + a + b + bo, agent_laguna_tools_prompt_after_schemas, c + 1);
++    free(schemas);
+     return out;
+ }
+ 

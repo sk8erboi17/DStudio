@@ -5812,6 +5812,10 @@
       color: var(--text-2);
       font-size: 0.78rem;
     }
+    .set-inline-msg.is-info { color: var(--muted); }
+    .set-lan-devices { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+    .set-lan-devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.85rem; }
+    .set-lan-devices li:empty { display: none; }
     .set-lan-addr {
       display: flex; align-items: center; gap: 10px; margin: 10px 2px 0;
       padding: 9px 12px; border: 1px solid var(--accent); border-radius: 10px;
@@ -9912,6 +9916,21 @@
     </div>
   </dialog>
 
+  <dialog id="lan-pair-dialog" class="dialog" aria-label="Pair with the DStudio host">
+    <form method="dialog" class="settings">
+      <h2>Use Cowork from the host</h2>
+      <p class="wd-note wd-note--paragraphs">On the host: <strong>Settings → Network → Cowork on the LAN → Share</strong>. Type the 8-digit code shown there. This device can then send prompts, read the answers and add files in the shared folder only.</p>
+      <label class="field"><span>Pairing code</span>
+        <input type="text" id="lan-pair-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" pattern="[0-9]{8}" placeholder="12345678" spellcheck="false">
+      </label>
+      <p class="set-inline-msg" id="lan-pair-msg" aria-live="polite"></p>
+      <div class="dialog__actions">
+        <button type="button" id="lan-pair-cancel" class="btn">Cancel</button>
+        <button type="button" id="lan-pair-go" class="btn btn--primary">Pair</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="confirm-dialog" class="dialog" aria-label="Confirm">
     <form method="dialog" class="settings">
       <h2 id="confirm-title">Are you sure?</h2>
@@ -10544,7 +10563,18 @@
             <div class="set-lan-addr" id="set-lan-addr" hidden>
               <span class="set-lan-addr__k">Open on another device</span>
               <button type="button" id="set-lan-url" class="set-lan-addr__v" title="Copy"></button>
+            </div>
           </label>
+          <div class="field" id="set-lan-cowork" hidden>
+            <span>Cowork on the LAN <small class="field-note">let a paired device use the running Cowork session</small></span>
+            <div class="field__row">
+              <button type="button" id="set-lan-cowork-share" class="btn">Share the running Cowork folder</button>
+              <button type="button" id="set-lan-cowork-code" class="btn" hidden>New pairing code</button>
+            </div>
+            <p class="set-inline-msg" id="set-lan-cowork-msg" aria-live="polite"></p>
+            <ul class="set-lan-devices" id="set-lan-cowork-devices" aria-label="Paired devices"></ul>
+            <p class="set-help">Off until you share it, and off again after every restart. A device pairs once with the 8-digit code (one use, valid 10 minutes) and can then send prompts, read the answers, stop a turn and add files, only in the shared folder and only while Cowork runs there. Agent, Design, settings and other folders stay on this Mac. Revoke a device to end its access.</p>
+          </div>
           <div class="field">
             <span>DStudio port <small class="field-note">web app and LAN address</small></span>
             <div class="field__row">
@@ -10976,6 +11006,17 @@
     const REASONING_TAGS = ['<think>', '<reasoning>', '<analysis>'];
 
     /* ==================== DOM and generic utilities ==================== */
+
+    // A random v4 UUID on every origin. crypto.randomUUID exists only in secure
+    // contexts, and the UI is also opened over plain http from another device
+    // on the LAN; crypto.getRandomValues works on both.
+    function uniqueId() {
+      try { if (typeof crypto.randomUUID === 'function') return crypto.randomUUID(); } catch { /* insecure context */ }
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+      const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+      return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    }
 
     const qs = (sel, root = document) => root.querySelector(sel);
 
@@ -11958,7 +11999,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         matched: 'Exact passage found · not a check of the answer’s meaning',
         ambiguous: 'Passage appears more than once · no highlight selected',
         not_found: 'Exact passage not found · no highlight',
-        no_text_layer: 'This page has no searchable text · no OCR was run',
+        no_text_layer: 'This page has no searchable text, and local OCR could not read it',
+        ocr_matched: 'Passage found in text read with OCR · whole lines highlighted; recognition can misread characters',
         unsupported_coordinates: 'Passage found, but its position cannot be highlighted reliably',
         page_only: 'Original page · no passage selected',
       };
@@ -12136,7 +12178,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             if (Math.abs(ratio - r.width / r.height) > 0.005) {
               status.textContent = 'Page opened, but its geometry does not permit reliable highlighting'; return;
             }
-            if (r.status === 'matched') for (const b of r.boxes || []) {
+            if (r.status === 'matched' || r.status === 'ocr_matched') for (const b of r.boxes || []) {
               const mark = el('span', { class: 'pdf-evidence-highlight', 'aria-hidden': 'true' });
               Object.assign(mark.style, { left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.width * 100}%`, height: `${b.height * 100}%` });
               stage.append(mark);
@@ -13302,12 +13344,20 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           (settings.chatBackend === 'deepseek' && settings.deepseekApiKey !== current.deepseekApiKey))
         throw new DOMException('The model selection changed. Please retry with the selected model.', 'InvalidStateError');
     }
-    function selectedAgentDiskCheckpointsExpected(settings = Store.getSettings()) {
+    function selectedAgentDiskCheckpointsExpected(settings = Store.getSettings(), mode = (() => {
+      try { return Switcher.mode(); } catch { return ''; } // not created yet during early startup
+    })()) {
       // Presentation only. The active host capability is checked again before
       // sending a command or rebinding the conversation to a saved session.
+      // On llama.cpp/MLX models the native Agent/Cowork/Design runtimes save
+      // their transcript; the pi/OpenCode harnesses do not.
+      // A shared LAN Cowork session: saved sessions belong to the host.
+      try { if (LanCowork.isActive()) return false; } catch { /* not created yet */ }
       const remote = isLanClientMode() ||
         (settings.chatBackend === 'deepseek' && String(settings.deepseekApiKey || '').trim());
-      return !!remote || (!localQwen35Selected(settings) && !localQwen27Selected(settings));
+      const nativeLoop = mode === 'cowork' || mode === 'design' ||
+        (mode === 'agent' && !['pi', 'opencode'].includes(settings.agentHarness));
+      return !!remote || nativeLoop || (!localQwen35Selected(settings) && !localQwen27Selected(settings));
     }
     function localSsdStreaming(settings = Store.getSettings()) {
       // Apply a compatible launch value, never overwrite the preference used
@@ -15481,7 +15531,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       };
 
       const uid = () =>
-        crypto.randomUUID?.() ?? `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        uniqueId();
 
       const mkMessage = (role, content) => ({ id: uid(), role, content, createdAt: Date.now() });
 
@@ -15815,6 +15865,87 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function isHostServedLanShell() {
       return pageIsLanServed() && !configuredLanClientHost();
     }
+
+    /* ---- Cowork on the LAN (device side) ----
+     * In the LAN shell (this page served by a DStudio host to another device),
+     * a paired device sends its token with the few Cowork requests the host
+     * admits for it (src/dstudio_lan_cowork.c) and with nothing else. The token
+     * stays in this origin's storage. */
+    const LanCowork = (() => {
+      const KEY = 'dstudio.lanCoworkToken';
+      const PATHS = [/^\/api\/lan\/cowork\/status$/, /^\/api\/agent\/(?:send|interrupt)$/, /^\/api\/agent\/poll$/,
+        /^\/api\/cowork\/attach-file$/];
+      let active = false, installed = false;
+      const token = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
+      const setToken = (value) => { try { if (value) localStorage.setItem(KEY, value); else localStorage.removeItem(KEY); } catch { /* storage blocked */ } };
+      function install() {
+        if (installed || !isHostServedLanShell()) return;
+        installed = true;
+        const original = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+          const t = token();
+          try {
+            const url = new URL(typeof input === 'string' || input instanceof URL ? String(input) : input.url, location.href);
+            if (t && url.origin === location.origin && PATHS.some((re) => re.test(url.pathname))) {
+              const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+              headers.set('Authorization', `Bearer ${t}`);
+              init = { ...init, headers };
+            }
+          } catch { /* not one of our URLs */ }
+          return original(input, init);
+        };
+      }
+      async function status() {
+        install();
+        if (!token()) return { paired: false };
+        const r = await fetch('/api/lan/cowork/status', { signal: AbortSignal.timeout(4000) });
+        if (r.status === 403) { setToken(''); return { paired: false }; }
+        return { paired: true, ...(await r.json().catch(() => ({}))) };
+      }
+      async function pair(code) {
+        const name = `${/iPhone|iPad|Android/.test(navigator.userAgent) ? 'Mobile' : 'Browser'} on ${navigator.platform || 'LAN'}`.slice(0, 60);
+        const r = await fetch('/api/lan/cowork/pair', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+          body: JSON.stringify({ code, name }), signal: AbortSignal.timeout(5000) });
+        const out = await r.json().catch(() => ({}));
+        if (r.ok && out.token) setToken(out.token);
+        return out;
+      }
+      // The view's status, from the device endpoint: Cowork when shared, idle otherwise.
+      async function engineStatus() {
+        const s = await status();
+        return { ok: true, mode: s.sharing ? 'cowork' : 'server', running: !!s.sharing, ready: !!s.ready,
+          agentWorking: !!s.working, agentSessionWorking: false, agentDiskCheckpointsSupported: false,
+          workdir: s.folder || '', lan: true, lanCowork: true };
+      }
+      function askCode() {
+        return new Promise((resolve) => {
+          const dlg = qs('#lan-pair-dialog'), input = qs('#lan-pair-code'), msg = qs('#lan-pair-msg');
+          input.value = ''; msg.textContent = '';
+          const done = (v) => { cleanup(); if (dlg.open) dlg.close(); resolve(v); };
+          const go = async () => {
+            const code = input.value.trim();
+            if (!/^\d{8}$/.test(code)) { msg.textContent = 'Type the 8 digits shown on the host.'; return; }
+            const out = await pair(code).catch((e) => ({ error: e.message }));
+            if (out.token) done(true); else msg.textContent = out.error || 'Pairing failed.';
+          };
+          const cancel = () => done(false);
+          const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+          function cleanup() {
+            qs('#lan-pair-go').removeEventListener('click', go);
+            qs('#lan-pair-cancel').removeEventListener('click', cancel);
+            input.removeEventListener('keydown', onKey);
+            dlg.removeEventListener('close', cancel);
+          }
+          qs('#lan-pair-go').addEventListener('click', go);
+          qs('#lan-pair-cancel').addEventListener('click', cancel);
+          input.addEventListener('keydown', onKey);
+          dlg.addEventListener('close', cancel);
+          dlg.showModal();
+          input.focus();
+        });
+      }
+      return { install, status, pair, askCode, engineStatus, isActive: () => active, setActive: (v) => { active = !!v; } };
+    })();
 
     function enterLanClientMode(raw) {
       const host = normalizeLanHostUrl(raw);
@@ -18240,7 +18371,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         if (pending(chatId).length >= 16 || new TextEncoder().encode(text).length > 16384) {
           toast('Context limit: 16 pending messages, 16 KiB per message.', 'warn'); return false;
         }
-        const item = { id: crypto.randomUUID(), turnId: String(expectedTurnId), text, state: 'sending' };
+        const item = { id: uniqueId(), turnId: String(expectedTurnId), text, state: 'sending' };
         if (!save(chatId, [...pending(chatId), item])) return false;
         try {
           const result = await Engine.agentSteer(item.text, item.turnId, item.id);
@@ -18287,7 +18418,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           const row = el('div', { class: 'followup-queue__item' });
           row.append(el('span', { text: 'Saved context: ' + item.content }));
           const copy = el('button', { type: 'button', class: 'btn', text: 'Copy' });
-          on(copy, 'click', () => navigator.clipboard.writeText(item.content).catch(() => toast('Copy failed.', 'error')));
+          on(copy, 'click', () => copyTextToClipboard(copy, item.content));
           const dismiss = el('button', { type: 'button', class: 'btn', text: 'Dismiss' });
           on(dismiss, 'click', () => {
             if (Chat.isBusy(chat.id)) { toast('Wait for this turn to finish before dismissing saved context.', 'info'); return; }
@@ -18300,7 +18431,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           const row = el('div', { class: 'followup-queue__item' });
           row.append(el('span', { text: (item.state === 'review' ? 'Check delivery: ' : 'Context pending: ') + item.text, title: item.error || 'Added to the active turn at the next model/tool boundary.' }));
           const copy = el('button', { type: 'button', class: 'btn', text: 'Copy' });
-          on(copy, 'click', () => navigator.clipboard.writeText(item.text).catch(() => toast('Copy failed.', 'error')));
+          on(copy, 'click', () => copyTextToClipboard(copy, item.text));
           row.append(copy);
           if (item.state === 'review') {
             const dismiss = el('button', { type: 'button', class: 'btn', text: 'Dismiss' });
@@ -21268,7 +21399,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       async function generateVideoFromDirective(directive, firstFrame, referenceImages,
                                                 settings, signal, onProgress = () => {}) {
-        const job = `video-${Date.now().toString(36)}-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^a-z0-9_-]/gi, '')}`;
+        const job = `video-${Date.now().toString(36)}-${uniqueId().replace(/[^a-z0-9_-]/gi, '')}`;
         let polling = true;
         let completed = false;
         const poll = (async () => {
@@ -22524,7 +22655,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       }
 
       async function generateImageFromDirective(directive, sourceImages, signal, onProgress = () => {}) {
-        const job = `image-${Date.now().toString(36)}-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^a-z0-9_-]/gi, '')}`;
+        const job = `image-${Date.now().toString(36)}-${uniqueId().replace(/[^a-z0-9_-]/gi, '')}`;
         let polling = true;
         let completed = false;
         const poll = (async () => {
@@ -22625,7 +22756,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // Per-chat guard: this chat must not already be generating (another
         // chat may be generating in parallel, in the background).
         if (Store.isChatStreaming(chat.id) || pendingPreflight.has(chat.id)) return;
-        turns.set(chat.id, { id: crypto.randomUUID(), pending: [], phase: 'preflight', cancelled: false });
+        turns.set(chat.id, { id: uniqueId(), pending: [], phase: 'preflight', cancelled: false });
         chat.model ??= settings.model;
 
         let userMsg = null;
@@ -24034,8 +24165,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           return [
             `[Cowork PDF "${name}" saved as "${rel}".] Call read_pdf(path="${rel}") before answering; its extracted text is primary document evidence.`,
             visual || (att.coworkNativeVisionRequested
-              ? 'No selected PDF page could be rendered for native vision. Use the extracted text; if read_pdf reports scanned/image-only pages, explain that those pixels were not interpreted.'
-              : 'The selected model is text-only: use only the extracted PDF text. If read_pdf reports scanned/image-only pages, explain that those pixels were not interpreted.'),
+              ? 'No selected PDF page could be rendered for native vision. Use the extracted text; pages labelled OCR were read from the page image and can contain misread characters, so say so when a figure or name comes from them. If read_pdf reports scanned pages it could not read, explain that those pixels were not interpreted.'
+              : 'The selected model is text-only: use only the extracted PDF text. Pages labelled OCR were read from the page image and can contain misread characters, so say so when a figure or name comes from them. If read_pdf reports scanned pages it could not read, explain that those pixels were not interpreted.'),
           ].join('\n');
         }
         if (/\.(xlsx|csv|tsv)$/i.test(name))
@@ -24343,6 +24474,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               if (p?.phase === 'semantic') {
                 entry.progress = 'hybrid passage index';
                 renderPendingAttachments();
+              } else if (p?.phase === 'ocr' && p.pages > 0) {
+                entry.progress = `scanned pages with OCR ${Math.min(p.page | 0, p.pages | 0)}/${p.pages | 0}`;
+                renderPendingAttachments();
               }
             })
             .catch(() => { /* progress is best-effort */ });
@@ -24412,9 +24546,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             if (readPlan.mode === 'pages') parts.push(`physical page selection ${readPlan.pages}`);
             if (r.sampled) parts.push(`${r.selectedPages || r.pages}/${r.total || r.pages} representative pages selected for the prompt`);
           }
+          const ocrPages = r.ocrPages | 0, ocrPending = r.ocrPendingPages | 0;
+          if (ocrPages > 0) parts.push(`${ocrPages} scanned page${ocrPages > 1 ? 's' : ''} read with local OCR (recognized text can contain misread characters)`);
           if (scans > 0) parts.push(visualRefs.length
             ? `${visualRefs.length} selected visual page${visualRefs.length > 1 ? 's' : ''} routed to the current model's native encoder (${scans} page${scans > 1 ? 's' : ''} had no usable text layer)`
-            : `${scans} scanned page${scans > 1 ? 's' : ''} skipped because no text layer was available`);
+            : ocrPending > 0
+              ? `${ocrPending} scanned page${ocrPending > 1 ? 's' : ''} not OCR-read yet (bounded work per read)`
+              : r.ocrAvailable === false
+                ? `${scans} scanned page${scans > 1 ? 's' : ''} skipped: no text layer and no local OCR on this system`
+                : `${scans} scanned page${scans > 1 ? 's' : ''} skipped because no text was found on them`);
           const how = parts.join('; ') || 'no readable content';
           const limited = r.sampled ? '; adaptive excerpt' : (r.truncated ? '; truncated' : '');
           att.content = t
@@ -27727,7 +27867,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         on(f.lanUrl, 'click', () => {
           const url = f.lanUrl.dataset.url || '';
           if (!url) return;
-          navigator.clipboard?.writeText(url).then(() => toast('Address copied', 'info')).catch(() => {});
+          (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject(new Error('no clipboard')))
+            .catch(() => { if (!legacyCopyText(url)) throw new Error('copy failed'); })
+            .then(() => toast('Address copied', 'info'), () => toast('Copy failed.', 'error'));
         });
         on(f.lanConnect, 'click', connectToLanFromSettings);
         on(f.lanConnectAddress, 'keydown', (e) => {
@@ -28543,8 +28685,59 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       // Reflect the live LAN state: serve owns the truth (the actual bind host),
       // so read it from /api/status rather than persisting a UI flag.
+      // ---- Cowork on the LAN (host side; host-local /api/lan/cowork*) ----
+      async function lanCoworkRequest(path, body) {
+        const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
+          body: JSON.stringify(body), signal: AbortSignal.timeout(5000) } : { signal: AbortSignal.timeout(5000) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw Object.assign(new Error(out.error || `HTTP ${r.status}`), { code: out.code });
+        return out;
+      }
+      function paintLanCowork(st, error = '') {
+        const box = qs('#set-lan-cowork');
+        if (!box) return;
+        box.hidden = !st?.lan;
+        if (box.hidden) return;
+        const share = qs('#set-lan-cowork-share'), code = qs('#set-lan-cowork-code'), msg = qs('#set-lan-cowork-msg');
+        const folder = String(st.workdir || '').split('/').filter(Boolean).pop() || '';
+        share.textContent = st.enabled ? 'Stop sharing' : 'Share the running Cowork folder';
+        code.hidden = !st.enabled;
+        msg.classList.toggle('is-info', !error);
+        msg.textContent = error ||
+          (st.enabled && st.sharing && st.pairingCode
+            ? `Sharing “${folder}”. Pairing code ${st.pairingCode} (one use, valid ${Math.max(1, Math.round(st.pairingExpiresIn / 60))} min).`
+            : st.enabled && st.sharing ? `Sharing “${folder}” with paired devices.`
+              : st.enabled ? `Paused: start Cowork in “${folder}” to share it again.` : '');
+        const list = qs('#set-lan-cowork-devices');
+        list.replaceChildren(...(st.devices || []).map((d) => {
+          const revoke = el('button', { type: 'button', class: 'btn', text: 'Revoke' });
+          revoke.addEventListener('click', async () => {
+            try { paintLanCowork(await lanCoworkRequest('/api/lan/cowork/revoke', { id: d.id })); }
+            catch (e) { paintLanCowork(st, e.message); }
+          });
+          return el('li', {}, [el('span', { text: d.name || 'LAN device' }), revoke]);
+        }));
+      }
+      async function syncLanCowork() {
+        try { paintLanCowork(await lanCoworkRequest('/api/lan/cowork')); }
+        catch { const box = qs('#set-lan-cowork'); if (box) box.hidden = true; }
+      }
+      on(qs('#set-lan-cowork-share'), 'click', async () => {
+        try {
+          const st = await lanCoworkRequest('/api/lan/cowork');
+          paintLanCowork(await lanCoworkRequest('/api/lan/cowork', { enable: !st.enabled }));
+        } catch (e) { paintLanCowork(await lanCoworkRequest('/api/lan/cowork').catch(() => ({ lan: true })), e.message); }
+      });
+      on(qs('#set-lan-cowork-code'), 'click', async () => {
+        try { paintLanCowork(await lanCoworkRequest('/api/lan/cowork', { pair: true })); }
+        catch (e) { paintLanCowork(await lanCoworkRequest('/api/lan/cowork').catch(() => ({ lan: true })), e.message); }
+      });
+
       function paintLan(lan, lanAddr, httpPort) {
         f.lan.value = lan ? 'on' : 'off';
+        // Cowork sharing needs the LAN: ask the host only when it is on.
+        if (lan) syncLanCowork();
+        else { const box = qs('#set-lan-cowork'); if (box) box.hidden = true; }
         if (f.httpPort && document.activeElement !== f.httpPort && httpPort)
           f.httpPort.value = String(httpPort);
         const url = lanAddr ? `http://${lanAddr}/` : '';
@@ -30294,6 +30487,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       const webToolFetch = (path, init) => fetch(webToolUrl(path), init);
 
       async function status() {
+        if (LanCowork.isActive()) return LanCowork.engineStatus();
         const r = await apiFetch('/api/status', { signal: AbortSignal.timeout(3000) });
         if (!r.ok) throw new Error(`status ${r.status}`);
         return r.json();
@@ -30670,7 +30864,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const r = await fetch(`${base}/api/lan-client/chats`, {
           method: 'POST',
           signal: AbortSignal.timeout(8000),
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ds4web' },
           body: JSON.stringify(snapshot),
         });
         if (!r.ok) throw new Error('lan mirror ' + r.status);
@@ -31421,7 +31615,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // Engine service lines (KV sessions): they are not model prose,
       // they are hidden from the conversation. EXACT patterns of the printf of
       // ds4-agent/ds4-design — do not widen, it would suppress model prose.
-      const SYS_LINE_RE = /^(saved session [0-9a-f]{8} \(\d+ tokens\)|switched to session [0-9a-f]{8}.*|new session started|started a new session|(save|switch|delete|new session) failed: .*|deleted session [0-9a-f]{8}|rebuilding stripped session [0-9a-f]{8}.*|command ignored \(model busy\)|compaction scheduled|save scheduled at next safe point|no saved sessions)$/;
+      const SYS_LINE_RE = /^(saved session [0-9a-f]{8} \(\d+ (?:tokens|messages)\)|switched to session [0-9a-f]{8}.*|new session started|started a new session|(save|switch|delete|new session) failed: .*|deleted session [0-9a-f]{8}|rebuilding stripped session [0-9a-f]{8}.*|command ignored \(model busy\)|compaction scheduled|save scheduled at next safe point|no saved sessions)$/;
 
       // The engine output is a bounded circular byte buffer. If its base moves
       // while the UI is away, the first retained byte can be in the middle of
@@ -32471,7 +32665,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
           if (request.action !== 'new' && st.agentDiskCheckpointsSupported === false) {
             return { ok: false, code: 'unsupported_session_checkpoint',
-              error: 'This model cannot save or restore disk checkpoints yet. Your conversation is saved separately; live context is retained while the engine runs.' };
+              error: 'This runtime cannot save or restore sessions on this model yet. Your conversation is saved separately; live context is retained while the engine runs.' };
           }
 
           // Drain the previous turn while it still belongs to its previous
@@ -32882,7 +33076,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // the end-of-turn autosave prints "saved session <sha8> (N tokens)",
       // /switch prints "switched to session <sha8> …". The last sha wins.
       function bindSessionSha(delta, target) {
-        if (viewMode === 'design') return;
+        // Saved sessions stay on the host: a shared LAN session never binds one.
+        if (viewMode === 'design' || LanCowork.isActive()) return;
         const re = /(?:saved|switched to) session ([0-9a-f]{8})/g;
         let sha = null;
         let m;
@@ -34102,7 +34297,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         let data;
         try { data = JSON.parse(output); } catch { return null; }
         if (data?.format !== 'dstudio.document-table.v1' || !Array.isArray(data.columns) ||
-            !Array.isArray(data.rows) || data.columns.length > 32 || data.rows.length > 20) return null;
+            !Array.isArray(data.rows) || data.columns.length > 128 || data.rows.length > 20) return null;
         const labels = { sourced: 'Source matched', missing: 'Not extracted', needs_review: 'Review needed',
           conflict: 'Conflicting candidates', stale_source: 'Source changed', unavailable: 'Source unavailable' };
         const box = el('section', { class: 'document-table-preview', 'aria-label': 'Source-backed document table' });
@@ -35240,7 +35435,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       // deliberately do not grant allow-same-origin: authored page scripts never
       // gain access to the DStudio shell, storage or APIs.
       function annotationChannel() {
-        try { return crypto.randomUUID(); }
+        try { return uniqueId(); }
         catch { return `annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
       }
 
@@ -36078,6 +36273,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function setMode(m) {
         if (isLanHostMode() && m !== 'server') m = 'server';
+        if (m !== 'cowork') LanCowork.setActive(false);
         if (m !== 'server') ArtifactCanvas.close();
         mode = m;
         if (m === 'server' || m === 'roadmap') chatUiTarget = m;
@@ -36388,7 +36584,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           toast('LAN host supervision is read-only.', 'warn');
           return;
         }
-        if (isHostServedLanShell() && (m === 'agent' || m === 'cowork' || m === 'design')) {
+        if (isHostServedLanShell() && m === 'cowork') { enterSharedCowork(true); return; }
+        if (isHostServedLanShell() && (m === 'agent' || m === 'design')) {
           toast('Run DStudio locally on this device, then connect to LAN to use local workspaces.', 'warn');
           return;
         }
@@ -36403,7 +36600,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           setMode('server');
           return;
         }
-        if (isHostServedLanShell() && (target === 'agent' || target === 'cowork' || target === 'design')) {
+        if (isHostServedLanShell() && target === 'cowork') { enterSharedCowork(false); return; }
+        if (isHostServedLanShell() && (target === 'agent' || target === 'design')) {
           toast('Run DStudio locally on this device, then connect to LAN to use local workspaces.', 'warn');
           setMode('server');
           return;
@@ -36804,11 +37002,29 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return runSwitch('agent', { mode: 'agent', model: 'standard', variant: variant(), gguf: isLanClientMode() ? '' : modelGguf(), skill, harness, ...launchBase(remote.modelBackend === 'remote'), think: thinkLevel(), workdir, ...remote }, `Starting ${label}…`);
       }
 
-      async function startCowork(workdir, checkoutReady = false) {
-        if (isHostServedLanShell()) {
-          toast('Cowork cannot use a LAN host workspace. Run DStudio locally on this device.', 'warn');
+      // A device on the LAN uses the host's running Cowork session only when the
+      // host shares it (Settings → Network) and this device is paired.
+      async function enterSharedCowork(fresh) {
+        let s = await LanCowork.status().catch(() => null);
+        if (s && !s.paired) {
+          if (!await LanCowork.askCode()) { setMode(mode === 'cowork' ? 'server' : mode); return; }
+          s = await LanCowork.status().catch(() => null);
+        }
+        if (!s?.paired || !s.sharing) {
+          LanCowork.setActive(false);
+          toast(s?.paired ? 'The host is not sharing Cowork right now. Ask them to start Cowork and share it.'
+            : 'Could not reach the host.', 'warn');
+          if (mode === 'cowork') setMode('server');
           return;
         }
+        LanCowork.setActive(true);
+        Store.getState().ui.agentWorkdir = s.folder || '';
+        if (fresh || !Store.listChats('cowork').length) Store.createChat('cowork');
+        setMode('cowork');
+      }
+
+      async function startCowork(workdir, checkoutReady = false) {
+        if (isHostServedLanShell()) { enterSharedCowork(false); return; }
         const remote = remoteModelLaunch();
         if (!remote) return;
         if (!checkoutReady && !isLanClientMode() && !await selectSavedModelCheckout()) return;
@@ -37298,7 +37514,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         launchTarget = target;
         Statusbar.render();
         showOverlay(target, cfg, title);
-        const requestId = crypto.randomUUID?.() ?? `launch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        const requestId = uniqueId();
         const attempt = { requestId, taskId: null, canceling: false, preparing: false };
         activeLaunch = attempt;
         let res;
@@ -39238,7 +39454,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function bootLive(frame, key, scrollKey, quirks) {
         let token;
-        try { token = crypto.randomUUID(); } catch { token = `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+        try { token = uniqueId(); } catch { token = `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
         pv = { key, scrollKey, token, ready: false, loads: 0, html: '', sent: '', seq: 0 };
         frame.setAttribute('sandbox', 'allow-scripts');
         frame.dataset.src = '';

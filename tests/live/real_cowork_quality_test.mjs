@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import {
-  artifactDir,
+  artifactRunDir,
   csrfHeaders,
   jsonFetch,
   pollAgent,
@@ -33,12 +33,8 @@ const selected = selectedIds.map((id) => {
   return byId.get(id);
 });
 
-const artifacts = artifactDir('cowork-quality-real');
-if (process.env.DSTUDIO_COWORK_KEEP_ARTIFACTS !== '1') {
-  for (const name of fs.readdirSync(artifacts)) {
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-  }
-}
+// Every run keeps its own receipts; earlier runs, failed ones included, stay.
+const artifacts = artifactRunDir('cowork-quality-real');
 const workspace = path.join(artifacts, 'workspace');
 fs.mkdirSync(path.join(workspace, 'outputs'), { recursive: true });
 
@@ -240,7 +236,47 @@ async function freshSession(baseUrl) {
   await waitQuiet(baseUrl, sessionTimeoutMs);
 }
 
-async function sendTurn(baseUrl, testCase) {
+/* The resume profile: Stop a turn once a tool has returned (real partial
+ * progress), or restart the runtime and restore the saved session. */
+async function restartAndRestore(baseUrl, launchBody, sha, { alreadyStopped = false } = {}) {
+  assert.ok(sha, 'no saved session was announced before the restart');
+  const sessionTimeoutMs = Number(process.env.DSTUDIO_COWORK_SESSION_TIMEOUT_MS || 600_000);
+  if (!alreadyStopped) {
+    await waitQuiet(baseUrl, sessionTimeoutMs);
+    await jsonFetch(baseUrl, '/api/stop', { method: 'POST', headers: csrfHeaders, body: '{}', timeoutMs: 60_000 });
+    for (let i = 0; i < 600; i++) {
+      const st = await jsonFetch(baseUrl, '/api/status', { timeoutMs: 5000 }).catch(() => null);
+      if (st && st.running === false) break;
+      await sleep(1000);
+    }
+  }
+  const restarted = await startMode(baseUrl, launchBody, 0);
+  await waitQuiet(baseUrl, sessionTimeoutMs);
+  const before = await pollAgent(baseUrl, 0).catch(() => ({ len: 0 }));
+  await jsonFetch(baseUrl, '/api/design/session', {
+    method: 'POST', headers: csrfHeaders, body: JSON.stringify({ action: 'switch', sha }), timeoutMs: 30_000,
+  });
+  let pos = Number(before.len || 0), text = '';
+  const deadline = Date.now() + sessionTimeoutMs;
+  while (Date.now() < deadline) {
+    const polled = await pollAgent(baseUrl, pos);
+    if (polled.text) text += polled.text;
+    pos = Number.isFinite(Number(polled.len)) ? Number(polled.len) : pos;
+    if (/switched to session/i.test(text)) break;
+    if (/switch failed/i.test(text)) throw new Error(visibleText(text));
+    await sleep(500);
+  }
+  if (!/switched to session/i.test(text)) throw new Error(`session ${sha} was not restored: ${visibleText(text).slice(-800)}`);
+  await waitQuiet(baseUrl, sessionTimeoutMs);
+  return { restored: sha, startup: restarted };
+}
+
+function savedSessionSha(raw) {
+  const all = [...String(raw || '').matchAll(/saved session ([0-9a-f]{8})/g)];
+  return all.length ? all.at(-1)[1] : null;
+}
+
+async function sendTurn(baseUrl, testCase, { interruptAfterTool = false } = {}) {
   const before = await pollAgent(baseUrl, 0).catch(() => ({ len: 0 }));
   const sent = await jsonFetch(baseUrl, '/api/agent/send', {
     method: 'POST', headers: csrfHeaders,
@@ -251,6 +287,7 @@ async function sendTurn(baseUrl, testCase) {
   let raw = '';
   let last = null;
   let quietPolls = 0;
+  let interrupted = false;
   let lastProgress = Date.now();
   const timeoutMs = Number(process.env.DSTUDIO_COWORK_TURN_TIMEOUT_MS || 3_600_000);
   const stallMs = Number(process.env.DSTUDIO_COWORK_STALL_TIMEOUT_MS || 1_200_000);
@@ -266,6 +303,10 @@ async function sendTurn(baseUrl, testCase) {
     }
     pos = Number.isFinite(Number(polled.len)) ? Number(polled.len) : pos;
     const events = transcriptEvents(raw);
+    if (interruptAfterTool && !interrupted && events.some((event) => event.type === 'tool_result')) {
+      interrupted = true;
+      await jsonFetch(baseUrl, '/api/agent/interrupt', { method: 'POST', headers: csrfHeaders, body: '{}', timeoutMs: 30_000 });
+    }
     if (events.some((event) => event.type === 'question')) break;
     if (polled.working === false && (raw.trim() || events.length)) quietPolls++;
     else quietPolls = 0;
@@ -273,9 +314,16 @@ async function sendTurn(baseUrl, testCase) {
     if (Date.now() - lastProgress > stallMs) throw new Error(`turn stalled for ${Math.round(stallMs / 1000)} seconds`);
     await sleep(1000);
   }
-  if (Date.now() >= deadline) throw new Error(`turn exceeded ${Math.round(timeoutMs / 1000)} seconds`);
+  if (Date.now() >= deadline) {
+    /* The case has failed; stop its turn as the user would (Stop), so the
+     * next case is not graded against a still-running generation. The
+     * partial transcript stays in ${testCase.id}.raw.live.txt. */
+    const stopped = await jsonFetch(baseUrl, '/api/agent/interrupt', { method: 'POST', headers: csrfHeaders, body: '{}', timeoutMs: 30_000 })
+      .catch((error) => ({ error: String(error) }));
+    throw new Error(`turn exceeded ${Math.round(timeoutMs / 1000)} seconds; stopped the turn (${JSON.stringify(stopped)})`);
+  }
   fs.rmSync(livePath, { force: true });
-  return { sent, raw, events: transcriptEvents(raw), text: visibleText(raw), last };
+  return { sent, raw, events: transcriptEvents(raw), text: visibleText(raw), last, interrupted };
 }
 
 function requiredTools(checks, names, required) {
@@ -440,6 +488,33 @@ function gradeCase(testCase, run, beforeSnapshot) {
       }
       break;
     }
+    case 'resume-interrupt': {
+      addCheck(checks, run.interrupted === true, 'the first turn was stopped after a tool had returned', 'tool');
+      requiredTools(checks, names, ['write_document']);
+      const file = output('status-report.md');
+      addCheck(checks, fs.existsSync(file), 'created status-report.md after resuming');
+      const body = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      for (const [fact, label] of [[/Sofia Conti/i, 'owner'], [/15 February 2027|15 febbraio 2027|2027-02-15/i, 'launch date'],
+        [/420[,.\s]?000/, 'approved budget'], [/405[,.\s]?000/, 'quarter revenue (120,000 + 135,000 + 150,000)'],
+        [/131[,.\s]?000/, 'quarter margin (36,000 + 47,000 + 48,000)']])
+        addCheck(checks, fact.test(body), `report has the ${label}`);
+      const outputs = fs.readdirSync(path.join(workspace, 'outputs')).filter((name) => !name.startsWith('.'));
+      addCheck(checks, outputs.length === 1 && outputs[0] === 'status-report.md', `no duplicate deliverables after resuming (${outputs.join(', ')})`);
+      for (const source of ['finance.xlsx', 'brief.docx', 'memo.pdf', 'clients.csv'])
+        addCheck(checks, beforeSnapshot[source] === sha(path.join(workspace, source)), `${source} unchanged`);
+      break;
+    }
+    case 'resume-restart': {
+      addCheck(checks, Boolean(run.restored), 'the saved session was restored after the restart', 'tool');
+      const body = fs.existsSync(output('status-report.md')) ? fs.readFileSync(output('status-report.md'), 'utf8') : '';
+      addCheck(checks, /Verificato dopo il riavvio/i.test(body), 'added the line after the restart');
+      addCheck(checks, /Sofia Conti/i.test(body) && /420[,.\s]?000/.test(body), 'earlier report content preserved');
+      addCheck(checks, /Sofia Conti/i.test(text) && /420[,.\s]?000/.test(text), 'answer recalls owner and budget from before the restart');
+      const reread = run.events.filter((event) => event.type === 'tool_call' &&
+        /brief\.docx|finance\.xlsx/.test(JSON.stringify(event.input || event.args || {})));
+      addCheck(checks, reread.length === 0, 'did not reread the sources (the restored session carried the facts)', 'tool');
+      break;
+    }
     default:
       throw new Error(`No grader for ${testCase.id}`);
   }
@@ -496,9 +571,24 @@ try {
   assert.equal(launchBody.think, baseline.requiredLaunch.think,
     'Cowork real tests must request true Max thinking');
 
+  let lastSha = null;
   for (const testCase of selected) {
-    if (testCase.session === 'fresh' || testCase.session === 'fresh-long') {
-      if (report.length === 0) {
+    let restored = null;
+    /* Stopping a generating turn ends the runtime process (the production
+     * Stop; the UI restarts it). After a previous case was stopped, start it
+     * again as the UI does: a fresh case gets a new session, a continuing
+     * case gets the last saved one back. The restart is recorded. */
+    const status = await jsonFetch(server.baseUrl, '/api/status', { timeoutMs: 5000 }).catch(() => null);
+    let runtimeRestarted = false;
+    if (report.length && !(status?.running && status?.mode === 'cowork')) {
+      runtimeRestarted = true;
+      const fresh = ['fresh', 'fresh-long', 'interrupt'].includes(testCase.session);
+      if (!fresh && lastSha) restored = await restartAndRestore(server.baseUrl, launchBody, lastSha, { alreadyStopped: true });
+      else await startMode(server.baseUrl, launchBody, 0);
+    }
+    if (testCase.session === 'restart' && !runtimeRestarted) restored = await restartAndRestore(server.baseUrl, launchBody, lastSha);
+    if (testCase.session === 'fresh' || testCase.session === 'fresh-long' || testCase.session === 'interrupt') {
+      if (report.length === 0 || runtimeRestarted) {
         await waitQuiet(server.baseUrl,
           Number(process.env.DSTUDIO_COWORK_SESSION_TIMEOUT_MS || 600_000));
       } else {
@@ -511,7 +601,15 @@ try {
     let grade;
     let error = null;
     try {
-      run = await sendTurn(server.baseUrl, testCase);
+      run = await sendTurn(server.baseUrl, testCase, { interruptAfterTool: testCase.session === 'interrupt' });
+      if (testCase.session === 'interrupt') {
+        // The resume turn continues the same session; grade both together.
+        const resumed = await sendTurn(server.baseUrl, { ...testCase, id: `${testCase.id}-resume`, prompt: testCase.resumePrompt });
+        run = { ...resumed, raw: run.raw + resumed.raw, events: [...run.events, ...resumed.events],
+          text: `${run.text}\n${resumed.text}`, interrupted: run.interrupted };
+      }
+      if (restored) run.restored = restored.restored;
+      lastSha = savedSessionSha(run.raw) || lastSha;
       grade = gradeCase(testCase, run, before);
     } catch (cause) {
       error = cause?.stack || String(cause);
@@ -529,6 +627,7 @@ try {
       checks: grade.checks,
       failed: grade.failed,
       error,
+      ...(runtimeRestarted ? { runtimeRestarted: 'the previous case was stopped; the runtime was started again before this case' } : {}),
     };
     report.push(row);
     writeArtifact(artifacts, `${testCase.id}.prompt.txt`, testCase.prompt);
