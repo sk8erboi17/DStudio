@@ -217,18 +217,19 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 curl -fsS --max-time 2 "${base}/api/gsa/tools" >"${tmp}/gsa-tools-after.json"
-curl -fsS --max-time 2 "${base}/loading.html" >"${tmp}/loading.html"
-grep -q 'startWithSavedSettings' "${tmp}/loading.html"
-if grep -q 'hello are you alive' "${tmp}/loading.html"; then
-  echo "loading page must not block startup on a model generation" >&2
-  exit 1
-fi
-grep -q 'lanClientHost' "${tmp}/loading.html"
-grep -q 'settings.onboarded !== true' "${tmp}/loading.html"
+# The routes serve the current pages unchanged (DS4UI_PAGE_FROM_DISK). The
+# loading page's startup behavior (LAN client and onboarding redirects, no
+# generation probe) runs in a real browser in ui_loading_playwright_test.mjs.
+curl -fsS --max-time 2 -D "${tmp}/loading.headers" "${base}/loading.html" >"${tmp}/loading.html"
+grep -qi '^Content-Type: text/html' "${tmp}/loading.headers"
+cmp -s "${tmp}/loading.html" web/loading.html
+curl -fsS --max-time 2 "${base}/" >"${tmp}/root.html"
+cmp -s "${tmp}/root.html" web/index.html
+# A first-launch query string must not change which page is served.
 curl -fsS --max-time 2 "${base}/?firstLaunch=1" >"${tmp}/root-query.html"
-grep -q 'DStudio' "${tmp}/root-query.html"
+cmp -s "${tmp}/root-query.html" "${tmp}/root.html"
 curl -fsS --max-time 2 "${base}/index.html?firstLaunch=1" >"${tmp}/index-query.html"
-grep -q 'DStudio' "${tmp}/index-query.html"
+cmp -s "${tmp}/index-query.html" "${tmp}/root.html"
 node - "${tmp}/status.json" <<'NODE'
 const fs = require('fs');
 const st = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));

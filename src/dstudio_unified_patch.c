@@ -129,7 +129,17 @@ static char *unified_read(const char *path, size_t *size) {
     return body;
 fail:
     if (f) fclose(f);
-    patch_fail("missing, linked, changing or oversized build input: %s", path);
+    {
+        /* The file name leads: the surfaced engine error is truncated, and a
+         * deep checkout path must not push out which input is missing. */
+        const char *name = strrchr(path, '/');
+#ifdef _WIN32
+        const char *bslash = strrchr(path, '\\');
+        if (!name || (bslash && bslash > name)) name = bslash;
+#endif
+        patch_fail("missing, linked, changing or oversized build input %s (%s)",
+                   name ? name + 1 : path, path);
+    }
     return NULL;
 }
 

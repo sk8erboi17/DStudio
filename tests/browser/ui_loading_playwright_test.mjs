@@ -22,7 +22,11 @@ let startBody = null;
 let checkoutBody = null;
 let requireDsparkConfirmation = false;
 const startBodies = [];
+const requestLog = [];
 let previewStatus = null;
+// Generation endpoints: startup readiness comes from /api/status, never from
+// asking the model to answer.
+const generationRequest = /\/v1\/|chat|completion|generat|\/send\b|prompt/i;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -41,6 +45,7 @@ async function readBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
+  requestLog.push(`${req.method} ${url.pathname}`);
   if (url.pathname === '/loading.html') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': loadingHtml.length });
     res.end(loadingHtml);
@@ -152,9 +157,13 @@ try {
     }));
   });
 
+  requestLog.length = 0;
   await page.goto(`http://127.0.0.1:${port}/loading.html`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL(`http://127.0.0.1:${port}/`, { timeout: 8000 });
   await page.locator('#ready').waitFor();
+  assert.deepEqual(requestLog.filter(r => generationRequest.test(r)), [],
+    'startup must not block on a model generation');
+  assert.ok(requestLog.includes('GET /api/status'), 'readiness comes from the launcher status');
 
   assert.ok(startBody, 'loading page should POST /api/start');
   assert.equal(startBody.mode, 'server');
@@ -169,6 +178,36 @@ try {
   assert.equal(savedAfterStart.ctxSize, 65536, 'native memory adjustment should replace the unsafe saved context');
   assert.equal(savedAfterStart.dspark, false, 'native memory adjustment should persist DSpark being disabled');
   assert.deepEqual(pageErrors, []);
+
+  // Profiles that must not start the local engine from the loading page: a LAN
+  // client (the host owns the engine) and a profile without completed
+  // onboarding. Each must go to the workspace with no state-changing request.
+  for (const [name, settings] of [
+    ['LAN client', { v: 2, onboarded: true, lanClientHost: '192.168.1.20:5500', modelGguf: 'gguf/laguna-test.gguf' }],
+    ['onboarding not completed', { v: 2, onboarded: false, modelGguf: 'gguf/laguna-test.gguf' }],
+    ['empty profile', null],
+  ]) {
+    started = false;
+    startBody = null;
+    checkoutBody = null;
+    const before = startBodies.length;
+    const guard = await browser.newPage();
+    const guardErrors = [];
+    guard.on('pageerror', e => guardErrors.push(e.message));
+    await guard.addInitScript((value) => {
+      if (value) localStorage.setItem('ds4web.settings.v2', JSON.stringify(value));
+    }, settings);
+    requestLog.length = 0;
+    await guard.goto(`http://127.0.0.1:${port}/loading.html`);
+    await guard.waitForURL(`http://127.0.0.1:${port}/`, { timeout: 8000 });
+    await guard.locator('#ready').waitFor();
+    // Let any request a still-running startup script could send arrive first.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(startBodies.length, before, `${name}: the loading page must not start the local engine`);
+    assert.deepEqual(requestLog.filter(r => r.startsWith('POST ')), [], `${name}: no state-changing request`);
+    assert.deepEqual(guardErrors, []);
+    await guard.close();
+  }
 
   // Simulated launcher, real loading-page requests: inherited expert streaming
   // must not prevent Qwen boot or overwrite the preference for other models.
