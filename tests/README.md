@@ -1759,6 +1759,26 @@ fork and are no longer runnable.
 
 ## Local regression suite
 
+### DeepSeek V4.1 vision sidecar pairing (real engine, no weights)
+
+```sh
+make test-v41-vision-pairing        # patch lifecycle on copies of the pinned ds4.c
+make test-v41-vision-pairing-live   # macOS; network for headers only
+```
+
+The live check builds the `ds4` CLI twice from the pinned engine with the
+production runtime patch stack, without and with
+`patch/ds4-v41-vision-pairing`. It fetches only the headers (metadata and
+tensor table, about 5.8 MB per language model and 18 KB per sidecar) of the
+original and 1017 V4.1 Q2 files and both sidecars at pinned revisions, caches
+them under `tests/.artifacts/v41-vision-pairing-live/headers/`, and writes each
+into a sparse file of the published size. `ds4 --inspect --vision` opens both
+models and applies the pairing check before any weight is loaded. The pinned
+engine accepts the 1017 Q2 with the original sidecar and refuses its own 1017
+sidecar; the patched engine opens each Q2 only with its own sidecar and refuses
+the two mixed pairs. Accepted pairs must print the V4.1 model summary. This
+qualifies pairing admission only, not image inference or model quality.
+
 ### Vision encoder with SSD streaming (real Metal)
 
 ```sh

@@ -120,7 +120,7 @@ try {
   fs.mkdirSync(path.dirname(fixtureModel), { recursive: true });
   fs.writeFileSync(fixtureModel, 'not model weights\n', { flag: 'wx' });
   fs.mkdirSync(path.join(packRoot, 'scripts'));
-  for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh'])
+  for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh', 'apply-ds4-v41-vision-pairing.sh'])
     fs.writeFileSync(path.join(packRoot, 'scripts', script), '#!/bin/sh\nexit 0\n');
   fs.writeFileSync(path.join(packRoot, 'src/harness/design/build-design.sh'),
     '#!/bin/sh\nprintf "%s\\n" "$1" >> "$DS4_DIR/build-attempts"\nexit 87\n');

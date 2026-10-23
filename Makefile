@@ -750,6 +750,15 @@ test-server-metrics-patch:
 test-native-patch-roundtrip:
 	@node tests/integration/native_patch_roundtrip_test.mjs "$(or $(NATIVE_PATCH_DIR),ds4)"
 
+.PHONY: test-v41-vision-pairing test-v41-vision-pairing-live
+test-v41-vision-pairing:
+	@node tests/integration/v41_vision_pairing_patch_test.mjs
+
+# Real ds4 --inspect on published V4.1 headers in sparse files: network for the
+# headers (a few MB, cached), no weights downloaded or read. macOS only.
+test-v41-vision-pairing-live:
+	@node tests/live/v41_vision_pairing_live_test.mjs
+
 .PHONY: test-search-evidence
 test-search-evidence:
 	@node tests/unit/search_evidence_test.mjs
@@ -1100,6 +1109,12 @@ test-hunyuan-sdpa-mps:
 .PHONY: test-chat-lifecycle test-follow-scroll test-ui-qwen-learn test-qwen27-model-ui
 test-qwen27-model-ui:
 	@node tests/unit/qwen27_model_test.mjs
+
+.PHONY: test-ds41-1017-download
+test-ds41-1017-download:
+	@node tests/integration/ds41_1017_download_test.mjs
+
+check-fast: test-ds41-1017-download
 
 .PHONY: test-ds41-model-ui
 test-ds41-model-ui:

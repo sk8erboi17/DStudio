@@ -67,7 +67,7 @@ try {
   fixture(path.join(engine, initial.modelFile), 'fixture only, not model weights\n');
   for (const file of ['DESIGN.md', 'tokens.css', 'components.html', 'assets/preview.js', 'references/recipes.md'])
     fixture(path.join(assets, 'extension/design-systems/folio', file), 'Complete fixture\n');
-  for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh'])
+  for (const script of ['apply-ds4-glm53-m2max.sh', 'apply-ds4-vision-streaming.sh', 'apply-ds4-v41-vision-pairing.sh'])
     fixture(path.join(assets, 'scripts', script), '#!/bin/sh\nexit 0\n');
   const gate = path.join(engine, 'prepare-gate'), entered = path.join(engine, 'prepare-entered');
   assert.equal(spawnSync('mkfifo', [gate]).status, 0);

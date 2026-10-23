@@ -238,6 +238,7 @@ static int launch_prepare_cli(int argc, char **argv) {
             if (mode == ENGINE_DESIGN) {
                 ok = run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") && !g_launch_worker_cancel &&
                      run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") && !g_launch_worker_cancel &&
+                     run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") && !g_launch_worker_cancel &&
                      run_ext_script("src/harness/design/build-design.sh", "build");
                 snprintf(binary, sizeof binary, "%s/%s", g_ds4_dir, launch_binary(mode, -1));
             } else if (harness[0]) ok = harness_verify(g_ds4_dir, harness, error, sizeof error) &&
@@ -265,6 +266,7 @@ static int launch_prepare_cli(int argc, char **argv) {
 #else
         ok = run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") && !g_launch_worker_cancel &&
              run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") && !g_launch_worker_cancel &&
+             run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") && !g_launch_worker_cancel &&
              run_ext_script("src/harness/design/build-design.sh", "build");
 #endif
     } else if (ok && harness[0]) {
@@ -447,7 +449,7 @@ static int launch_capture_dependencies(launch_job *j) {
         snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
         ok = launch_add_dependency(j, dir, rel, 0);
     }
-    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "src/harness/design/build-design.sh", NULL};
+    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-v41-vision-pairing.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "src/harness/design/build-design.sh", NULL};
     for (int i = 0; ok && scripts[i]; i++) ok = launch_add_dependency(j, request->assets_dir, scripts[i], 0);
     /* The installer may build llama-server during preparation, so its own
      * output is bound by the executable identity the worker reports. */

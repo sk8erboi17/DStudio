@@ -20,6 +20,7 @@ for (const p of ['extension/remote', 'src/harness/cowork', 'scripts'])
 for (const script of [
   'apply-ds4-glm53-m2max.sh',
   'apply-ds4-vision-streaming.sh',
+  'apply-ds4-v41-vision-pairing.sh',
   'apply-ds4-qwen38-prepare.sh',
 ]) fs.writeFileSync(path.join(assets, 'scripts', script), '#!/bin/sh\nexit 0\n');
 for (const file of ['ds4_agent.c', 'ds4_web.c']) fs.copyFileSync(path.join('ds4', file), path.join(engine, file));

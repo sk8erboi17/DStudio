@@ -31,6 +31,12 @@ them). Each is inactive unless DStudio sets its environment variable.
 `make test-mlx-install-unit` exercises apply, repeat, reverse and drift on the
 wheel's own `server.py`.
 
+[`ds4-v41-vision-pairing`](ds4-v41-vision-pairing/README.md) (antirez/ds4 PR
+#1225: a V4.1 vision sidecar pairs with the language GGUF by
+`general.source.revision` rather than one hard-coded checkpoint; applied by
+`scripts/apply-ds4-v41-vision-pairing.sh` after the vision-streaming patch and
+a no-op once upstream has the change).
+
 Agent/Cowork patch **92** and `ds4-server-pld/` share
 [prompt lookup](ds4-agent-jsonl/PLD.md), with ordinary
 generation as the default reference path and an explicitly experimental Metal

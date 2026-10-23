@@ -401,6 +401,15 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_DS41_Q4_BYTES 518596067328LL
 #define MODEL_DS41_VISION "gguf/DeepSeek-V4.1-Flash-Vision.gguf"
 #define MODEL_DS41_VISION_BYTES 970555552LL
+/* The 1017 checkpoint: antirez's official Q2 (what upstream ds4 5379c1c's
+ * ds41f-q2 now downloads) and the community 1017 vision sidecar (antirez has
+ * none). Both carry source revision 1bae0e10 and pair only with each other;
+ * the original V4.1 files (MODEL_DS41_Q2/Q4) keep MODEL_DS41_VISION. Repository,
+ * revision, size and SHA-256 are pinned in scripts/download-ds41-1017.sh. */
+#define MODEL_DS41_1017_Q2 "gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf"
+#define MODEL_DS41_1017_Q2_BYTES 365713686528LL
+#define MODEL_DS41_1017_VISION "gguf/DeepSeek-V4.1-Flash-1017-Vision.gguf"
+#define MODEL_DS41_1017_VISION_BYTES 970555552LL
 #define MODEL_PRO   "gguf/DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix-0813.gguf"
 #define MODEL_LAGUNA "gguf/laguna-s-2.1-Q4_K_M.gguf"
 #define MODEL_GLM53_Q2 "gguf/GLM-5.3-Flash-Q2.gguf"
@@ -2349,11 +2358,15 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     const char *file = "";
     long long bytes = 0;
     if (!strcmp(target, "ds41f-q2")) {
+        file = MODEL_DS41_1017_Q2; bytes = MODEL_DS41_1017_Q2_BYTES;
+    } else if (!strcmp(target, "ds41f-q2-original")) {
         file = MODEL_DS41_Q2; bytes = MODEL_DS41_Q2_BYTES;
     } else if (!strcmp(target, "ds41f-q4")) {
         file = MODEL_DS41_Q4; bytes = MODEL_DS41_Q4_BYTES;
     } else if (!strcmp(target, "ds41f-vision")) {
         file = MODEL_DS41_VISION; bytes = MODEL_DS41_VISION_BYTES;
+    } else if (!strcmp(target, "ds41f-1017-vision")) {
+        file = MODEL_DS41_1017_VISION; bytes = MODEL_DS41_1017_VISION_BYTES;
     } else if (!strcmp(target, "ds4f-q2")) {
         file = "gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf";
         bytes = 87000000000LL;
@@ -2402,8 +2415,9 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
 }
 
 static int model_download_is_ds41(const char *target) {
-    return target && (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q4") ||
-                      !strcmp(target, "ds41f-vision"));
+    return target && (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
+                      !strcmp(target, "ds41f-q4") || !strcmp(target, "ds41f-vision") ||
+                      !strcmp(target, "ds41f-1017-vision"));
 }
 static int model_download_uses_hf_artifacts(const char *target) {
     return model_download_is_ds41(target) || (target &&
@@ -2420,17 +2434,22 @@ static long long ds41_download_bytes(const char *checkout, const char *target,
         const char *file, *sha;
         long long limit;
     } artifacts[] = {
-        {MODEL_DS41_Q2, "1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42", MODEL_DS41_Q2_BYTES},
+        {MODEL_DS41_1017_Q2, "5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a", MODEL_DS41_1017_Q2_BYTES},
         {MODEL_DS41_Q4 ".part1", "6442b1f9224079662c02003c0ef9ef6be6e2aff509510f681dab9e6cc41df246", 480000000000LL},
         {MODEL_DS41_Q4 ".part2", "7c3e10646c918eeaffbc39305a75ec96117450262c61454ff194cef00d7617f0", 38596067328LL},
         {MODEL_DS41_VISION, "cc283f032b3e8b8d78aeb5fccaa14e97b859b0c53aae3cd6bffa690ddf0e9e15", MODEL_DS41_VISION_BYTES},
         {MODEL_QWEN_Q2, "b1b93fa69aca5f187b0fb813aca8f3ec1beb5cf8cf0bd38cf041b93e0b6ccac9", MODEL_QWEN_Q2_BYTES},
         {MODEL_QWEN, "680944460a8cbe93ba8b6d7b6107213ffb7e22320bd913000e563ca0a0f25a8a", MODEL_QWEN_BYTES},
+        {MODEL_DS41_1017_VISION, "861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf", MODEL_DS41_1017_VISION_BYTES},
+        /* The original Q2 keeps its own digest so a partial started before
+         * ds41f-q2 became the 1017 file stays visible and resumable. */
+        {MODEL_DS41_Q2, "1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42", MODEL_DS41_Q2_BYTES},
     };
     if (has_partial) *has_partial = 0;
     if (!model_download_uses_hf_artifacts(target)) return 0;
     int first = !strcmp(target, "ds41f-q2") ? 0 : !strcmp(target, "ds41f-q4") ? 1 :
-                !strcmp(target, "ds41f-vision") ? 3 : !strcmp(target, "qwen38-q2") ? 4 : 5;
+                !strcmp(target, "ds41f-vision") ? 3 : !strcmp(target, "qwen38-q2") ? 4 :
+                !strcmp(target, "ds41f-1017-vision") ? 6 : !strcmp(target, "ds41f-q2-original") ? 7 : 5;
     int end = first == 1 ? 3 : first + 1;
     long long present[sizeof artifacts / sizeof artifacts[0]] = {0}, final_bytes = 0;
     char final_rel[1024], file[DSTUDIO_PATH_MAX + 1100];
@@ -2558,7 +2577,8 @@ static int paused_model_download(char *target, size_t targetsz,
         return 1;
     }
 
-    static const char *ds41_targets[] = {"ds41f-q2", "ds41f-q4", "ds41f-vision", "qwen38-q2", "qwen38-q4k"};
+    static const char *ds41_targets[] = {"ds41f-q2", "ds41f-q4", "ds41f-vision", "qwen38-q2", "qwen38-q4k",
+                                         "ds41f-1017-vision", "ds41f-q2-original"};
     for (size_t i = 0; i < sizeof ds41_targets / sizeof ds41_targets[0]; i++) {
         const char *store = !strcmp(g_dl_variant, ds41_targets[i]) && g_dl_directory[0]
             ? g_dl_directory : g_ds4_dir;
@@ -2882,6 +2902,7 @@ static int model_file_is_auxiliary(const char *name) {
             (mem_contains_ci(name, len, "-ple-") || mem_contains_ci(name, len, "-mtp."))) ||
            mem_contains_ci(name, len, "glm-5.3-flash-vision-encoder") ||
            mem_contains_ci(name, len, "deepseek-v4.1-flash-vision") ||
+           mem_contains_ci(name, len, "deepseek-v4.1-flash-1017-vision") ||
            mem_contains_ci(name, len, "deepseek-v4-flash-vision-encoder");
 }
 static int ascii_equal_ci(const char *a, const char *b) {
@@ -2911,7 +2932,8 @@ static int model_file_is_supported(const char *name) {
 #else
         const char *base = strrchr(name, '/');
         return !strcmp(base ? base + 1 : name, &MODEL_DS41_Q2[5]) ||
-               !strcmp(base ? base + 1 : name, &MODEL_DS41_Q4[5]);
+               !strcmp(base ? base + 1 : name, &MODEL_DS41_Q4[5]) ||
+               !strcmp(base ? base + 1 : name, &MODEL_DS41_1017_Q2[5]);
 #endif
     }
     /* The Qwen checkpoints run on DStudio's llama.cpp engine; only the
@@ -3089,7 +3111,13 @@ static const char *native_vision_encoder_rel_for_model(const char *model_rel) {
 #else
     if (model_file_is_qwen27(model_rel)) return MODEL_QWEN27_VISION;
 #ifdef __APPLE__
-    if (model_file_is_deepseek41(model_rel)) return MODEL_DS41_VISION;
+    if (model_file_is_deepseek41(model_rel)) {
+        /* Each checkpoint only pairs with its own sidecar. */
+        const char *base = strrchr(model_rel, '/');
+        return mem_contains_ci(base ? base + 1 : model_rel, strlen(base ? base + 1 : model_rel),
+                               "deepseek-v4.1-flash-1017-")
+                   ? MODEL_DS41_1017_VISION : MODEL_DS41_VISION;
+    }
 #endif
     if (model_file_is_glm(model_rel)) return MODEL_GLM53_VISION;
     if (model_file_is_deepseek_vision(model_rel)) return MODEL_DSVISION_ENCODER;
@@ -5814,7 +5842,8 @@ static int run_build_jsonl_locked(const char *action) {
     /* Apply before checking core mtimes: Agent may be the first runtime built
      * after upgrading DStudio, without a preceding Chat launch. */
     if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply")) return 0;
+        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) return 0;
     if (qwen38_native &&
         !run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", "apply")) return 0;
     /* Main's shared snapshot allocator unwinds partial allocations upstream.
@@ -6537,6 +6566,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
 #else
     if (!prepared && (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
         !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
+        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") ||
         !run_ext_script("src/harness/design/build-design.sh", "build"))) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;
@@ -6803,7 +6833,7 @@ static void api_model_download(int fd, const char *body) {
 
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
-        "ds41f-q2", "ds41f-q4", "ds41f-vision",
+        "ds41f-q2", "ds41f-q2-original", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
@@ -6973,7 +7003,18 @@ static void api_model_download(int fd, const char *body) {
             _exit(127);
         }
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
-        else            execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
+        if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
+            !strcmp(target, "ds41f-1017-vision")) {
+            /* DStudio-owned pinned downloader. The vendored download_model.sh
+             * (0aaea5a) still names the original Q2, and upstream 5379c1c, which
+             * renamed it to the 1017 file, kept the old SHA-256. The original
+             * Q2 is pinned here too, independent of the vendored script. */
+            char helper[DSTUDIO_PATH_MAX + 64];
+            snprintf(helper, sizeof helper, "%s/scripts/download-ds41-1017.sh", g_web_dir);
+            execl("/bin/sh", "sh", helper, target, (char *)NULL);
+            _exit(127);
+        }
+                  execl("/bin/sh", "sh", "download_model.sh", target, (char *)NULL);
         _exit(127);
     }
     setpgid(pid, pid);
@@ -7702,6 +7743,7 @@ static char *gguf_catalog_build_known(void) {
     static const char *known[] = {
         MODEL_STD,
         MODEL_DS41_Q2, MODEL_DS41_Q4, MODEL_DS41_VISION,
+        MODEL_DS41_1017_Q2, MODEL_DS41_1017_VISION,
         "gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf",
         "gguf/DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf",
         MODEL_PRO,

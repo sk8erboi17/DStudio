@@ -256,7 +256,7 @@ try {
     assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')),[]);
     return {seconds:(performance.now()-started)/1000, receipt, binary: receipt.binarySHA256};
   });
-  await step('seven native main adaptations reverse and reapply without source loss', async () => {
+  await step('eight native main adaptations reverse and reapply without source loss', async () => {
     return nativePatchRoundtrip({ support: data, source: path.join(data, 'ds4'),
       scratch: path.join(run, 'patch-roundtrip'), environment: env });
   });

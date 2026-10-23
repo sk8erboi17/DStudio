@@ -19,12 +19,12 @@ static void ds41_progress_test(const char *root) {
     snprintf(download, sizeof download, "%s/download", hf); assert(mkdir(download, 0700) == 0);
     const char *names[] = {
         "unrelated.incomplete",
-        "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.incomplete",
-        "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.retry.incomplete",
+        "opaque.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.incomplete",
+        "opaque.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.retry.incomplete",
         "opaque.6442b1f9224079662c02003c0ef9ef6be6e2aff509510f681dab9e6cc41df246.x.incomplete",
         "opaque.7c3e10646c918eeaffbc39305a75ec96117450262c61454ff194cef00d7617f0.x.incomplete",
         "opaque.cc283f032b3e8b8d78aeb5fccaa14e97b859b0c53aae3cd6bffa690ddf0e9e15.x.incomplete",
-        "linked.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.incomplete",
+        "linked.5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a.incomplete",
     };
     const int sizes[] = {999, 17, 11, 101, 23, 7};
     for (int i = 0; i < 7; i++) {
@@ -38,6 +38,36 @@ static void ds41_progress_test(const char *root) {
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-q4", &partial) == 124 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7 && partial);
     assert(ds41_download_bytes(g_ds4_dir, "unrecognized", &partial) == 0 && !partial);
+    /* ds41f-q2 is the 1017 file (the partials above carry its published digest);
+     * the community sidecar binds to its own digest. */
+    assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 0 && !partial);
+    {
+        const char *n1017[] = {
+            /* An original-checkpoint Q2 partial no longer counts toward ds41f-q2. */
+            "opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.x.incomplete",
+            "opaque.861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf.x.incomplete",
+        };
+        char p1017[2][2300];
+        for (int i = 0; i < 2; i++) {
+            snprintf(p1017[i], sizeof p1017[i], "%s/%s", download, n1017[i]);
+            int f = open(p1017[i], O_CREAT | O_EXCL | O_WRONLY, 0600); assert(f >= 0);
+            assert(ftruncate(f, i ? 41 : 29) == 0); assert(close(f) == 0);
+        }
+        assert(model_download_uses_hf_artifacts("ds41f-1017-vision"));
+        assert(!model_download_uses_hf_artifacts("ds41f-1017-q2"));
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 17 && partial);
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 41 && partial);
+        /* ...it counts toward its own original-checkpoint target instead. */
+        assert(model_download_uses_hf_artifacts("ds41f-q2-original"));
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2-original", &partial) == 29 && partial);
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7);
+        char rel[256]; long long want = 0;
+        model_download_details("ds41f-q2", rel, sizeof rel, &want);
+        assert(!strcmp(rel, MODEL_DS41_1017_Q2) && want == 365713686528LL);
+        model_download_details("ds41f-1017-vision", rel, sizeof rel, &want);
+        assert(!strcmp(rel, MODEL_DS41_1017_VISION) && want == 970555552LL);
+        assert(unlink(p1017[0]) == 0 && unlink(p1017[1]) == 0);
+    }
     snprintf(paths[7], sizeof paths[7], "%s/%s.assembling", g_ds4_dir, MODEL_DS41_Q4);
     int fd = open(paths[7], O_CREAT | O_EXCL | O_WRONLY, 0600); assert(fd >= 0);
     assert(ftruncate(fd, 114) == 0); assert(close(fd) == 0);
@@ -61,8 +91,22 @@ static void ds41_progress_test(const char *root) {
     response(pair, out, sizeof out); assert(strstr(out, "409 Conflict"));
     assert(model_download_bytes_present() == 17);
     for (int i = 0; i < 8; i++) assert(unlink(paths[i]) == 0);
-    assert(rmdir(download) == 0); assert(rmdir(hf) == 0); assert(rmdir(cache) == 0);
+    /* A partial of the original Q2 started before ds41f-q2 became the 1017
+     * file is found again after a restart, as its own resumable download. */
     g_dl_variant[0] = g_dl_rel[0] = g_dl_directory[0] = 0; g_dl_expected_bytes = 0;
+    char orphan[2300];
+    snprintf(orphan, sizeof orphan, "%s/opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.x.incomplete", download);
+    fd = open(orphan, O_CREAT | O_EXCL | O_WRONLY, 0600); assert(fd >= 0);
+    assert(ftruncate(fd, 53) == 0); assert(close(fd) == 0);
+    assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 0 && !partial);
+    assert(paused_model_download(target, sizeof target, &have, &expected));
+    assert(!strcmp(target, "ds41f-q2-original") && have == 53 && expected == MODEL_DS41_Q2_BYTES);
+    char orphan_rel[256]; long long orphan_want = 0;
+    model_download_details(target, orphan_rel, sizeof orphan_rel, &orphan_want);
+    assert(!strcmp(orphan_rel, MODEL_DS41_Q2) && orphan_want == MODEL_DS41_Q2_BYTES);
+    assert(unlink(orphan) == 0);
+    assert(!paused_model_download(target, sizeof target, &have, &expected));
+    assert(rmdir(download) == 0); assert(rmdir(hf) == 0); assert(rmdir(cache) == 0);
     puts("V4.1 download: identity-bound progress, duplicate retries, Q4 assembly, selection isolation and no false completion PASS");
 }
 
