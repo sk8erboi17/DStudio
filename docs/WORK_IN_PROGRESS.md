@@ -11,7 +11,7 @@ complete quality rerun.
 | Area | Work still required |
 | --- | --- |
 | Qwen Design | Implement and qualify the independent adapter for 3.6, 27B and Next. Keep unsupported launches explicit until then. |
-| Disk sessions | Qwen3.6 and 27B now run on llama.cpp: add bounded KV/session reuse across engine restarts; saved chat history is not complete runtime resumption. |
+| Disk sessions | Done October 3: Agent, Cowork and Design on llama.cpp/MLX save their transcript and restore it after a restart (`make test-remote-session`; the server prefills it again). Still open: bounded KV snapshot reuse across engine restarts, and pi/OpenCode sessions on these models. |
 | Agent/Cowork builds | Complete dependency signatures, coordinated crash-safe runtime-pair publication and verified legacy-source recovery. |
 | llama.cpp / MLX Qwen | Common-100, long context, Learn/Tutor and PDF on llama.cpp `99b9548` and on the MLX Qwen3.6 (implemented October 3: native Agent/Cowork/Design/Chat 6/6, pi/OpenCode 6/6; a quality comparison with the GGUF is not done); untested non-macOS backends. |
 | Design auditor | Qualify the remaining fourteen domain scenarios with independent positive/negative fixtures. |
@@ -24,7 +24,7 @@ complete quality rerun.
 | --- | --- |
 | 27B / 3.6 | Full-model numerical and original long-context checks on the online-attention/batched-prefill overlays; any invalidated quality reruns remain owner-controlled. |
 | Qwen Next | Complete Learn/Tutor, PDF/vision and native-desktop qualification; qualify Q2 independently. Recheck the retained Learn incident with the intended effective reasoning request. The Q4 100-case and eight long-context cases are already recorded in the current-main baseline. |
-| Agent / Goals / Cowork | Real selected-model long tasks, steering, pause/resume, durable recovery, exactly-once effects and independently reopened exports across all selections. Revalidate the retained 3.6 timeout/partial-summary failure on current code. |
+| Agent / Goals / Cowork | Real selected-model long tasks, steering, pause/resume, durable recovery, exactly-once effects and independently reopened exports across all selections. Revalidate the retained 3.6 timeout/partial-summary failure on current code. Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS: resume profile 2/2. Long profile 10/11 so far: `ambiguous-edit` failed in a reasoning loop; a second sample was stopped. Five long cases have not run. Rerun them on runtime v106, which no longer declares the refused shell tools. |
 | PDFs / vision | At least thirty PDFs and twenty images per vision checkpoint, independently graded answers, actual pixel paths and negative text-model/history/cache tests in all four modes. |
 | Desktop | Nine selections × Chat/Agent/Learn/Cowork: at least thirty-six complete native-model workflows, plus Design, switching, errors, cancellation and final-build regressions. |
 | Design projects | Generate and independently audit all eighteen frozen projects for the original nine systems in Chromium/WebKit, both themes, four widths, 200% text, offline exports and the opaque preview. Preserve and regenerate failed model outputs through the runtime. |

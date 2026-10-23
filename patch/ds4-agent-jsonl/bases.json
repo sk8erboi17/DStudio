@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "currentManifestVersion": 104,
+  "currentManifestVersion": 106,
   "repository": "https://github.com/antirez/ds4",
   "sourceFile": "ds4_agent.c",
   "application": "Choose a complete exact-context variant, apply once to a private source copy, then compile with build.mk. Do not edit the upstream Agent file.",
@@ -22,21 +22,31 @@
       "revision": "9139e2ae58a41503968a500f36f75895c1ba63fc",
       "patch": "main-qwen.patch",
       "sourceSHA256": "8b8911d242142641afabe4e0673d260dc1f99762aa8f6988f7b6b4aa206f6e65",
-      "patchSHA256": "1edc14b6834e4c3ca566421f1b8835bc6690e8d391b8c05fcef0ac1d20349979",
-      "derivedSHA256": "2ea1db54e3837e05af14b5ae87f6eab0b85b84c9e28bb00bc048272f4a72ba6c",
+      "patchSHA256": "8f425d64e69f15e909c6b50cb6d07ac492f4804be285847017a2fa15ca8487ba",
+      "derivedSHA256": "9e32dca273f7a299a390dd344988c96ce79c4154bce2c242f5854bb33aa95953",
       "requiredCorePatch": "../ds4-qwen38-prepare/prepare-main.patch",
       "oracle": "Unified main: native Qwen and DSML/V4.1 tool grammar, worker-owned cancellable session preparation, durable session save, JSONL steering, compaction, Cowork and PLD. Sanitized native behavior tests use simulated model responses; not a full-model quality or historical byte-parity claim.",
       "equivalentSourceRevisions": [
         "0aaea5a238fb41a35106a551e73c8409dfb751ac"
-      ]
+      ],
+      "postV105Fix": {
+        "patch": "main-qwen-final-newline.patch",
+        "sha256": "62178d1db8063c354a2fbc79dcab2d7824a1ddd3b8135f304ba076061e599a7d",
+        "previousDerivedSHA256": "2ea1db54e3837e05af14b5ae87f6eab0b85b84c9e28bb00bc048272f4a72ba6c"
+      },
+      "postV106Fix": {
+        "patch": "main-qwen-cowork-tools.patch",
+        "sha256": "fc463fd7488f13e9fe1417f7f6de82d1da2c24fcc53ae03c4de4efe85501c665",
+        "previousDerivedSHA256": "93f069474b9a829a31c3839dc7ac8f218dcdef1ce15f47396c4f674530abe7a8"
+      }
     },
     {
       "name": "main-v41",
       "revision": "bd66c402070042bf0a79ad6ece8242de4c93680c",
       "patch": "main-v41.patch",
       "sourceSHA256": "1a8652519081f947e1ac0faae388ee4d553fb606f20f3fca42d7d8584d41a049",
-      "patchSHA256": "b77a0db5fa4ee3fdcaf0ad8c2aaedfa5d58b4ca9f42e34d5a422a172df5508dd",
-      "derivedSHA256": "1b5fe433143b2b077534daad9d0386326647829fe9ace768770ee085c0a7d432",
+      "patchSHA256": "7bb276aa7b2769ea28d5b6176a83dba0a766757c24ad002ce5c4007677dcb44d",
+      "derivedSHA256": "f6d91d6097895942e821afd0e381a693b94d5c0992d07d948bb4efb95cad6f52",
       "oracle": "DeepSeek V4.1 native DSML parser and context-compaction continuation with DStudio JSONL, steering and PLD hooks; not a legacy migration or an inference-quality claim.",
       "postV99Fix": {
         "patch": "main-v41-readiness.patch",
@@ -52,6 +62,16 @@
         "patch": "main-v41-progress-summary.patch",
         "sha256": "ac4ba98a5a0d6b77d09aef994f1705be3b74f7d5b11ca85dc6b6199e970e1ca5",
         "previousDerivedSHA256": "3f554681490d26025e4f48f7c9ceb54e4e13d57ca48e7177f5cbfb95069993cc"
+      },
+      "postV105Fix": {
+        "patch": "main-v41-final-newline.patch",
+        "sha256": "45a4e0aedd900f1d55b78fcf139f85f2145e1d18da24b0a5c4dcc6934eff4dc3",
+        "previousDerivedSHA256": "1b5fe433143b2b077534daad9d0386326647829fe9ace768770ee085c0a7d432"
+      },
+      "postV106Fix": {
+        "patch": "main-v41-cowork-tools.patch",
+        "sha256": "be0104cb7c676c86c98ed6ea17f3ee5fbf01a48ebfd98d05b00259d04aac18af",
+        "previousDerivedSHA256": "1cbd7ef5734e0278232d1efa9bc558d73a8f97acd5bf059f2556e0e66657cd61"
       }
     },
     {
@@ -62,8 +82,8 @@
       ],
       "patch": "main-current.patch",
       "sourceSHA256": "4402fce6573ffb43332fc9075248f1fc812acb8a503de9ee8a32770b755591cc",
-      "patchSHA256": "318639be7d730941ab27b700f3eecc048acc8cafe462fb2073233a4fe6541af5",
-      "derivedSHA256": "6b5d34df93e8b4885e083555d1e9b2525a2b03b92458e8758aa4ddf5d2ae55ca",
+      "patchSHA256": "da18045f1a2068963f5e43636557b3f0c63b2726e38a90dc22322ceaf0a3ff4a",
+      "derivedSHA256": "e7e5814388f9d481b8121d04fe6e9e1412420c74570f23c6254da6b57a1ab457",
       "legacyExpandedSHA256": "d9b10bf76da8a201d4a0ccc17a4b0aaf7badc77797da5bcca255be37841197c8",
       "migrationDerivedSHA256": "4cabac4210f3ae910ff99b6a15462b204099670390e081c4a08ec3ab5f519ae0",
       "postV99Fix": {
@@ -80,6 +100,16 @@
         "patch": "main-current-progress-summary.patch",
         "sha256": "dc9a2c7d0b68cb7aed4f189c8ad03da22486116f31e563a690435232b9b1a0b1",
         "previousDerivedSHA256": "8023f93113095093020066bc911a129665a89326e7edd9904c1a24d8ee2f5af6"
+      },
+      "postV105Fix": {
+        "patch": "main-current-final-newline.patch",
+        "sha256": "6d837e48d8c6748e562fb25e1892a9399448df939bc94c43a8e79c34842a00bd",
+        "previousDerivedSHA256": "6b5d34df93e8b4885e083555d1e9b2525a2b03b92458e8758aa4ddf5d2ae55ca"
+      },
+      "postV106Fix": {
+        "patch": "main-current-cowork-tools.patch",
+        "sha256": "c17672bba735add6b37984776170edffdddc5017d21da1414b7dadab978cfdc8",
+        "previousDerivedSHA256": "d926a91ddf3645d845275fa610621363ecc8ec72f7337bddef0d647426c8bb20"
       }
     },
     {
@@ -87,8 +117,8 @@
       "revision": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
       "patch": "main-previous.patch",
       "sourceSHA256": "95fd4230e1093e1727e468d646c24d3236813ececba10c1e8297827562f174f3",
-      "patchSHA256": "8c0059bfc489c336cd6c065f6b099d2a784225b831c10f61958262125e29df9a",
-      "derivedSHA256": "2b47c6ed5773a83005f5aa5672b704d197eb4b1a8bfd92f095ced542d82b8225",
+      "patchSHA256": "2f0eb8963e9055a15cc877723c6f3af2d0dcf5aea18ce21fd5d2dab9aee746aa",
+      "derivedSHA256": "e11dfdeaeef81c7fddf06abb8ec84906444c94ce4dde0a9a0114aee5858c3cd8",
       "legacyExpandedSHA256": "11836beb9f12231fe2278ba673ebcf6783f9a319f7111cfaa19414ac91d86403",
       "migrationDerivedSHA256": "cae42f298c82d2fe4e0cc9bec7368dce8ef5460c7dc59ba1c1557ce74834831e",
       "postV99Fix": {
@@ -105,6 +135,16 @@
         "patch": "main-previous-progress-summary.patch",
         "sha256": "175f05ec5f66c00403bf682037f422805736e8692fde1e96b03910491bd67f44",
         "previousDerivedSHA256": "61c8d9aa7ccc6443be0f5b7ea07d5e7112e3d80651d91b89692613273a57d0fc"
+      },
+      "postV105Fix": {
+        "patch": "main-previous-final-newline.patch",
+        "sha256": "c0b7485490372f3a4e6d329df7cd46e0437a40eae8c1bd17773eab0d52812f53",
+        "previousDerivedSHA256": "2b47c6ed5773a83005f5aa5672b704d197eb4b1a8bfd92f095ced542d82b8225"
+      },
+      "postV106Fix": {
+        "patch": "main-previous-cowork-tools.patch",
+        "sha256": "404ab0587be2a105121dce5633d5563b3f2b4cf79804e85374a3e9478aae9e83",
+        "previousDerivedSHA256": "7d832ff10233b94f4388ebeb8e09aa059bb73bbb67b8f0da851f68aa900555e9"
       }
     },
     {
@@ -112,8 +152,8 @@
       "revision": "448d5695d1c86401a4e9447c440feb983b73e6de",
       "patch": "laguna.patch",
       "sourceSHA256": "44a5b1d149bb3d846c553e42b9f924dd488bf7ec1163c2a82aec1134ddb6bac2",
-      "patchSHA256": "dca0239e29286cce6d90092d5ee74fad8f9342cd518d1b5ee3d6bd5f20161930",
-      "derivedSHA256": "53dca347367335e24596f324dc639eb624eeb8cb845677052722dfedf7dad9ed",
+      "patchSHA256": "e6ecad642c7c9595e327716ae006ea0bbffac668d4695619845f8dcd5b04c8e6",
+      "derivedSHA256": "3271ac1c284cded2cadb6d54ed8e032873e6eaf76193b208f27c6e6ba40d4eb8",
       "postV97Fix": {
         "patch": "compaction-publish.patch",
         "sha256": "16202998886f9d4bd46467b0e0749d41a81fda3f3209bcb711b0bcfb67a34ace",
@@ -140,6 +180,16 @@
         "patch": "laguna-progress-summary.patch",
         "sha256": "363e0f0331b13055ee73b557bea1554fcedae6bbcb9d503f89b18a90f36f931a",
         "previousDerivedSHA256": "a1763d73f33291a6e7cce30075236ca436cc5c9acad01c9e398d512397f5b793"
+      },
+      "postV105Fix": {
+        "patch": "laguna-final-newline.patch",
+        "sha256": "6073cb1cdfa0002327cdc13832e26561402d65d27e2a7bb3084f886ea9022af3",
+        "previousDerivedSHA256": "53dca347367335e24596f324dc639eb624eeb8cb845677052722dfedf7dad9ed"
+      },
+      "postV106Fix": {
+        "patch": "laguna-cowork-tools.patch",
+        "sha256": "517d7f143aeed055a43ce484b00bed13b6df7bfa8d3c9d630356de5ee146d4d5",
+        "previousDerivedSHA256": "002159cffb4b222a8f9e659b54809d1876e9b4460e41e04142711f6fbbb96984"
       }
     },
     {
@@ -154,8 +204,8 @@
       ],
       "patch": "qwen38.patch",
       "sourceSHA256": "aecf46bf84387ea1f77ee2cabec366d0b0dcb5873ce6bb995726e06482e6bff6",
-      "patchSHA256": "a7deb55d30220c5c2c183eca3a328a96042134880324e27f7bc84ec45bcc7eaf",
-      "derivedSHA256": "1046a25f9c4fcdaaec8d73e8f0734d398d90e240a5c87ad118d38ab0bd183c27",
+      "patchSHA256": "06fde806febb4728279a866ed3b014e5105f98f49c0667c00ed849ea380bbda0",
+      "derivedSHA256": "f011b069ce560cc27a1bafc3bbdc824894d6cc97f39cbf6e40190560964985f2",
       "requiredCorePatch": "../ds4-qwen38-prepare/prepare-empty.patch",
       "oracle": "Native Qwen protocol/parser tests and DStudio runtime behavior; not a legacy version-86 migration or a model-quality claim.",
       "postV99Fix": {
@@ -172,6 +222,16 @@
         "patch": "qwen38-progress-summary.patch",
         "sha256": "25c7272b276f6a154fae5b6765e6a73b26404ceecebfb2ffa6d6c07f80cf712a",
         "previousDerivedSHA256": "6702a33d351f99387c8ac3de53cba0227298c2f1907bf7de4b9ee5906db818a8"
+      },
+      "postV105Fix": {
+        "patch": "qwen38-final-newline.patch",
+        "sha256": "36d6ea2a1b96ed637d4ccdc4e87e1cf43cba953e7a651944d9e60a64a2278422",
+        "previousDerivedSHA256": "1046a25f9c4fcdaaec8d73e8f0734d398d90e240a5c87ad118d38ab0bd183c27"
+      },
+      "postV106Fix": {
+        "patch": "qwen38-cowork-tools.patch",
+        "sha256": "2c85d545b2e46f16ec624622867e9d67f3041dc998ca411077b5ad1813a68e84",
+        "previousDerivedSHA256": "248f06a9f680e63fabd2dcc516684c8300349e0668c7c7366917dc54eddeacac"
       }
     },
     {
@@ -182,8 +242,8 @@
       "revision": "ff4f0ff4fdff70d6b7c3941ef437b91dde960e14",
       "patch": "qwen38-next.patch",
       "sourceSHA256": "773cfa9ab127ec87ac1b39a7c5b7d2414300522fab94b6c34f9869f95c3d556a",
-      "patchSHA256": "35a978b74a7bba5c61cf6d48d0dde7bd3d856ab48b44920811710e2544b0e997",
-      "derivedSHA256": "23a12bbe1d4912e8e6a0f9c99ba22e758fc776cba6fd135b019aa9de01277b73",
+      "patchSHA256": "b7b5a16b9c2901431da23ff6680c20d4d55bd27595eb56ba1bab223c1f32ad08",
+      "derivedSHA256": "59b0eee0a77ee65a2b8379b8b50fd869d01faae44a2cd52da098379bb3e372e4",
       "postV99Fix": {
         "patch": "qwen38-next-readiness.patch",
         "sha256": "81bf6320596ee9a1c96c537ac6d5a0b5370dc50a14124aad074b1d7b3cb3a36b",
@@ -198,6 +258,16 @@
         "patch": "qwen38-next-progress-summary.patch",
         "sha256": "bfaffe65910e2c2eeafcc67119e08d2e643d4f5182cb03cea9181491a4f501f7",
         "previousDerivedSHA256": "fc0168172bd3439c32ba48c77e77f113dc30100ca034b664b0200262ea6eab16"
+      },
+      "postV105Fix": {
+        "patch": "qwen38-next-final-newline.patch",
+        "sha256": "0c5e6c4f32a66193044a826871d16b920b20cabb246784f71ea96248199e12dd",
+        "previousDerivedSHA256": "23a12bbe1d4912e8e6a0f9c99ba22e758fc776cba6fd135b019aa9de01277b73"
+      },
+      "postV106Fix": {
+        "patch": "qwen38-next-cowork-tools.patch",
+        "sha256": "5b02ab18407564c39b202c860e7f3705652a1c09c3424c60b9f0174b63b744f8",
+        "previousDerivedSHA256": "b23c8108f41c53768940c3c4373abf8f0560dc9349a6d39ca6e6983230abb2fe"
       }
     }
   ],

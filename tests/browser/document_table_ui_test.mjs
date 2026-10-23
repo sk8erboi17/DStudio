@@ -15,7 +15,9 @@ try:
     case.simple('Owner: Zoë <script>window.injected=1</script>', 'Zoë')
     case.call('update', revision=1, rows_json=[{'id':'unread','label':'Not yet extracted','cells':{}}])
     result = case.call('export', output='comparison.html')
-    print(json.dumps({'result':result, 'html':(case.root/'comparison.html').read_text()}))
+    wide = case.call('create', 'wide.table.json', columns_json=[{'id': f'c{i}'} for i in range(128)],
+                     rows_json=[{'id': 'r0', 'cells': {}}])
+    print(json.dumps({'result':result, 'wide':wide, 'html':(case.root/'comparison.html').read_text()}))
 finally:
     case.tearDown()
 `], { encoding: 'utf8' }));
@@ -66,6 +68,9 @@ try {
   const bounds = await page.evaluate(() => ({ width: innerWidth, document: document.documentElement.scrollWidth }));
   assert.ok(bounds.document <= bounds.width, JSON.stringify(bounds));
   await page.screenshot({ path: `${dir}/cowork-mobile.png`, fullPage: true });
+  // The widest table the helper accepts (128 columns) still renders inline.
+  await page.evaluate(data => document.querySelector('#preview').replaceChildren(window.renderTable(JSON.stringify(data))), fixture.wide);
+  assert.equal(await page.locator('thead th').count(), 129);
   assert.equal(await page.evaluate(() => window.renderTable('{bad json')), null);
   assert.equal(await page.evaluate(() => window.renderTable(JSON.stringify({format:'other',columns:[],rows:[]}))), null);
   await page.setContent(fixture.html);

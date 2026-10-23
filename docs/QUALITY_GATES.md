@@ -91,6 +91,12 @@ Cowork is graded on source-grounded answers and deliverables, not eloquence.
   creation.
 - KV evidence requires `.ds4/cowork-kvcache/sysprompt.kv` plus at least one
   session SHA file.
+- A turn that exceeds the test's per-case limit (`DSTUDIO_COWORK_TURN_TIMEOUT_MS`,
+  one hour by default) fails that case. The test then stops it with the
+  production Stop, which ends the runtime process. Before the next case it
+  starts the runtime again as the UI does: a fresh case gets a new session, a
+  continuing case gets the last saved one. That row records
+  `runtimeRestarted`. The partial transcript stays in `<case>.raw.live.txt`.
 
 Commands:
 

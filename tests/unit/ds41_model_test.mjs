@@ -39,6 +39,15 @@ check('Q4 download is the original checkpoint; ds41f-q2 is the 1017 file, as in 
   // Only the 1017 file satisfies ds41f-q2; an original Q2 on disk does not hide it.
   assert(plain(context.availableModelDownloads([oldQ2])).some(x => x.id === 'ds41f-q2'));
   assert(!plain(context.availableModelDownloads([official1017])).some(x => x.id === 'ds41f-q2'));
+  // The original Q2 keeps its own download, so an earlier partial can resume.
+  const original = plain(context.availableModelDownloads([])).find(x => x.id === 'ds41f-q2-original');
+  assert.deepEqual(original.body, {target: 'ds41f-q2-original', engine: 'main'});
+  assert.match(original.label, /original checkpoint/); assert.doesNotMatch(original.label, /1017/);
+  assert(!plain(context.availableModelDownloads([oldQ2])).some(x => x.id === 'ds41f-q2-original'));
+  assert(plain(context.availableModelDownloads([official1017])).some(x => x.id === 'ds41f-q2-original'));
+  // Its sidecar is described for both original quantizations.
+  const sidecar = plain(context.availableNativeVisionDownloads([])).find(x => x.id === 'ds41f-vision');
+  assert.match(sidecar.label, /original checkpoint: Q2 or Q4/);
 });
 check('V4.1 encoder is an auxiliary download, never a language model', () => {
   const encoder = item('DeepSeek-V4.1-Flash-Vision.gguf');

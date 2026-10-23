@@ -1,13 +1,44 @@
 // Deterministic PDF inputs for reader tests, not user-facing authored files.
 // Each line is placed explicitly; Poppler supplies the independent extraction.
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import zlib from 'node:zlib';
+
+// A page that is only a picture of text, like a scan: the text page is drawn
+// by Poppler (pdftoppm) and embedded as an image, with no text layer.
+export function scannedPage(lines, dpi = 150) {
+  const tool = ['/opt/homebrew/bin/pdftoppm', '/usr/local/bin/pdftoppm', '/usr/bin/pdftoppm'].find((f) => fs.existsSync(f));
+  if (!tool) throw new Error('Poppler pdftoppm is required to make a scanned page; missing dependency is not a pass');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dstudio-scan-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'page.pdf'), pdfFixture([{ lines, size: 14 }]));
+    execFileSync(tool, ['-r', String(dpi), '-singlefile', path.join(dir, 'page.pdf'), path.join(dir, 'page')]);
+    const ppm = fs.readFileSync(path.join(dir, 'page.ppm'));
+    const header = ppm.toString('latin1', 0, 64).match(/^P6\s+(\d+)\s+(\d+)\s+255\s/);
+    if (!header) throw new Error('unexpected pdftoppm output');
+    return { scan: { width: +header[1], height: +header[2], rgb: ppm.subarray(header[0].length) } };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 export function pdfFixture(pages) {
   const objects = ['', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'];
   const kids = [];
   for (const page of pages) {
     const id = objects.length + 1;
     kids.push(`${id} 0 R`);
+    if (page.scan) {
+      const data = zlib.deflateSync(page.scan.rgb).toString('latin1');
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 ${id + 2} 0 R >> >> /Contents ${id + 1} 0 R >>`);
+      const draw = 'q 612 0 0 792 0 0 cm /Im1 Do Q';
+      objects.push(`<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`);
+      objects.push(`<< /Type /XObject /Subtype /Image /Width ${page.scan.width} /Height ${page.scan.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${data.length} >>\nstream\n${data}\nendstream`);
+      continue;
+    }
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ${page.rotate ? '/Rotate 90' : ''} /Resources << /Font << /F1 3 0 R >> >> /Contents ${id + 1} 0 R >>`);
-    let stream = page.lines.map((line, i) => `BT /F1 9 Tf 30 ${760 - i * 12} Td (${line.replace(/([\\()])/g, '\\$1')}) Tj ET`).join('\n');
+    const size = page.size || 9;
+    let stream = page.lines.map((line, i) => `BT /F1 ${size} Tf 30 ${760 - i * (size + 3)} Td (${line.replace(/([\\()])/g, '\\$1')}) Tj ET`).join('\n');
     if (page.image) stream += '\nq 40 0 0 40 520 20 cm BI /W 1 /H 1 /CS /RGB /BPC 8 /F /AHx ID ff0000> EI Q';
     objects.push(`<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`);
   }

@@ -82,14 +82,24 @@ for (const mode of ['agent', 'cowork']) {
 const menus = ['selectedAgentDiskCheckpointsExpected', 'slashCommands']
   .map(name => extractFunction(source, name)).join('\n');
 const selectors = source.slice(source.indexOf('    const localQwen35Selected ='), source.indexOf('    function thinkingProfile('));
-for (const mode of ['agent', 'cowork']) for (const [model, remote, lan, expected] of [
-  ['qwen3.6-35b-a3b', false, false, false], ['deepseek-v4-flash', false, false, true],
-  ['qwen3.6-35b-a3b', true, false, true], ['qwen3.6-35b-a3b', false, true, true],
-  ['qwen3.8-27b', false, false, false], ['qwen3.8-27b', true, false, true], ['qwen3.8-27b', false, true, true],
+// Local llama.cpp/MLX Qwen: the native Agent/Cowork runtimes save their
+// transcript, so session commands are offered; the pi/OpenCode harnesses do not
+// save sessions, and a shared LAN Cowork session's saved sessions belong to the host.
+for (const mode of ['agent', 'cowork']) for (const [model, remote, lan, harness, lanCowork, expected] of [
+  ['qwen3.6-35b-a3b', false, false, 'native', false, true], ['deepseek-v4-flash', false, false, 'native', false, true],
+  ['qwen3.6-35b-a3b', true, false, 'native', false, true], ['qwen3.6-35b-a3b', false, true, 'native', false, true],
+  ['qwen3.8-27b', false, false, 'native', false, true], ['qwen3.8-27b', true, false, 'native', false, true],
+  ['qwen3.8-27b', false, true, 'native', false, true],
+  ['qwen3.6-35b-a3b', false, false, 'pi', false, mode === 'cowork'],
+  ['qwen3.8-27b', false, false, 'opencode', false, mode === 'cowork'],
+  ['deepseek-v4-flash', false, false, 'pi', false, true],
+  ['deepseek-v4-flash', false, false, 'native', true, false],
+  ['qwen3.6-35b-a3b', true, false, 'native', true, false],
 ]) {
-  const settings = {model, chatBackend: remote ? 'deepseek' : 'local', deepseekApiKey: remote ? 'fixture' : ''};
+  const settings = {model, chatBackend: remote ? 'deepseek' : 'local', deepseekApiKey: remote ? 'fixture' : '',
+    agentHarness: harness};
   const context = vm.createContext({Store: {getSettings: () => settings}, Switcher: {mode: () => mode},
-    isLanClientMode: () => lan});
+    isLanClientMode: () => lan, LanCowork: {isActive: () => lanCowork}});
   const commands = vm.runInContext(selectors + menus + '\nslashCommands()', context).map(c => c.cmd.trim());
   for (const command of ['/save', '/list', '/switch', '/del']) assert.equal(commands.includes(command), expected);
   for (const command of ['/new', '/compact', '/help']) assert(commands.includes(command));

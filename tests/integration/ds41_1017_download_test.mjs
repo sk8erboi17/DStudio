@@ -22,6 +22,10 @@ const releases = [
   // Community 1017 vision sidecar (source revision 1bae0e10, the same as the Q2's).
   {target: 'ds41f-1017-vision', repo: 'nazeshinjite/DeepSeek-V4.1-Flash-1017-ds4-GGUF', rev: '796f58533a0e4b7a89cb006b22aeb44e783f0323',
    file: 'DeepSeek-V4.1-Flash-1017-Vision.gguf', bytes: 970555552, sha: '861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf'},
+  // The original V4.1 Q2, still published at the same pinned revision: resumes a
+  // download started before ds41f-q2 became the 1017 file.
+  {target: 'ds41f-q2-original', repo: 'antirez/deepseek-v4.1-flash-gguf', rev: '9dcee51692e6540f697141fc98b097e3c96492a3',
+   file: 'DeepSeek-V4.1-Flash-Q2.gguf', bytes: 365713686528, sha: '1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42'},
 ];
 // Upstream 5379c1c's ds41f-q2 still carries the original Q2's digest; the 1017 file must not be checked against it.
 const STALE_UPSTREAM_SHA = '1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42';
@@ -53,7 +57,8 @@ try {
     report.cases.push({target: r.target, printPin: res.stdout}); save();
     assert.equal(res.status, 0, res.stderr);
     assert.equal(res.stdout, `${r.repo} ${r.rev} ${r.file} ${r.bytes} ${r.sha}\n`);
-    assert(!res.stdout.includes(STALE_UPSTREAM_SHA));
+    // That digest belongs to the original file only, never to the 1017 file.
+    assert.equal(res.stdout.includes(STALE_UPSTREAM_SHA), r.file === 'DeepSeek-V4.1-Flash-Q2.gguf');
   }
   assert.deepEqual(fs.readdirSync(out), []);
   for (const r of releases) {
@@ -85,7 +90,9 @@ try {
     // Transport failure leaves nothing accepted.
     res = download(r, false, {DSTUDIO_TEST_HF_FAIL: '1'}); assert(!fs.existsSync(file));
     // A download that produces bad bytes is deleted (exact path only); neighbours in the folder survive.
-    const neighbours = ['DeepSeek-V4.1-Flash-Q2.gguf', 'DeepSeek-V4.1-Flash-Q2.gguf.part', r.file + '.rejected.1', 'other.verified'];
+    // Other models' files in the shared folder (never this target's own file).
+    const neighbours = ['DeepSeek-V4.1-Flash-Q2.gguf', 'DeepSeek-V4.1-Flash-Q4.gguf', 'DeepSeek-V4.1-Flash-Q2.gguf.part',
+      r.file + '.rejected.1', 'other.verified'].filter(n => n !== r.file);
     for (const n of neighbours) fs.writeFileSync(path.join(out, n), 'stock ' + n);
     res = download(r, false, {DSTUDIO_TEST_HF_BODY: 'x'.repeat(payload(r.file).length)});
     assert.match(res.stderr, /Checksum mismatch/); assert.match(res.stderr, /was deleted/);
@@ -166,8 +173,8 @@ try {
   const help = spawnSync('sh', [path.join(proj, 'download-model.sh'), '--help'], {encoding: 'utf8'});
   assert.equal(help.status, 0);
   assert.match(help.stdout, /ds41f-q2, ds41f-1017-vision\s+-> DeepSeek V4.1 Flash 1017/);
-  assert.match(help.stdout, /ds41f-q4, ds41f-vision\s+-> DeepSeek V4.1 Flash original checkpoint/);
+  assert.match(help.stdout, /ds41f-q2-original, ds41f-q4, ds41f-vision\s+-> DeepSeek V4.1 Flash original checkpoint/);
   assert.doesNotMatch(help.stdout, /ds41f-1017-q2/);
-  report.passed = true; console.log('PASS: 1017 downloader (executed): pins per target, verifies size+sha, deletes only its own failed downloads, token via env, idempotent; root CLI routes ds41f-q2/ds41f-1017-vision to it and Q4/original vision to the vendored downloader');
+  report.passed = true; console.log('PASS: 1017 downloader (executed): pins per target, verifies size+sha, deletes only its own failed downloads, token via env, idempotent; root CLI routes ds41f-q2/ds41f-q2-original/ds41f-1017-vision to it and Q4/original vision to the vendored downloader');
 } catch (e) { report.error = e.stack; console.error(e); process.exitCode = 1; }
 finally { save(); console.log(run); }

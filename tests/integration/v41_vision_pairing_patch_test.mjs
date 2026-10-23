@@ -35,12 +35,32 @@ try {
   const drifted = sha(read());
   r = run('apply'); assert.equal(r.status, 1); assert.match(r.stderr, /source drift/);
   assert.equal(sha(read()), drifted, 'drift must change no file');
-  // Upstream merged: the hard-coded revision is gone and our marker never existed.
-  fs.writeFileSync(file, fs.readFileSync(vendored).toString('latin1')
-    .replaceAll('df42c109f1defefcbfcedbe7d905718a12266e40', 'ffffffffffffffffffffffffffffffffffffffff'), 'latin1');
-  const merged = sha(read());
+  // Upstream pins another V4.1 checkpoint (for example the 1017 revision):
+  // that is drift, never a silent skip that would refuse other sidecars.
+  const vendoredText = fs.readFileSync(vendored).toString('latin1');
+  fs.writeFileSync(file, vendoredText.replaceAll('df42c109f1defefcbfcedbe7d905718a12266e40',
+    '1bae0e1088993b9b82de08f59de5be5a34e42170'), 'latin1');
+  const repinned = sha(read());
+  r = run('apply'); assert.equal(r.status, 1); assert.match(r.stderr, /hard-codes a V4\.1 revision \(1bae0e10/);
+  assert.equal(sha(read()), repinned, 'a re-pinned upstream must change no file');
+  // Our marker without an exact reverse match is a partial or edited patch.
+  fs.writeFileSync(file, vendoredText, 'latin1');
+  r = run('apply'); assert.equal(r.status, 0, r.stderr);
+  fs.writeFileSync(file, read().toString('latin1').replace('V4.1 has several released checkpoints',
+    'V4.1 has many released checkpoints'), 'latin1');
+  const edited = sha(read());
+  r = run('apply'); assert.equal(r.status, 1); assert.match(r.stderr, /partial or edited patch/);
+  assert.equal(sha(read()), edited);
+  // Upstream no longer pins a V4.1 checkpoint in the bind (it pairs some other
+  // way) and our marker never existed: not needed, nothing changed.
+  fs.writeFileSync(file, vendoredText.replace('v41 ? "df42c109f1defefcbfcedbe7d905718a12266e40" :',
+    'v41 ? NULL :'), 'latin1');
+  const unpinned = sha(read());
   r = run('apply'); assert.equal(r.status, 0); assert.match(r.stdout, /not needed/);
-  assert.equal(sha(read()), merged);
+  assert.equal(sha(read()), unpinned);
+  // No V4.1 vision encoder at all (another engine): not needed.
+  fs.writeFileSync(file, '/* engine without DeepSeek vision */\n', 'latin1');
+  r = run('apply'); assert.equal(r.status, 0); assert.match(r.stdout, /not needed/);
   assert.equal(run('bogus').status, 2);
   console.log('PASS: V4.1 vision pairing patch lifecycle');
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }

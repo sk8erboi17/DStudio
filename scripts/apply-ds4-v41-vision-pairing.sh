@@ -33,12 +33,23 @@ elif apply_patch --check --whitespace=error >/dev/null 2>&1; then
         *) apply_patch --whitespace=error
            echo "DStudio V4.1 vision pairing patch: applied" ;;
     esac
-elif ! grep -q 'df42c109f1defefcbfcedbe7d905718a12266e40' "$ds4_dir/ds4.c" &&
-     ! grep -q 'ds4_str_eq(language, vision)' "$ds4_dir/ds4.c"; then
-    # No V4.1 vision encoder, or upstream already pairs by source revision.
-    # A file carrying our own marker but failing the reverse check is drift.
-    echo "DStudio V4.1 vision pairing patch: not needed (no hard-coded V4.1 revision); skipped"
 else
-    echo "DStudio V4.1 vision pairing patch: source drift or partial patch; no files changed" >&2
-    exit 1
+    # Neither direction applies. Skip only when the vision bind no longer pins
+    # a V4.1 checkpoint: any 40-hex revision in it other than Vision-Exp's
+    # means a hard-coded V4.1 revision this patch does not know (for example
+    # upstream switched it to another checkpoint), and skipping would silently
+    # refuse the sidecars it does not name. Our own marker is a partial patch.
+    bind_revisions=$(awk '/^static void deepseek4_vision_weights_bind\(/ {inside = 1}
+                          inside {print} inside && /^}/ {exit}' "$ds4_dir/ds4.c" |
+        grep -Eo '"[0-9a-f]{40}"' | grep -v '"e46e16bf6035c6f317eb2ac7458eb0362926d402"' || true)
+    if grep -q 'ds4_str_eq(language, vision)' "$ds4_dir/ds4.c"; then
+        echo "DStudio V4.1 vision pairing patch: partial or edited patch; no files changed" >&2
+        exit 1
+    elif [ -n "$bind_revisions" ]; then
+        echo "DStudio V4.1 vision pairing patch: source drift, the vision bind still hard-codes a V4.1 revision ($(echo $bind_revisions | tr -d '"')); no files changed" >&2
+        exit 1
+    else
+        # No V4.1 vision encoder, or upstream no longer pins one checkpoint.
+        echo "DStudio V4.1 vision pairing patch: not needed (no hard-coded V4.1 revision); skipped"
+    fi
 fi

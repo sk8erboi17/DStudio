@@ -198,7 +198,10 @@ for (const binary of binaries) for (const test of cases.filter(t => !selected ||
           assert.equal(fs.readFileSync(path.join(work, 'resumed.txt'), 'utf8'), 'RESUMED');
           stage = 'finishing'; sendText(event.id);
         } else if (requests === 1) {
-          const args = '{ "path" : "created.txt", "content" : ' + JSON.stringify(text) + ' }';
+          // write_document ends a text document with a line break unless
+          // final_newline=false (the exact-bytes request); write never adds one.
+          const args = '{ "path" : "created.txt", "content" : ' + JSON.stringify(text) +
+            (test.cowork ? ', "final_newline" : false }' : ' }');
           sendCalls(event.id, [call('writer-é', test.cowork ? 'write_document' : 'write', args),
             call('reader-🦊', test.cowork ? 'read_document' : 'read', { path: 'created.txt' })]);
         } else {

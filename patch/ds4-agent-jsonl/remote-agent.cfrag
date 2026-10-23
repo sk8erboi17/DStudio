@@ -341,7 +341,9 @@ static void ds4ui_remote_group_free(ds4ui_remote_tool_group *g);
 static size_t ds4ui_remote_group_bytes(const ds4ui_remote_tool_group *g);
 static size_t ds4ui_remote_group_image_bytes(const ds4ui_remote_tool_group *g);
 static void ds4ui_remote_group_snapshot(dstudio_remote_buf *out, const ds4ui_remote_tool_group *g);
-typedef struct { char *role; char *content; ds4ui_remote_tool_group *group; } ds4ui_msg;
+/* raw: a unit restored from a saved session, kept as the exact wire JSON it
+ * had (an assistant tool-call message with its results); sent unchanged. */
+typedef struct { char *role; char *content; ds4ui_remote_tool_group *group; char *raw; } ds4ui_msg;
 typedef struct {
     ds4ui_msg *v;
     int n, cap, failed;
@@ -366,7 +368,7 @@ typedef struct {
 static void ds4ui_msg_list_free(ds4ui_msg_list *m) {
     if (!m) return;
     for (int i = 0; i < m->n; i++) {
-        free(m->v[i].role); free(m->v[i].content);
+        free(m->v[i].role); free(m->v[i].content); free(m->v[i].raw);
         ds4ui_remote_group_free(m->v[i].group);
     }
     for (int i = 0; i < m->call_id_count; i++) free(m->call_ids[i]);
@@ -413,6 +415,7 @@ static char *ds4ui_msg_list_snapshot(const ds4ui_msg_list *m) {
     dstudio_remote_buf_puts(&out, "[");
     for (int i = 0; m && i < m->n; i++) {
         if (i) dstudio_remote_buf_puts(&out, ",");
+        if (m->v[i].raw) { dstudio_remote_buf_puts(&out, m->v[i].raw); continue; }
         dstudio_remote_buf_puts(&out, "{\"role\":");
         dstudio_remote_json_string(&out, m->v[i].role);
         dstudio_remote_buf_puts(&out, ",\"content\":");
@@ -440,10 +443,12 @@ static void ds4ui_msg_list_compact(ds4ui_msg_list *m, size_t budget_bytes, agent
     /* Encoded pixels count against the hard memory/wire limit, not the text
      * token estimate. The inference engine admits the actual visual tokens. */
     while (m->content_bytes - image_bytes > budget_bytes && m->n > 1 + DS4UI_REMOTE_KEEP_RECENT) {
-        size_t vlen = strlen(m->v[1].content) + ds4ui_remote_group_bytes(m->v[1].group);
+        size_t vlen = strlen(m->v[1].content) + ds4ui_remote_group_bytes(m->v[1].group) +
+                      (m->v[1].raw ? strlen(m->v[1].raw) : 0);
         image_bytes -= ds4ui_remote_group_image_bytes(m->v[1].group);
         free(m->v[1].role);
         free(m->v[1].content);
+        free(m->v[1].raw);
         ds4ui_remote_group_free(m->v[1].group);
         memmove(&m->v[1], &m->v[2], (size_t)(m->n - 2) * sizeof(*m->v));
         m->n--;
@@ -465,6 +470,311 @@ static void ds4ui_remote_messages_reset(ds4ui_msg_list *m, agent_config *cfg) {
     char *sys = ds4ui_remote_system_prompt(cfg);
     ds4ui_msg_list_add(m, "system", sys);
     free(sys);
+}
+
+/* ---- Saved remote-model sessions (llama.cpp, MLX, LAN host) ---------------
+ * The model server keeps no state the runtime could restore, so a session is
+ * its transcript: after every turn the message list is written to
+ * <session cache>/remote-sessions/<sha>.jsonl, and /switch <sha> rebuilds it.
+ * The next request then sends the restored conversation and the server
+ * prefills it again (no KV is saved or restored).
+ *
+ * Format, one JSON value per line (each line is parsed on its own, within
+ * the shared tokenizer bounds): a header
+ *   {"format":"dstudio.remote-session.v1","sha":...,"title":...,"createdAt":N,"messages":N}
+ * then one line per transcript unit after the system message: {"role","content"}
+ * for a plain message, {"raw":"<wire JSON>"} for a tool-call group (its
+ * assistant message, tool results and image observations, exactly as sent).
+ * The system prompt is not saved: a restored session uses the current one.
+ * Tool-call IDs of restored groups re-enter the session ledger, so an old call
+ * can never be admitted, or run, again. Writes are temp file + fsync + rename;
+ * a failed save leaves the previous file and reports the failure. */
+#define DS4UI_REMOTE_SESSION_FORMAT "dstudio.remote-session.v1"
+#define DS4UI_REMOTE_SESSION_FILE_MAX (DS4UI_REMOTE_HISTORY_MAX * 3u)
+
+static char *ds4ui_remote_session_dir(void) {
+    char *base = agent_default_cache_dir();
+    if (!base) return NULL;
+    agent_buf b = {0};
+    agent_buf_puts(&b, base);
+    if (b.len && b.ptr[b.len - 1] != '/') agent_buf_puts(&b, "/");
+    agent_buf_puts(&b, "remote-sessions");
+    free(base);
+    return agent_buf_take(&b);
+}
+
+static bool ds4ui_remote_sha_ok(const char *sha, size_t min, size_t max) {
+    size_t n = strlen(sha);
+    if (n < min || n > max) return false;
+    for (size_t i = 0; i < n; i++)
+        if (!((sha[i] >= '0' && sha[i] <= '9') || (sha[i] >= 'a' && sha[i] <= 'f'))) return false;
+    return true;
+}
+
+/* One transcript unit as the wire JSON the snapshot sends. */
+static void ds4ui_remote_unit_json(dstudio_remote_buf *out, const ds4ui_msg *msg) {
+    if (msg->raw) { dstudio_remote_buf_puts(out, msg->raw); return; }
+    dstudio_remote_buf_puts(out, "{\"role\":");
+    dstudio_remote_json_string(out, msg->role);
+    dstudio_remote_buf_puts(out, ",\"content\":");
+    dstudio_remote_json_string(out, msg->content);
+    if (msg->group) ds4ui_remote_group_snapshot(out, msg->group);
+    else dstudio_remote_buf_puts(out, "}");
+}
+
+static bool ds4ui_remote_session_save(agent_worker *w, const ds4ui_msg_list *m, bool announce) {
+    if (!m || m->failed || !w->session_sha[0] || m->n < 2) return false;
+    char *dir = ds4ui_remote_session_dir();
+    if (!dir) return false;
+    (void)agent_mkdir_p(dir);
+    size_t cap = m->content_bytes * 8 + (size_t)m->n * 16384 + 4096;
+    bool ok = cap <= DS4UI_REMOTE_SESSION_FILE_MAX * 4;
+    dstudio_remote_buf out = {.ptr = ok ? malloc(cap) : NULL, .cap = cap};
+    ok = ok && out.ptr;
+    if (ok) {
+        out.ptr[0] = '\0';
+        char head[160];
+        snprintf(head, sizeof head, "{\"format\":\"%s\",\"sha\":\"%s\",\"title\":", DS4UI_REMOTE_SESSION_FORMAT, w->session_sha);
+        dstudio_remote_buf_puts(&out, head);
+        dstudio_remote_json_string(&out, w->session_title ? w->session_title : "");
+        snprintf(head, sizeof head, ",\"createdAt\":%llu,\"messages\":%d}\n",
+                 (unsigned long long)w->session_created_at, m->n - 1);
+        dstudio_remote_buf_puts(&out, head);
+        for (int i = 1; i < m->n; i++) {
+            const ds4ui_msg *msg = &m->v[i];
+            if (msg->group || msg->raw) {
+                dstudio_remote_buf unit = {.ptr = malloc(cap), .cap = cap};
+                if (!unit.ptr) { ok = false; break; }
+                unit.ptr[0] = '\0';
+                ds4ui_remote_unit_json(&unit, msg);
+                dstudio_remote_buf_puts(&out, "{\"raw\":");
+                dstudio_remote_json_string(&out, unit.ptr);
+                dstudio_remote_buf_puts(&out, "}\n");
+                dstudio_remote_buf_free(&unit);
+            } else {
+                ds4ui_remote_unit_json(&out, msg);
+                dstudio_remote_buf_puts(&out, "\n");
+            }
+        }
+        ok = ok && out.len < out.cap && out.len <= DS4UI_REMOTE_SESSION_FILE_MAX;
+    }
+    char path[PATH_MAX], tmp[PATH_MAX + 32];
+    snprintf(path, sizeof path, "%s/%s.jsonl", dir, w->session_sha);
+    snprintf(tmp, sizeof tmp, "%s/.%s.jsonl.XXXXXX", dir, w->session_sha);
+    int fd = ok ? mkstemp(tmp) : -1;
+    size_t written = 0;
+    while (fd >= 0 && ok && written < out.len) {
+        ssize_t n = write(fd, out.ptr + written, out.len - written);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) ok = false; else written += (size_t)n;
+    }
+    ok = fd >= 0 && ok && fsync(fd) == 0;
+    if (fd >= 0 && close(fd) != 0) ok = false;
+    if (ok && rename(tmp, path) != 0) ok = false;
+    if (!ok && fd >= 0) unlink(tmp);
+    if (ok) {
+        int dfd = open(dir, O_RDONLY);
+        if (dfd >= 0) { (void)fsync(dfd); close(dfd); }
+    }
+    dstudio_remote_buf_free(&out);
+    free(dir);
+    if (announce || !ok) {
+        /* A status line of its own: the turn's text may not end with one. */
+        if (ok) printf("\nsaved session %.8s (%d messages)\n", w->session_sha, m->n - 1);
+        else printf("\nsave failed: could not write the remote session transcript\n");
+        fflush(stdout);
+    }
+    return ok;
+}
+
+/* The single saved session whose name starts with prefix, or false. */
+static bool ds4ui_remote_session_find(const char *dir, const char *prefix, char sha[41], char *err, size_t errsz) {
+    if (!ds4ui_remote_sha_ok(prefix, 4, 40)) { snprintf(err, errsz, "invalid session id %.40s", prefix); return false; }
+    DIR *d = opendir(dir);
+    int found = 0;
+    for (struct dirent *e; d && (e = readdir(d)); ) {
+        size_t n = strlen(e->d_name);
+        if (n != 46 || strcmp(e->d_name + 40, ".jsonl") || strncmp(e->d_name, prefix, strlen(prefix))) continue;
+        char name[41];
+        memcpy(name, e->d_name, 40); name[40] = '\0';
+        if (!ds4ui_remote_sha_ok(name, 40, 40)) continue;
+        if (!found++) memcpy(sha, name, 41);
+    }
+    if (d) closedir(d);
+    if (found == 1) return true;
+    snprintf(err, errsz, found ? "session id %.40s is ambiguous" : "no saved session matches %.40s", prefix);
+    return false;
+}
+
+static char *ds4ui_remote_read_file(const char *path, size_t max) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    dstudio_remote_buf b = {.ptr = malloc(65536), .cap = 65536};
+    bool ok = b.ptr != NULL;
+    char chunk[65536];
+    size_t n;
+    while (ok && (n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+        if (b.len + n + 1 > max) { ok = false; break; }
+        if (b.len + n + 1 > b.cap) {
+            size_t ncap = b.cap * 2 > b.len + n + 1 ? b.cap * 2 : b.len + n + 1;
+            char *np = realloc(b.ptr, ncap);
+            if (!np) { ok = false; break; }
+            b.ptr = np; b.cap = ncap;
+        }
+        memcpy(b.ptr + b.len, chunk, n);
+        b.len += n;
+        b.ptr[b.len] = '\0';
+    }
+    if (ferror(f)) ok = false;
+    fclose(f);
+    if (!ok) { free(b.ptr); return NULL; }
+    if (!b.len) b.ptr[0] = '\0';
+    return b.ptr;
+}
+
+/* Record the tool-call IDs of a restored group in the session ledger. */
+static bool ds4ui_remote_session_ledger(ds4ui_msg_list *m, const char *raw) {
+    size_t n = strlen(raw);
+    char *array = malloc(n + 3);
+    if (!array) return false;
+    array[0] = '['; memcpy(array + 1, raw, n); array[n + 1] = ']'; array[n + 2] = '\0';
+    ds4ui_remote_json doc;
+    bool ok = ds4ui_remote_json_open(&doc, array, '[');
+    for (int i = 0; ok; i++) {
+        int item = dtg_json_array_nth(doc.tokens, doc.count, 0, i);
+        if (item < 0) break;
+        char *id = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, item, "tool_call_id"));
+        if (!id) continue;
+        if (m->call_id_count >= DS4UI_REMOTE_CALL_IDS_MAX) { free(id); ok = false; break; }
+        if (m->call_id_count == m->call_id_cap) {
+            int capacity = m->call_id_cap ? m->call_id_cap * 2 : 32;
+            char **ids = realloc(m->call_ids, (size_t)capacity * sizeof *ids);
+            if (!ids) { free(id); ok = false; break; }
+            m->call_ids = ids; m->call_id_cap = capacity;
+        }
+        m->call_ids[m->call_id_count++] = id;
+    }
+    free(doc.tokens);
+    free(array);
+    return ok;
+}
+
+/* Rebuild the transcript from a saved session. Everything is validated into a
+ * private list first; the live transcript is replaced only on success. */
+static bool ds4ui_remote_session_load(agent_worker *w, ds4ui_msg_list *live, const char *prefix) {
+    char err[160] = "", sha[41] = "";
+    char *dir = ds4ui_remote_session_dir();
+    bool ok = dir && ds4ui_remote_session_find(dir, prefix, sha, err, sizeof err);
+    char path[PATH_MAX];
+    if (ok) snprintf(path, sizeof path, "%s/%s.jsonl", dir, sha);
+    char *text = ok ? ds4ui_remote_read_file(path, DS4UI_REMOTE_SESSION_FILE_MAX) : NULL;
+    if (ok && !text) { ok = false; snprintf(err, sizeof err, "session %.8s could not be read", sha); }
+    ds4ui_msg_list next = {0};
+    char *title = NULL;
+    unsigned long long created = 0;
+    int declared = -1;
+    if (ok) {
+        ds4ui_remote_messages_reset(&next, w->cfg);
+        char *line = text;
+        for (int index = 0; ok && line && *line; index++) {
+            char *nl = strchr(line, '\n');
+            if (nl) *nl = '\0';
+            ds4ui_remote_json doc;
+            if (!ds4ui_remote_json_open(&doc, line, '{')) { ok = false; break; }
+            if (index == 0) {
+                char *format = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "format"));
+                char *saved = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "sha"));
+                title = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "title"));
+                int at = ds4ui_remote_field(&doc, 0, "createdAt"), count = ds4ui_remote_field(&doc, 0, "messages");
+                ok = format && !strcmp(format, DS4UI_REMOTE_SESSION_FORMAT) && saved && !strcmp(saved, sha) && title &&
+                     at >= 0 && doc.tokens[at].type == DTG_JSON_PRIMITIVE && count >= 0 && doc.tokens[count].type == DTG_JSON_PRIMITIVE;
+                if (ok) {
+                    created = strtoull(doc.json + doc.tokens[at].start, NULL, 10);
+                    declared = (int)strtol(doc.json + doc.tokens[count].start, NULL, 10);
+                }
+                free(format); free(saved);
+            } else {
+                char *raw = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "raw"));
+                char *role = raw ? NULL : ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "role"));
+                char *content = raw ? NULL : ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "content"));
+                if (raw) {
+                    ok = ds4ui_msg_list_add(&next, "assistant", "") && ds4ui_remote_session_ledger(&next, raw);
+                    if (ok) { next.v[next.n - 1].raw = raw; next.content_bytes += strlen(raw); raw = NULL; }
+                } else {
+                    ok = role && content && (!strcmp(role, "user") || !strcmp(role, "assistant")) &&
+                         ds4ui_msg_list_add(&next, role, content);
+                }
+                free(raw); free(role); free(content);
+            }
+            free(doc.tokens);
+            line = nl ? nl + 1 : NULL;
+        }
+        ok = ok && declared == next.n - 1 && !next.failed;
+        if (!ok && !err[0]) snprintf(err, sizeof err, "session %.8s is damaged or from another format; nothing restored", sha);
+    }
+    free(text); free(dir);
+    if (!ok) {
+        ds4ui_msg_list_free(&next); free(title);
+        printf("switch failed: %s\n", err[0] ? err : "remote sessions are unavailable");
+        fflush(stdout);
+        return false;
+    }
+    ds4ui_msg_list_free(live);
+    *live = next;
+    free(w->session_title);
+    w->session_title = title;
+    w->session_created_at = (uint64_t)created;
+    memcpy(w->session_sha, sha, sizeof w->session_sha);
+    printf("switched to session %.8s (%d messages restored; the model server reads them again on the next turn)\n",
+           sha, live->n - 1);
+    fflush(stdout);
+    return true;
+}
+
+static void ds4ui_remote_session_list(void) {
+    char *dir = ds4ui_remote_session_dir();
+    DIR *d = dir ? opendir(dir) : NULL;
+    int shown = 0;
+    for (struct dirent *e; d && (e = readdir(d)); ) {
+        if (strlen(e->d_name) != 46 || strcmp(e->d_name + 40, ".jsonl")) continue;
+        char path[PATH_MAX];
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        FILE *f = fopen(path, "rb");
+        char head[4096] = "";
+        if (f) { if (!fgets(head, sizeof head, f)) head[0] = '\0'; fclose(f); }
+        head[strcspn(head, "\n")] = '\0';
+        ds4ui_remote_json doc;
+        if (!head[0] || !ds4ui_remote_json_open(&doc, head, '{')) continue;
+        char *title = ds4ui_remote_json_text(&doc, ds4ui_remote_field(&doc, 0, "title"));
+        int count = ds4ui_remote_field(&doc, 0, "messages");
+        struct stat st;
+        long long bytes = stat(path, &st) == 0 ? (long long)st.st_size : 0;
+        printf("%.8s > %s\n         > %ld messages, %.2f MB, transcript only (re-read by the model server)\n\n",
+               e->d_name, title ? title : "", count >= 0 ? strtol(doc.json + doc.tokens[count].start, NULL, 10) : 0L,
+               (double)bytes / (1024.0 * 1024.0));
+        free(title); free(doc.tokens);
+        shown++;
+    }
+    if (d) closedir(d);
+    free(dir);
+    if (!shown) printf("no saved sessions\n");
+    else printf("Use /switch <id> to select a session, /del <id> to remove.\n");
+    fflush(stdout);
+}
+
+static void ds4ui_remote_session_delete(const char *prefix) {
+    char err[160] = "", sha[41] = "";
+    char *dir = ds4ui_remote_session_dir();
+    if (dir && ds4ui_remote_session_find(dir, prefix, sha, err, sizeof err)) {
+        char path[PATH_MAX];
+        snprintf(path, sizeof path, "%s/%s.jsonl", dir, sha);
+        if (unlink(path) == 0) printf("deleted session %.8s\n", sha);
+        else printf("delete failed: %s\n", strerror(errno));
+    } else {
+        printf("delete failed: %s\n", err[0] ? err : "remote sessions are unavailable");
+    }
+    free(dir);
+    fflush(stdout);
 }
 
 typedef struct {
@@ -969,11 +1279,21 @@ static bool ds4ui_remote_handle_slash(agent_worker *w,
         ds4ui_msg_list_compact(msgs, 0, w);   /* force down to system + recent turns */
         printf("compacted remote transcript (kept the system prompt and the most recent turns)\n");
     } else if (!strcmp(cmd, "/help")) {
-        printf("commands: /new /compact /help. KV session save/list/switch are host-side in LAN remote-model mode.\n");
-    } else if (!strcmp(cmd, "/save") || !strcmp(cmd, "/list") ||
-               agent_slash_command_with_args(cmd, "/switch") ||
-               agent_slash_command_with_args(cmd, "/del")) {
-        printf("remote-model mode keeps the live KV on the LAN host; this local agent does not manage host KV sessions. Use /new to reset this local transcript.\n");
+        printf("commands: /new /compact /save /list /switch <id> /del <id> /help. Remote-model sessions save the "
+               "transcript; the model server reads it again after a restore (no KV is kept).\n");
+    } else if (!strcmp(cmd, "/save")) {
+        if (!w->session_sha[0]) printf("save failed: nothing to save yet\n");
+        else ds4ui_remote_session_save(w, msgs, true);
+    } else if (!strcmp(cmd, "/list")) {
+        ds4ui_remote_session_list();
+    } else if (agent_slash_command_with_args(cmd, "/switch")) {
+        const char *id = cmd + 7;
+        while (*id == ' ') id++;
+        ds4ui_remote_session_load(w, msgs, id);
+    } else if (agent_slash_command_with_args(cmd, "/del")) {
+        const char *id = cmd + 4;
+        while (*id == ' ') id++;
+        ds4ui_remote_session_delete(id);
     } else {
         return false;
     }
@@ -1010,6 +1330,7 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
     int rc = 0;
     if (one_shot) {
         rc = ds4ui_remote_run_turn(&worker, &messages, cfg->gen.prompt);
+        ds4ui_remote_session_save(&worker, &messages, true);
     } else {
         bool stdin_eof = false;
         bool waiting_announced = false;
@@ -1078,8 +1399,13 @@ static int ds4ui_run_remote_agent(agent_config *cfg) {
                 char *prompt = agent_input_buf_take(&input);
                 ds4ui_remote_apply_control(cfg, prompt);
                 if (prompt[0] && (!ds4ui_pipe_slash(prompt) ||
-                    !ds4ui_remote_handle_slash(&worker, &messages, prompt)))
+                    !ds4ui_remote_handle_slash(&worker, &messages, prompt))) {
                     rc = ds4ui_remote_run_turn(&worker, &messages, prompt);
+                    /* End-of-turn autosave, before WAITING, like the native
+                     * runtime: the UI binds this conversation to the sha. */
+                    ds4ui_remote_flush(&worker);
+                    ds4ui_remote_session_save(&worker, &messages, true);
+                }
                 free(prompt);
                 waiting_announced = false;
             }

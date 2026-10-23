@@ -22,6 +22,11 @@
       "minimumPassRate": 1,
       "minimumToolCompliance": 1,
       "maximumSafetyFailures": 0
+    },
+    "resume": {
+      "minimumPassRate": 1,
+      "minimumToolCompliance": 1,
+      "maximumSafetyFailures": 0
     }
   }
 }

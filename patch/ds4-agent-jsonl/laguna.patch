@@ -79,7 +79,7 @@
      "### Available Tool Schemas\n\n"
      "{\n"
      "  \"type\": \"function\",\n"
-@@ -1059,19 +1094,68 @@
+@@ -1059,19 +1094,73 @@
      "what is going on in complex parts of the code.\n"
      "- Work in a way that preserves the current system configuration integrity, "
      "unless explicitly asked otherwise by the user.\n";
@@ -88,6 +88,8 @@
 +    const char *runtime = getenv("DS4UI_RUNTIME_NAME");
 +    return runtime && !strcmp(runtime, "cowork");
 +}
++
++#include "cowork-tools.cfrag"   /*DS4UI_JSONL*/
 +
 +static const char agent_cowork_dsml_tools_prompt_intro[] =
 +    "You are DStudio Cowork, a local knowledge-work agent. Use tools to inspect source files, "
@@ -106,7 +108,7 @@
 +    "{\"type\":\"function\",\"function\":{\"name\":\"document_table\",\"description\":\"General-purpose source-backed comparison tables. Read exact source segments, propose user-chosen columns/cells, inspect evidence and export HTML/XLSX. Read the Cowork document-table workflow before first use; source matching is not semantic verification.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"read_source\",\"create\",\"update\",\"inspect\",\"export\"]},\"path\":{\"type\":\"string\",\"description\":\"Source path for read_source; workspace-relative .table.json for other actions.\"},\"segment\":{\"type\":\"string\",\"description\":\"Optional exact source segment ID.\"},\"offset\":{\"type\":\"string\",\"description\":\"Pagination offset; follow nextOffset.\"},\"title\":{\"type\":\"string\"},\"columns_json\":{\"type\":\"string\",\"description\":\"Array of {id,label,type:text|number|date|enum,unit?,decimal?,values?,required?}.\"},\"rows_json\":{\"type\":\"string\",\"description\":\"Array of {id,label,cells:{columnId:{value,evidence:[{path,sha256,segment,quote}]}|{missing:true,note}|{candidates:[{value,evidence}]}}}.\"},\"checks_json\":{\"type\":\"string\",\"description\":\"Optional [{kind:unique,column}|{kind:sum,column,expected:string}]; no implicit checks.\"},\"revision\":{\"type\":\"string\",\"description\":\"Required current revision for update.\"},\"replace_json\":{\"type\":\"string\",\"description\":\"Explicit corrected row:column keys; other existing cells are preserved.\"},\"output\":{\"type\":\"string\",\"description\":\"New .html or .xlsx export path; sources rechecked before exporting.\"}},\"required\":[\"action\",\"path\"]}}}\n"
 +    "{\"type\":\"function\",\"function\":{\"name\":\"excel\",\"description\":\"Inspect, read, create, write or append a workspace XLSX, CSV or TSV file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"enum\":[\"inspect\",\"read\",\"create\",\"write\",\"append\"]},\"path\":{\"type\":\"string\"},\"sheet\":{\"type\":\"string\"},\"range\":{\"type\":\"string\"},\"data_json\":{\"type\":\"string\"},\"sheets_json\":{\"type\":\"string\"},\"header\":{\"type\":\"boolean\"}},\"required\":[\"action\",\"path\"]}}}\n"
 +    "{\"type\":\"function\",\"function\":{\"name\":\"read_document\",\"description\":\"Extract bounded text from a workspace DOCX, PPTX, ODT, RTF, HTML, Markdown, text, JSON or delimited file.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}}\n"
-+    "{\"type\":\"function\",\"function\":{\"name\":\"write_document\",\"description\":\"Create a polished workspace DOCX, Markdown, text or HTML document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
++    "{\"type\":\"function\",\"function\":{\"name\":\"write_document\",\"description\":\"Create a polished workspace DOCX, Markdown, text or HTML document.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"final_newline\":{\"type\":\"boolean\",\"description\":\"For .txt/.md: false keeps a text without a final line break; by default one is added.\"}},\"required\":[\"path\",\"content\"]}}}\n"
 +    "{\"type\":\"function\",\"function\":{\"name\":\"write_pdf\",\"description\":\"Create a polished paginated workspace PDF directly; use this instead of bash or a converter.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}}\n"
 +    "{\"type\":\"function\",\"function\":{\"name\":\"presentation\",\"description\":\"Create a polished 16:9 workspace PPTX.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"slides_json\":{\"type\":\"string\"}},\"required\":[\"path\",\"slides_json\"]}}}\n";
 +
@@ -125,9 +127,12 @@
 +    const char *heading = cowork ? agent_cowork_dsml_schema_heading : "";
 +    const char *office = cowork ? agent_cowork_tool_schemas : "";
 +    const char *office_rules = cowork ? agent_cowork_dsml_schema_rules : "";
++    char *after_edit = cowork ? ds4ui_cowork_without_shell(agent_tools_prompt_after_edit)
++                              : xstrdup(agent_tools_prompt_after_edit);
 +    size_t a = strlen(intro);
      size_t b = strlen(edit);
-     size_t c = strlen(agent_tools_prompt_after_edit);
+-    size_t c = strlen(agent_tools_prompt_after_edit);
++    size_t c = strlen(after_edit);
 -    char *out = xmalloc(a + b + c + 1);
 -    memcpy(out, agent_tools_prompt_intro, a);
 +    size_t d = strlen(heading);
@@ -137,10 +142,11 @@
 +    memcpy(out, intro, a);
      memcpy(out + a, edit, b);
 -    memcpy(out + a + b, agent_tools_prompt_after_edit, c + 1);
-+    memcpy(out + a + b, agent_tools_prompt_after_edit, c);
++    memcpy(out + a + b, after_edit, c);
 +    memcpy(out + a + b + c, heading, d);
 +    memcpy(out + a + b + c + d, office, e);
 +    memcpy(out + a + b + c + d + e, office_rules, f + 1);
++    free(after_edit);
      return out;
  }
  
@@ -152,7 +158,7 @@
  static const char agent_glm_tools_prompt_intro[] =
      "You are a coding agent running in a local workspace. Use tools for local file and system work. "
      "Avoid printing large file contents or large code blocks as answers; create or edit files with tools, "
-@@ -1148,14 +1232,28 @@
+@@ -1148,14 +1237,31 @@
      "- For long bash jobs, pass refresh_sec and then poll with bash_status or stop with bash_stop.\n"
      "- Preserve the current system configuration unless the user explicitly asks otherwise.\n";
  
@@ -170,22 +176,27 @@
 +    const char *intro = cowork ? agent_cowork_laguna_tools_prompt_intro
 +                               : agent_laguna_tools_prompt_intro;
 +    const char *office = cowork ? agent_cowork_tool_schemas : "";
++    char *schemas = cowork ? ds4ui_cowork_without_shell(agent_glm_tool_schemas)
++                           : xstrdup(agent_glm_tool_schemas);
 +    size_t a = strlen(intro);
-     size_t b = strlen(agent_glm_tool_schemas);
+-    size_t b = strlen(agent_glm_tool_schemas);
++    size_t b = strlen(schemas);
 +    size_t bo = strlen(office);
      size_t c = strlen(agent_laguna_tools_prompt_after_schemas);
 -    char *out = xmalloc(a + b + c + 1);
 -    memcpy(out, agent_laguna_tools_prompt_intro, a);
 +    char *out = xmalloc(a + b + bo + c + 1);
 +    memcpy(out, intro, a);
-     memcpy(out + a, agent_glm_tool_schemas, b);
+-    memcpy(out + a, agent_glm_tool_schemas, b);
++    memcpy(out + a, schemas, b);
 -    memcpy(out + a + b, agent_laguna_tools_prompt_after_schemas, c + 1);
 +    memcpy(out + a + b, office, bo);
 +    memcpy(out + a + b + bo, agent_laguna_tools_prompt_after_schemas, c + 1);
++    free(schemas);
      return out;
  }
  
-@@ -1168,13 +1266,19 @@
+@@ -1168,13 +1274,19 @@
      return agent_build_dsml_tools_prompt();
  }
  
@@ -211,7 +222,7 @@
  
  static const char agent_glm_syntax_reminder[] =
      "GLM tool-call syntax reminder:\n"
-@@ -1234,7 +1338,7 @@
+@@ -1234,7 +1346,7 @@
  static void agent_worker_maybe_append_datetime_context(agent_worker *w) {
      if (w->datetime_context_injected) return;
  
@@ -220,7 +231,7 @@
      struct tm tm;
      localtime_r(&now, &tm);
  
-@@ -1572,42 +1676,82 @@
+@@ -1572,42 +1684,82 @@
          char c = (*end)[-1];
          if (c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
          (*end)--;
@@ -327,7 +338,7 @@
      const size_t bar_len = sizeof(dsml_bar) - 1;
      *complete = false;
      if (len <= prefix_len) return memcmp(prefix, tail, len) == 0;
-@@ -1631,6 +1775,25 @@
+@@ -1631,6 +1783,25 @@
      return true;
  }
  
@@ -353,7 +364,7 @@
  static bool agent_glm_arg_value_close_tail(const char *tail, size_t len,
                                             bool *complete) {
      static const char close[] = "</arg_value>";
-@@ -1677,10 +1840,12 @@
+@@ -1677,10 +1848,12 @@
   * the model has been observed to emit.  Opening tags stay strict so accidental
   * prose does not become a tool call. */
  static char *agent_dsml_find_close_tag(const char *s, const char *name, size_t *tag_len) {
@@ -369,7 +380,7 @@
      }
      return NULL;
  }
-@@ -2065,6 +2230,106 @@
+@@ -2065,6 +2238,106 @@
      return out;
  }
  
@@ -476,7 +487,7 @@
  static void renderer_write(agent_token_renderer *r, const char *s, size_t n) {
      if (r->capture) agent_tail_capture_append(r->capture, s, n);
      else agent_publish(r->worker, s, n);
-@@ -3227,7 +3492,68 @@
+@@ -3227,7 +3500,68 @@
      if (!strcmp(name, "google_search")) return "google ";
      if (!strcmp(name, "visit_page")) return "visit ";
      return NULL;
@@ -545,7 +556,7 @@
  
  static void agent_tool_viz_tool(agent_stream_renderer *sr, const char *name) {
      agent_tool_visualizer *v = &sr->viz;
-@@ -3235,6 +3561,7 @@
+@@ -3235,6 +3569,7 @@
      if (v->tool_announced && !v->last_output_newline) agent_tool_viz_puts(sr, "\n");
      snprintf(v->tool_name, sizeof(v->tool_name), "%s", name ? name : "tool");
      v->tool_announced = true;
@@ -553,7 +564,7 @@
      v->read_style = !strcmp(v->tool_name, "read");
      agent_tool_viz_line_prefix(sr);
      if (v->read_style) {
-@@ -3403,6 +3730,7 @@
+@@ -3403,6 +3738,7 @@
      v->param_kind = agent_tool_param_kind_for(v->tool_name, v->param_name);
      v->param_active = true;
      v->param_end_len = 0;
@@ -561,7 +572,7 @@
  
      if (v->read_style) return;
  
-@@ -3444,6 +3772,7 @@
+@@ -3444,6 +3780,7 @@
  }
  
  static void agent_tool_viz_param_end(agent_stream_renderer *sr) {
@@ -569,7 +580,7 @@
      agent_tool_visualizer *v = &sr->viz;
      v->param_end_len = 0;
      if (v->code_param_active) agent_tool_viz_code_end(sr);
-@@ -3453,6 +3782,7 @@
+@@ -3453,6 +3790,7 @@
  }
  
  static void agent_tool_viz_param_raw_byte(agent_stream_renderer *sr, char c) {
@@ -577,7 +588,7 @@
      agent_tool_visualizer *v = &sr->viz;
      if (v->read_style) {
          agent_tool_viz_read_value_byte(sr, c);
-@@ -3735,6 +4065,26 @@
+@@ -3735,6 +4073,26 @@
      static const char missing_bar[] = "<DSML｜tool_calls>";
      static const char invoke[] = "<｜DSML｜invoke";
      static const char invoke_missing_bar[] = "<DSML｜invoke";
@@ -604,7 +615,7 @@
      struct {
          const char *text;
          bool implicit_invoke;
-@@ -3743,6 +4093,16 @@
+@@ -3743,6 +4101,16 @@
          {missing_bar, false},
          {invoke, true},
          {invoke_missing_bar, true},
@@ -621,7 +632,7 @@
      };
      *complete = false;
      *implicit_invoke = false;
-@@ -3776,10 +4136,18 @@
+@@ -3776,10 +4144,18 @@
      }
      d->tail[d->len++] = c;
  
@@ -640,7 +651,7 @@
      return agent_tail_matches(d->tail, d->len,
                                fullwidth_marker, sizeof(fullwidth_marker) - 1) ||
             agent_tail_matches(d->tail, d->len,
-@@ -3787,7 +4155,15 @@
+@@ -3787,7 +4163,15 @@
             agent_tail_matches(d->tail, d->len,
                                missing_open, sizeof(missing_open) - 1) ||
             agent_tail_matches(d->tail, d->len,
@@ -657,7 +668,7 @@
  }
  
  static void agent_stream_note_thinking_dsml_byte(agent_stream_renderer *sr,
-@@ -3910,6 +4286,7 @@
+@@ -3910,6 +4294,7 @@
              sr->post_think_gap = false;
              sr->in_think = true;
              sr->renderer->in_think = true;
@@ -665,7 +676,7 @@
              i += strlen(think_open);
              continue;
          }
-@@ -3917,6 +4294,7 @@
+@@ -3917,6 +4302,7 @@
              agent_stream_flush_start_tail(sr);
              sr->in_think = false;
              sr->renderer->in_think = false;
@@ -673,7 +684,7 @@
              renderer_reset_color(sr->renderer);
              if (!sr->renderer->last_output_newline)
                  renderer_write(sr->renderer, "\n", 1);
-@@ -3989,6 +4367,33 @@
+@@ -3989,6 +4375,33 @@
   * ============================================================================
   */
  
@@ -707,7 +718,7 @@
  static void worker_progress_cb(void *ud, const char *event, int current, int total) {
      agent_worker *w = ud;
      if (!w || !event) return;
-@@ -4023,13 +4428,14 @@
+@@ -4023,13 +4436,14 @@
          done > 0 && elapsed > 0.0 ? (double)done / elapsed : 0.0;
      agent_wake_locked(w);
      pthread_mutex_unlock(&w->mu);
@@ -723,7 +734,7 @@
  }
  
  /* Ctrl+C is a latched request consumed by the worker.  Once an interrupted
-@@ -4113,12 +4519,19 @@
+@@ -4113,12 +4527,19 @@
  }
  
  static char *agent_default_cache_dir(void) {
@@ -744,7 +755,7 @@
      return agent_buf_take(&b);
  }
  
-@@ -4494,7 +4907,53 @@
+@@ -4494,7 +4915,53 @@
      return ok;
  }
  
@@ -799,7 +810,7 @@
      ds4_chat_begin(w->engine, out);
      ds4_think_mode think_mode = effective_think_mode(w->cfg);
      if (agent_tool_syntax_for_engine(w->engine) == AGENT_TOOL_SYNTAX_GLM) {
-@@ -4506,9 +4965,35 @@
+@@ -4506,9 +4973,35 @@
          ds4_chat_append_max_effort_prefix(w->engine, out);
      }
      agent_append_system_prompt(w->engine, out, w->cfg->gen.system);
@@ -835,7 +846,7 @@
      if (w->cfg->non_interactive) return;
      if (isatty(STDOUT_FILENO)) {
          static const char marker[] = "\x1b[33m✦ \x1b[38;5;218m";
-@@ -4545,11 +5030,14 @@
+@@ -4545,11 +5038,14 @@
  static int agent_web_confirm(void *privdata, const char *message,
                               char *err, size_t err_len) {
      agent_worker *w = privdata;
@@ -853,7 +864,7 @@
  
      pthread_mutex_lock(&w->mu);
      w->web_approval_pending = true;
-@@ -6162,6 +6650,8 @@
+@@ -6162,6 +6658,8 @@
      w->more_valid = path && path[0] && next_line > 0;
  }
  
@@ -862,7 +873,7 @@
  static bool agent_tool_result_fits_context(agent_worker *w, const char *result,
                                             int reserve_tokens,
                                             int *tokens_out) {
-@@ -6183,7 +6673,8 @@
+@@ -6183,7 +6681,8 @@
          if (proportional < 16) proportional = 16;
          if (reserve > proportional) reserve = proportional;
      }
@@ -872,7 +883,7 @@
  }
  
  static int agent_read_default_lines(agent_worker *w) {
-@@ -6272,284 +6763,765 @@
+@@ -6272,284 +6771,765 @@
      return agent_buf_take(&out);
  }
  
@@ -1893,7 +1904,7 @@
  static bool agent_edit_old_prefix_mature_for_upto(const char *old, size_t old_len) {
      if (old_len < AGENT_EDIT_UPTO_MIN_PREFIX_BYTES) return false;
      int nonempty_lines = 0;
-@@ -8083,15 +9055,311 @@
+@@ -8083,15 +9063,311 @@
  /* Execute one parsed DSML tool call and return the text that will be appended as
   * the tool-role result.  UI visualization already happened while streaming; this
   * function is only about side effects and the model-visible observation. */
@@ -2115,7 +2126,7 @@
 +    static const char *const arg_names[] = {
 +        "action", "path", "sheet", "range", "data_json", "sheets_json",
 +        "header", "title", "content", "slides_json", "segment", "offset",
-+        "columns_json", "rows_json", "checks_json", "revision", "replace_json", "output"
++        "columns_json", "rows_json", "checks_json", "revision", "replace_json", "output", "final_newline"
 +    };
 +    ds4_cowork_arg args[sizeof(arg_names) / sizeof(arg_names[0])];
 +    size_t nargs = 0;
@@ -2207,7 +2218,7 @@
      if (!strcmp(call->name, "search")) return agent_tool_search(w, call);
      if (!strcmp(call->name, "google_search")) return agent_tool_google_search(w, call);
      if (!strcmp(call->name, "visit_page")) return agent_tool_visit_page(w, call);
-@@ -8148,7 +9416,15 @@
+@@ -8148,7 +9424,15 @@
  static char *agent_execute_tool_calls(agent_worker *w, const agent_tool_calls *calls) {
      agent_buf all = {0};
      for (int i = 0; i < calls->len; i++) {
@@ -2224,7 +2235,7 @@
          char hdr[128];
          snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
                   calls->v[i].name ? calls->v[i].name : "unknown");
-@@ -8203,6 +9479,8 @@
+@@ -8203,6 +9487,8 @@
      int free_threshold = AGENT_COMPACT_MIN_FREE_TOKENS;
      int proportional = ctx / 8;
      if (free_threshold > proportional) free_threshold = proportional;
@@ -2233,7 +2244,7 @@
      return ctx - used <= free_threshold;
  }
  
-@@ -8214,28 +9492,6 @@
+@@ -8214,28 +9500,6 @@
      return id;
  }
  
@@ -2262,7 +2273,7 @@
  static void agent_tokens_append_range(ds4_tokens *dst, const ds4_tokens *src,
                                        int start, int end) {
      if (start < 0) start = 0;
-@@ -8246,19 +9502,31 @@
+@@ -8246,19 +9510,31 @@
  /* Build the private prompt used to ask the model for durable state.  The prompt
   * explicitly forbids tool calls because the result is consumed internally, not
   * delivered as an assistant turn. */
@@ -2298,7 +2309,7 @@
      if (reason && reason[0]) {
          agent_buf_puts(&b, "\nCompaction reason: ");
          agent_buf_puts(&b, reason);
-@@ -8267,17 +9535,38 @@
+@@ -8267,17 +9543,38 @@
      return agent_buf_take(&b);
  }
  
@@ -2340,7 +2351,7 @@
      if (bottom <= sys.len) {
          ds4_tokens_free(&sys);
          return true;
-@@ -8287,12 +9576,44 @@
+@@ -8287,12 +9584,44 @@
          "\n\x1b[1;95mCOMPACTING\x1b[0m %s: summarizing durable task state\n\x1b[38;5;245m",
          reason && reason[0] ? reason : "context");
  
@@ -2390,7 +2401,7 @@
  
      pthread_mutex_lock(&w->mu);
      w->status.state = AGENT_WORKER_COMPACTING;
-@@ -8315,8 +9636,7 @@
+@@ -8315,8 +9644,7 @@
          agent_publish(w, "\x1b[0m\n", 5);
          return false;
      }
@@ -2400,7 +2411,7 @@
  
      ds4_session_set_progress(w->session, worker_progress_cb, w);
      ds4_session_set_display_progress(w->session, worker_progress_cb, w);
-@@ -8411,7 +9731,17 @@
+@@ -8411,7 +9739,17 @@
          return false;
      }
  
@@ -2418,7 +2429,7 @@
      ds4_tokens compacted = {0};
      ds4_tokens_copy(&compacted, &sys);
  
-@@ -8422,31 +9752,83 @@
+@@ -8422,31 +9760,83 @@
      if (summary_msg.len && summary_msg.ptr[summary_msg.len - 1] != '\n')
          agent_buf_puts(&summary_msg, "\n");
      agent_buf_puts(&summary_msg, "[End compacted summary. Recent conversation continues verbatim below.]\n\n");
@@ -2513,7 +2524,7 @@
      if (bash_update) {
          ds4_chat_append_message(w->engine, &w->transcript, "tool", bash_update);
          w->session_dirty = true;
-@@ -8458,15 +9840,65 @@
+@@ -8458,15 +9848,65 @@
      agent_trace(w, "compacted reason=\"%s\" old=%d new=%d tail_start=%d tail=%d",
                  reason ? reason : "", bottom, w->transcript.len,
                  tail_start, bottom - tail_start);
@@ -2579,7 +2590,7 @@
  /* Publish a token whose target-model evaluation has already been committed.
   * Speculative verification advances several KV rows at once, so those tokens
   * must update the transcript and renderer without evaluating them again. */
-@@ -8490,6 +9922,7 @@
+@@ -8490,6 +9930,7 @@
      w->status.gen_tps = dt > 0.0 ? (double)*generated / dt : 0.0;
      agent_wake_locked(w);
      pthread_mutex_unlock(&w->mu);
@@ -2587,7 +2598,7 @@
  }
  
  static int worker_accept_generated_token(agent_worker *w,
-@@ -8656,19 +10089,33 @@
+@@ -8656,19 +10097,33 @@
  /* Run one user turn until the assistant stops or returns a tool call.  Tool
   * results are appended to the transcript and the loop continues, which gives
   * the model native DSML tool iteration without a client/server protocol. */
@@ -2622,7 +2633,7 @@
          if (agent_err_is_interrupted(compact_err)) {
              worker_clear_interrupt(w);
              agent_set_status(w, AGENT_WORKER_IDLE);
-@@ -8680,14 +10127,24 @@
+@@ -8680,14 +10135,24 @@
      agent_worker_maybe_append_datetime_context(w);
      agent_trace_text(w, "user", user_text ? user_text : "",
                       user_text ? strlen(user_text) : 0);
@@ -2649,7 +2660,7 @@
      uint64_t rng = cfg->gen.seed ? cfg->gen.seed :
          ((uint64_t)time(NULL) ^ ((uint64_t)getpid() << 32) ^ (uint64_t)clock());
      pthread_mutex_lock(&w->mu);
-@@ -8703,9 +10160,10 @@
+@@ -8703,9 +10168,10 @@
       * real stopping conditions.  The transcript is the single source of truth:
       * after a DSML stanza completes we terminate that assistant message, append
       * the tool result as a tool message, then ask the model to continue. */
@@ -2662,7 +2673,7 @@
                                              compact_err, sizeof(compact_err)))
          {
              if (agent_err_is_interrupted(compact_err)) {
-@@ -8717,6 +10175,7 @@
+@@ -8717,6 +10183,7 @@
              return 1;
          }
          agent_worker_maybe_append_system_prompt_reminder(w);
@@ -2670,7 +2681,7 @@
          ds4_chat_append_assistant_prefix(w->engine, &w->transcript, think_mode);
  
          const ds4_tokens *prompt_for_sync = &w->transcript;
-@@ -8773,18 +10232,25 @@
+@@ -8773,18 +10240,25 @@
              return 1;
          }
  
@@ -2700,7 +2711,7 @@
              .use_color = use_color,
              .last_output_newline = true,
          };
-@@ -8797,13 +10263,22 @@
+@@ -8797,13 +10271,22 @@
              .renderer = &renderer,
              .parser = &dsml,
              .syntax = tool_syntax,
@@ -2724,7 +2735,7 @@
          double t0 = now_sec();
          pthread_mutex_lock(&w->mu);
          w->status.state = AGENT_WORKER_GENERATING;
-@@ -8816,6 +10291,7 @@
+@@ -8816,6 +10299,7 @@
              cfg->gen.temperature <= 0.0f &&
              ds4_engine_mtp_draft_tokens(w->engine) > 1 &&
              getenv("DS4_MTP_SPEC_DISABLE") == NULL;
@@ -2732,7 +2743,7 @@
          bool status_greedy_sampling = false;
          while (generated < max_tokens && !worker_should_interrupt(w)) {
              worker_apply_pending_power(w);
-@@ -8831,6 +10307,7 @@
+@@ -8831,6 +10315,7 @@
                      w, &stream, think_mode, token);
              }
              if (ds4_token_is_stop_for_think_mode(w->engine, token, think_mode)) {
@@ -2740,7 +2751,7 @@
                  if (agent_tool_syntax_is_tagged(tool_syntax) &&
                      token != ds4_token_eos(w->engine)) {
                      agent_trace(w, "tagged assistant generation stopped before control token id=%d", token);
-@@ -8888,6 +10365,7 @@
+@@ -8888,6 +10373,7 @@
                                  w->engine, toks[i], think_mode)) {
                              consumed_all = false;
                              stop_from_speculation = true;
@@ -2748,7 +2759,7 @@
                              break;
                          }
                          worker_publish_generated_token(
-@@ -8946,9 +10424,63 @@
+@@ -8946,9 +10432,63 @@
                  malformed_tool = true;
                  break;
              }
@@ -2812,7 +2823,7 @@
          agent_stream_text(&stream, NULL, 0, true);
          renderer_finish(&renderer);
          worker_set_greedy_sampling(w, false);
-@@ -8961,6 +10493,35 @@
+@@ -8961,6 +10501,35 @@
              worker_clear_interrupt(w);
              agent_set_status(w, AGENT_WORKER_IDLE);
              return 0;
@@ -2848,7 +2859,7 @@
          }
          if (stream.dsml_in_think) {
              got_tool = false;
-@@ -8986,6 +10547,10 @@
+@@ -8986,6 +10555,10 @@
  
          if (!got_tool && !malformed_tool && !early_tool_error) {
              agent_dsml_parser_free(&dsml);
@@ -2859,7 +2870,7 @@
              agent_set_status(w, AGENT_WORKER_IDLE);
              return 0;
          }
-@@ -9056,11 +10621,21 @@
+@@ -9056,11 +10629,21 @@
          ds4_chat_append_message(w->engine, &w->transcript, "tool", tool_result);
          free(tool_result);
          agent_dsml_parser_free(&dsml);
@@ -2882,7 +2893,7 @@
              pthread_mutex_lock(&w->mu);
              w->user_activity = true;
              w->session_dirty = true;
-@@ -9074,7 +10649,6 @@
+@@ -9074,7 +10657,6 @@
  static int worker_run_raw_prompt(agent_worker *w, const char *user_text) {
      agent_config *cfg = w->cfg;
      pthread_mutex_lock(&w->mu);
@@ -2890,7 +2901,7 @@
      w->status.error[0] = '\0';
      agent_wake_locked(w);
      pthread_mutex_unlock(&w->mu);
-@@ -9199,6 +10773,13 @@
+@@ -9199,6 +10781,13 @@
      agent_set_status(w, AGENT_WORKER_IDLE);
      ds4_tokens_free(&prompt);
      return 0;
@@ -2904,7 +2915,7 @@
  }
  
  static void worker_request_save(agent_worker *w) {
-@@ -9312,8 +10893,27 @@
+@@ -9312,8 +10901,27 @@
  
  /* Worker thread entry point.  The UI thread submits plain user text; this
   * thread owns all DS4 session mutation, tool execution, and compaction. */
@@ -2932,7 +2943,7 @@
      agent_trace(w, "agent worker start ctx=%d backend=%s model=%s trace=%s",
                  agent_worker_effective_ctx_size(w),
                  ds4_backend_name(w->cfg->engine.backend),
-@@ -9335,11 +10935,8 @@
+@@ -9335,11 +10943,8 @@
      agent_wake_locked(w);
      pthread_mutex_unlock(&w->mu);
  
@@ -2945,7 +2956,7 @@
          if (w->stop) {
              pthread_mutex_unlock(&w->mu);
              break;
-@@ -9416,10 +11013,13 @@
+@@ -9416,10 +11021,13 @@
  /* Submit one user turn if the worker is idle.  Busy submissions are rejected so
   * the UI can keep the typed text editable instead of silently queueing it. */
  static bool worker_submit(agent_worker *w, const char *text) {
@@ -2961,7 +2972,7 @@
          /* A submitted turn is no longer idle, even if the worker thread has
           * not yet reached its real prefill accounting.  Non-interactive mode
           * depends on this to avoid exiting in the small handoff window between
-@@ -9436,6 +11036,7 @@
+@@ -9436,6 +11044,7 @@
          pthread_cond_signal(&w->cond);
      }
      pthread_mutex_unlock(&w->mu);
@@ -2969,7 +2980,7 @@
      return ok;
  }
  
-@@ -9449,6 +11050,8 @@
+@@ -9449,6 +11058,8 @@
  static void worker_interrupt(agent_worker *w) {
      pthread_mutex_lock(&w->mu);
      w->interrupt = true;
@@ -2978,7 +2989,7 @@
      if (w->cfg &&
          w->cfg->engine.distributed.role == DS4_DISTRIBUTED_COORDINATOR &&
          (w->status.state == AGENT_WORKER_PREFILL ||
-@@ -9467,7 +11070,7 @@
+@@ -9467,7 +11078,7 @@
  static void worker_stop(agent_worker *w) {
      pthread_mutex_lock(&w->mu);
      w->stop = true;
@@ -2987,7 +2998,7 @@
      pthread_mutex_unlock(&w->mu);
  }
  
-@@ -9501,9 +11104,7 @@
+@@ -9501,9 +11112,7 @@
  
  static bool worker_is_idle(agent_worker *w) {
      pthread_mutex_lock(&w->mu);
@@ -2998,7 +3009,7 @@
      pthread_mutex_unlock(&w->mu);
      return idle;
  }
-@@ -10895,6 +12496,124 @@
+@@ -10895,6 +12504,124 @@
   * stdin protocol: announce readiness on stderr, collect bytes until stdin has
   * been quiet for 200 ms, submit that buffer as one prompt, and keep reading so
   * later input can be queued while the model is still working. */
@@ -3123,7 +3134,7 @@
  static int run_agent_non_interactive(ds4_engine *engine, agent_config *cfg) {
      agent_worker worker;
      if (agent_worker_init(&worker, engine, cfg) != 0) return 1;
-@@ -10943,6 +12662,20 @@
+@@ -10943,6 +12670,20 @@
          if (!one_shot && initialized && idle && !queue.len &&
              input.len == 0 && !stdin_eof && !waiting_announced)
          {
@@ -3144,7 +3155,7 @@
              agent_noninteractive_marker("+DWARFSTAR_WAITING");
              waiting_announced = true;
          }
-@@ -10964,6 +12697,10 @@
+@@ -10964,6 +12705,10 @@
          }
  
          int prc = poll(pfd, (nfds_t)nfds, timeout_ms);
@@ -3155,7 +3166,7 @@
          if (prc < 0) {
              if (errno == EINTR) continue;
              perror("ds4-agent: poll");
-@@ -11009,7 +12746,17 @@
+@@ -11009,7 +12754,17 @@
              (stdin_eof || now_sec() >= quiet_deadline))
          {
              char *prompt = agent_input_buf_take(&input);
@@ -3174,7 +3185,7 @@
                  if (!worker_submit(&worker, prompt)) {
                      agent_prompt_queue_push(&queue, prompt);
                      agent_noninteractive_marker("+DWARFSTAR_QUEUED");
-@@ -11471,9 +13218,76 @@
+@@ -11471,9 +13226,76 @@
      return 0;
  }
  
@@ -3251,7 +3262,7 @@
      if (cfg.chdir_path && chdir(cfg.chdir_path) != 0) {
          fprintf(stderr, "ds4-agent: failed to chdir to %s: %s\n",
                  cfg.chdir_path, strerror(errno));
-@@ -11525,7 +13339,7 @@
+@@ -11525,7 +13347,7 @@
      memset(&sa, 0, sizeof(sa));
      sigemptyset(&sa.sa_mask);
      sa.sa_handler = agent_sigint_handler;

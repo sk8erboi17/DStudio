@@ -3,10 +3,13 @@ import concurrent.futures
 import hashlib
 import importlib.util
 import json
+import os
+import random
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -19,13 +22,29 @@ sys.modules[spec.name] = office
 spec.loader.exec_module(office)
 
 
+# The production module, loaded as office.dispatch loads it, so a test can
+# shrink one of its bounds and call its run() directly.
+tspec = importlib.util.spec_from_file_location("table_under_test", ROOT / "src/harness/cowork/document_table.py")
+table = importlib.util.module_from_spec(tspec)
+tspec.loader.exec_module(table)
+
+
 class DocumentTableTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="dstudio-document-table-test-")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name) / "workspace"
+        self.root.mkdir()
+        # Never the user's cache: a private one per test.
+        self.cache = Path(self.temp.name) / "cache"
+        self.saved_cache = os.environ.get("DSTUDIO_TABLE_CACHE_DIR")
+        os.environ["DSTUDIO_TABLE_CACHE_DIR"] = str(self.cache)
         self.ws = office.Workspace.open(str(self.root))
 
     def tearDown(self):
+        if self.saved_cache is None:
+            os.environ.pop("DSTUDIO_TABLE_CACHE_DIR", None)
+        else:
+            os.environ["DSTUDIO_TABLE_CACHE_DIR"] = self.saved_cache
         self.temp.cleanup()
 
     def call(self, action, path="comparison.table.json", **kwargs):
@@ -236,6 +255,279 @@ class DocumentTableTests(unittest.TestCase):
         doc = self.call("read_source", "catalog.xlsx")
         self.assertEqual(doc["segments"][1]["id"], "sheet:Specs:row:2")
         self.assertIn("00124", doc["segments"][1]["text"])
+
+
+    # ---- extraction cache, bounds and large sources ----
+
+    def counting_pdftotext(self):
+        """Put a pdftotext first on PATH that logs each extraction, then runs
+        the real one: a deterministic visit counter for cache hits/misses."""
+        real = shutil.which("pdftotext") or "/opt/homebrew/bin/pdftotext"
+        self.assertTrue(Path(real).exists(), "Poppler required for this real PDF test")
+        bin_dir = Path(self.temp.name) / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        log = Path(self.temp.name) / "pdftotext.log"
+        shim = bin_dir / "pdftotext"
+        shim.write_text(f'#!/bin/sh\ncase "$1" in -v) ;; *) echo x >> "{log}" ;; esac\nexec "{real}" "$@"\n')
+        shim.chmod(0o755)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{Path(real).parent}{os.pathsep}{saved}"
+        self.addCleanup(os.environ.__setitem__, "PATH", saved)
+        return lambda: len(log.read_text().split()) if log.exists() else 0
+
+    def test_cache_hit_returns_the_extraction_without_running_it(self):
+        extractions = self.counting_pdftotext()
+        office.create_pdf(self.root / "course.pdf", "Course", "Duration: 12 hours\n" + "\n".join(f"Topic {i}" for i in range(90)))
+        first = self.call("read_source", "course.pdf")
+        self.assertEqual(extractions(), 1)
+        second = self.call("read_source", "course.pdf")
+        self.assertEqual(extractions(), 1, "the second read is a cache hit")
+        self.assertEqual(second, first)
+        os.environ["DSTUDIO_TABLE_CACHE_DIR"] = "off"
+        self.assertEqual(self.call("read_source", "course.pdf"), first, "the miss path gives the same result")
+        self.assertEqual(extractions(), 2)
+        os.environ["DSTUDIO_TABLE_CACHE_DIR"] = str(self.cache)
+        # A table rechecks every source on inspect/export; cached, nothing is re-extracted.
+        ref = {"path": "course.pdf", "sha256": first["sha256"], "segment": "page:1", "quote": "Duration: 12 hours"}
+        self.call("create", columns_json=[{"id": "d", "type": "number", "unit": "hours"}],
+                  rows_json=[{"id": "c", "cells": {"d": self.value("12", ref)}}])
+        self.call("inspect")
+        self.call("export", output="out.xlsx")
+        self.assertEqual(extractions(), 2)
+        self.assertEqual(oct(self.cache.stat().st_mode & 0o777), "0o700", "extracted text is private")
+
+    def test_changed_bytes_and_bad_cache_entries_are_never_served(self):
+        (self.root / "a.txt").write_text("Owner: Ada\n")
+        first = self.call("read_source", "a.txt")
+        (self.root / "a.txt").write_text("Owner: Bob\n")
+        changed = self.call("read_source", "a.txt")
+        self.assertNotEqual(changed["sha256"], first["sha256"])
+        self.assertEqual(changed["segments"][0]["text"], "Owner: Bob")
+        for entry in self.cache.glob("*.json"):
+            entry.write_text("{not json")
+        self.assertEqual(self.call("read_source", "a.txt"), changed)
+        rewritten = [e for e in self.cache.glob("*.json") if e.read_text().startswith("{\"")]
+        self.assertEqual(len(rewritten), 1, "the corrupt entry of the current bytes was replaced")
+        for entry in rewritten:
+            stored = json.loads(entry.read_text())
+            stored["key"]["sha256"] = "0" * 64
+            stored["segments"] = [{"id": "line:1", "text": "Owner: Mallory"}]
+            entry.write_text(json.dumps(stored))
+        self.assertEqual(self.call("read_source", "a.txt"), changed, "an entry whose key does not match is recomputed")
+
+    def test_cache_is_bounded_and_keeps_recently_used_entries(self):
+        saved = table.CACHE_ENTRIES
+        table.CACHE_ENTRIES = 3
+        self.addCleanup(setattr, table, "CACHE_ENTRIES", saved)
+        read = lambda name: json.loads(table.run(self.ws, {"action": "read_source", "path": name}, office))
+        for i in range(3):
+            (self.root / f"s{i}.txt").write_text(f"Source {i}\n")
+            read(f"s{i}.txt")
+        os.utime(next(self.cache.glob("*.json")), (1, 1))  # make an entry look old...
+        oldest = min(self.cache.glob("*.json"), key=lambda e: e.stat().st_mtime_ns)
+        survivor = json.loads(oldest.read_text())["segments"][0]["text"]
+        read(f"s{survivor.split()[1]}.txt")               # ...then use it: it is recent again
+        for i in range(3, 6):
+            (self.root / f"s{i}.txt").write_text(f"Source {i}\n")
+            read(f"s{i}.txt")
+            self.assertLessEqual(len(list(self.cache.glob("*.json"))), 3)
+        kept = {json.loads(e.read_text())["segments"][0]["text"] for e in self.cache.glob("*.json")}
+        self.assertEqual(kept, {"Source 3", "Source 4", "Source 5"})
+
+    def test_table_bounds(self):
+        self.assertEqual((table.MAX_ROWS, table.MAX_COLUMNS, table.MAX_SOURCES, table.MAX_CELLS), (5000, 128, 512, 100_000))
+        cols = lambda n: [{"id": f"c{i}"} for i in range(n)]
+        missing = lambda n: [{"id": f"r{i}", "cells": {}} for i in range(n)]
+        self.assertEqual(self.call("create", "wide.table.json", columns_json=cols(128), rows_json=missing(781))["totalRows"], 781)
+        with self.assertRaisesRegex(office.ToolError, "1..128 columns"):
+            self.call("create", "wider.table.json", columns_json=cols(129), rows_json=[])
+        self.assertEqual(self.call("create", "long.table.json", columns_json=cols(20), rows_json=missing(5000))["totalRows"], 5000)
+        with self.assertRaisesRegex(office.ToolError, "at most 5000 rows"):
+            self.call("create", "longer.table.json", columns_json=cols(1), rows_json=missing(5001))
+        with self.assertRaisesRegex(office.ToolError, "100,000 cells"):
+            self.call("create", "big.table.json", columns_json=cols(128), rows_json=missing(782))
+        with self.assertRaisesRegex(office.ToolError, "100,000 cells"):
+            self.call("update", "wide.table.json", revision=1, rows_json=[{"id": "extra", "cells": {}}])
+        self.assertFalse((self.root / "big.table.json").exists())
+
+    def test_up_to_512_sources_in_one_table(self):
+        def rows_for(count):
+            out = []
+            for i in range(count):
+                name = f"doc{i}.txt"
+                (self.root / name).write_text(f"Code: X{i:04d}\n")
+                out.append({"id": f"r{i}", "cells": {"code": self.value(f"X{i:04d}", self.ref(name, f"Code: X{i:04d}"))}})
+            return out
+        rows = rows_for(513)
+        result = self.call("create", "s512.table.json", columns_json=[{"id": "code"}], rows_json=rows[:512])
+        self.assertEqual(result["summary"], {"sourced": 512})
+        with self.assertRaisesRegex(office.ToolError, "512 unique sources"):
+            self.call("create", "s513.table.json", columns_json=[{"id": "code"}], rows_json=rows)
+
+    def test_xlsx_source_larger_than_the_old_read_window(self):
+        rows = [["Code"] + [f"F{c}" for c in range(1, 30)]] + [[f"{r:05d}"] + [f"v{r}-{c}" for c in range(1, 30)] for r in range(1, 400)]
+        office.create_xlsx(self.root / "wide.xlsx", [("Data", rows)], header=True)  # 12,000 cells
+        doc = self.call("read_source", "wide.xlsx")
+        self.assertEqual(doc["totalSegments"], 400)
+        last = self.call("read_source", "wide.xlsx", segment="sheet:Data:row:400")["segments"][0]["text"]
+        self.assertEqual(last.split("\t")[:2], ["00399", "v399-1"])
+
+    def test_sheet_segments_match_the_dense_reader(self):
+        # Reference: the Office helper's dense reader over the declared
+        # dimension (bounded to its 8,000-cell window), then one TSV per row.
+        rng = random.Random(3)
+        for case in range(60):
+            nrows, ncols = rng.randrange(1, 40), rng.randrange(1, 12)
+            matrix = [[rng.choice(["", "", "0", "x", "a b", "007", "=1+1", "è\ttab", "line\nbreak"]) for _ in range(ncols)] for _ in range(nrows)]
+            path = self.root / f"m{case}.xlsx"
+            office.create_xlsx(path, [("S", matrix)], header=False, literal=True)
+            with office.open_office_zip(path) as zf:
+                sheets, _, shared = office.workbook_parts(zf)
+                name, target = sheets[0]
+                root = office.ET.fromstring(zf.read(target))
+                bounds = office.parse_range(root.find(f"{{{office.NS_MAIN}}}dimension").get("ref"))
+                dense = office.xlsx_matrix(zf, target, shared, bounds)
+                want = [{"id": f"sheet:{name}:row:{i}", "text": office.tsv([row])} for i, row in enumerate(dense, bounds[0])]
+                self.assertEqual(table.sheet_segments(zf, name, target, shared, office), want, f"case {case}")
+
+    def test_long_export_sheets_continue_with_their_header(self):
+        saved = table.XLSX_SHEET_ROWS
+        table.XLSX_SHEET_ROWS = 4  # 3 data rows per part
+        self.addCleanup(setattr, table, "XLSX_SHEET_ROWS", saved)
+        (self.root / "a.txt").write_text("Code: A1\n")
+        ref = self.ref("a.txt", "Code: A1")
+        rows = [{"id": f"r{i}", "cells": {"code": self.value("A1", ref)}} for i in range(7)]
+        self.call("create", columns_json=[{"id": "code"}], rows_json=rows)
+        table.run(self.ws, {"action": "export", "path": "comparison.table.json", "output": "split.xlsx"}, office)
+        with office.open_office_zip(self.root / "split.xlsx") as zf:
+            sheets, _, shared = office.workbook_parts(zf)
+            names = [n for n, _ in sheets]
+            self.assertEqual(names, ["Data", "Data 2", "Data 3", "Status", "Status 2", "Status 3",
+                                     "Evidence", "Evidence 2", "Evidence 3", "Checks", "About", "About 2"])
+            read = lambda n: office.xlsx_matrix(zf, dict(sheets)[n], shared, (1, 1, 10, 12))
+            self.assertEqual([r[0] for r in read("Data") + read("Data 2") + read("Data 3") if r[0] != "Document / item"],
+                             [f"r{i}" for i in range(7)])
+            self.assertTrue(all(read(n)[0][0] == "Row" for n in ("Status", "Status 2", "Status 3")))
+
+    def test_extraction_stops_when_the_runtime_that_asked_for_it_exits(self):
+        # A stand-in runtime starts the helper's owned subprocess and exits;
+        # the subprocess must not keep running until it finishes on its own.
+        pidfile = Path(self.temp.name) / "child.pid"
+        script = (f"import importlib.util,sys,subprocess,os\n"
+                  f"spec=importlib.util.spec_from_file_location('o',{str(HELPER)!r});o=importlib.util.module_from_spec(spec);sys.modules['o']=o;spec.loader.exec_module(o)\n"
+                  f"spec=importlib.util.spec_from_file_location('t',{str(ROOT / 'src/harness/cowork/document_table.py')!r});t=importlib.util.module_from_spec(spec);spec.loader.exec_module(t)\n"
+                  f"orig=subprocess.Popen.__init__\n"
+                  f"def init(self,*a,**k):\n orig(self,*a,**k); open({str(pidfile)!r},'w').write(str(self.pid))\n"
+                  f"subprocess.Popen.__init__=init\n"
+                  f"try: t.run_owned(['sleep','60'],o)\nexcept o.ToolError as e: open({str(pidfile)!r}+'.err','w').write(str(e))\n")
+        runtime = subprocess.Popen([sys.executable, "-c",
+                                    f"import subprocess,sys,time\np=subprocess.Popen([sys.executable,'-c',{script!r}])\n"
+                                    f"import pathlib\nwhile not pathlib.Path({str(pidfile)!r}).exists(): time.sleep(0.05)\n"])
+        self.assertEqual(runtime.wait(timeout=30), 0)
+        child = int(pidfile.read_text())
+        for _ in range(100):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(child, 9)
+            self.fail("the extraction subprocess outlived the runtime")
+        for _ in range(100):
+            if Path(str(pidfile) + ".err").exists():
+                break
+            time.sleep(0.05)
+        self.assertIn("cancelled", Path(str(pidfile) + ".err").read_text())
+
+
+    # ---- OCR of PDF pages without a text layer (real dstudio-ocr helper) ----
+
+    def scanned_pdf(self, name, pages):
+        """A PDF whose pages are pictures of text (no text layer), or text
+        pages for None entries: rendered by Poppler, embedded as images."""
+        import zlib
+        pdftoppm = shutil.which("pdftoppm") or "/opt/homebrew/bin/pdftoppm"
+        self.assertTrue(Path(pdftoppm).exists(), "Poppler pdftoppm required")
+        objects, kids = ["", ""], []
+        for index, lines in enumerate(pages):
+            office.create_pdf(self.root / "render.pdf", "Scan", "\n".join(lines))
+            subprocess.run([pdftoppm, "-r", "150", "-singlefile", "-f", "1", "-l", "1", str(self.root / "render.pdf"),
+                            str(self.root / "render")], check=True, capture_output=True)
+            ppm = (self.root / "render.ppm").read_bytes()
+            parts = ppm.split(b"\n", 3)
+            width, height = map(int, parts[1].split())
+            data = zlib.compress(parts[3])
+            page = len(objects) + 1
+            kids.append(f"{page} 0 R")
+            objects.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im1 {page + 2} 0 R >> >> /Contents {page + 1} 0 R >>".encode())
+            draw = b"q 595 0 0 842 0 0 cm /Im1 Do Q"
+            objects.append(b"<< /Length %d >>\nstream\n" % len(draw) + draw + b"\nendstream")
+            objects.append(b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 "
+                           b"/Filter /FlateDecode /Length %d >>\nstream\n" % (width, height, len(data)) + data + b"\nendstream")
+        objects[0] = b"<< /Type /Catalog /Pages 2 0 R >>"
+        objects[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>".encode()
+        out, offsets = b"%PDF-1.4\n", []
+        for i, obj in enumerate(objects, 1):
+            offsets.append(len(out))
+            out += b"%d 0 obj\n" % i + (obj if isinstance(obj, bytes) else obj.encode()) + b"\nendobj\n"
+        xref = len(out)
+        out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+        out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+        (self.root / name).write_bytes(out)
+        for leftover in ("render.pdf", "render.ppm"):
+            (self.root / leftover).unlink()
+
+    def use_ocr_helper(self):
+        helper = ROOT / "build/dstudio-ocr"
+        if sys.platform != "darwin" or not helper.exists():
+            self.skipTest("NOT RUN: build/dstudio-ocr (macOS Vision) is not built on this system")
+        saved = os.environ.get("DSTUDIO_OCR_HELPER")
+        os.environ["DSTUDIO_OCR_HELPER"] = str(helper)
+        self.addCleanup(lambda: os.environ.pop("DSTUDIO_OCR_HELPER") if saved is None
+                        else os.environ.__setitem__("DSTUDIO_OCR_HELPER", saved))
+
+    def test_scanned_pdf_pages_are_ocr_read_and_matches_need_review(self):
+        self.use_ocr_helper()
+        self.scanned_pdf("scan.pdf", [["Course code: ST-0042", "Duration: 48 hours"], ["Owner: Zoe Martin, Bologna"]])
+        doc = self.call("read_source", "scan.pdf")
+        self.assertEqual(doc["extraction"], "pdf-text-layer+ocr")
+        self.assertEqual(doc["ocrSegments"], ["page:1", "page:2"])
+        self.assertIn("Zoe Martin", doc["segments"][1]["text"])
+        self.assertIn("Duration: 48 hours", doc["segments"][0]["text"])
+        self.assertIn("read with OCR", doc["notice"])
+        ref = {"path": "scan.pdf", "sha256": doc["sha256"], "segment": "page:1", "quote": "Duration: 48 hours"}
+        result = self.call("create", columns_json=[{"id": "hours", "type": "number", "unit": "hours"}],
+                           rows_json=[{"id": "course", "cells": {"hours": self.value("48", ref)}}])
+        self.assertEqual(result["summary"], {"needs_review": 1})
+        self.assertIn("OCR", " ".join(result["rows"][0]["cells"]["hours"]["issues"]))
+
+    def test_ocr_work_per_call_is_bounded_and_continues(self):
+        self.use_ocr_helper()
+        self.scanned_pdf("book.pdf", [[f"Chapter {i}: the lighthouse logbook entry number {i}"] for i in range(1, 4)])
+        saved = dict(table._OCR)
+        self.addCleanup(table._OCR.update, saved)
+        read = lambda: json.loads(table.run(self.ws, {"action": "read_source", "path": "book.pdf"}, office))
+        table._OCR["budget"] = 2
+        first = read()
+        self.assertEqual(first["ocrPendingPages"], 1)
+        self.assertEqual(len(first["ocrSegments"]), 2)
+        self.assertIn("call read_source again", first["notice"])
+        table._OCR["budget"] = 64
+        second = read()
+        self.assertEqual(second["ocrPendingPages"], 0)
+        self.assertEqual(second["ocrSegments"], ["page:1", "page:2", "page:3"])
+        self.assertIn("logbook entry number 3", second["segments"][2]["text"])
+
+    def test_without_an_ocr_engine_text_less_pages_stay_empty(self):
+        os.environ["DSTUDIO_OCR_HELPER"] = str(self.root / "no-such-helper")
+        self.addCleanup(os.environ.pop, "DSTUDIO_OCR_HELPER", None)
+        self.scanned_pdf("scan.pdf", [["Course code: ST-0042", "Duration: 48 hours"]])
+        doc = self.call("read_source", "scan.pdf")
+        self.assertEqual(doc["ocrSegments"], [])
+        self.assertFalse(doc["ocrAvailable"])
+        self.assertEqual(doc["emptySegments"], ["page:1"])
+        self.assertIn("no OCR engine", doc["notice"])
 
 
 if __name__ == "__main__":

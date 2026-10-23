@@ -9,11 +9,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi } from '../support/ui_mock_server.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName));
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
 const hostBinary = path.resolve(process.argv[2] || 'tests/.build/agent_workspace_host');
 fs.mkdirSync('tests/.artifacts/ui-agent-ide', { recursive: true });
 const dir = fs.mkdtempSync(`tests/.artifacts/ui-agent-ide/${browserName}-`);
@@ -123,7 +123,7 @@ const now = Date.now();
 const seed = { theme: 'dark', settings: { workdirs: { agent: workspace } },
   chats: [{ id: 'ide-agent', mode: 'agent', title: 'IDE fixture', createdAt: now, updatedAt: now, messages: [], transcript: '', workdir: workspace }] };
 
-const browser = await ({ chromium, webkit })[browserName].launch();
+const browser = await ({ chromium, webkit, firefox })[browserName].launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
 page.setDefaultTimeout(8000);
 const evidence = await seedUi(page, server.origin, seed);

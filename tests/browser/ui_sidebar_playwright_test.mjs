@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert.ok(['chromium', 'webkit'].includes(browserName), 'unknown browser');
+assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'unknown browser');
 let browserType;
 try {
   browserType = (await import('playwright'))[browserName];

@@ -20,6 +20,53 @@ sys.modules[SPEC.name] = office
 SPEC.loader.exec_module(office)
 
 
+def reference_sheet_xml(rows, *, header=True, literal=False):
+    """The ElementTree worksheet writer the Office helper used before it
+    streamed its output; kept here as an independent oracle."""
+    ET, ns, ref = office.ET, office.NS_MAIN, office.cell_ref
+    worksheet = ET.Element(f"{{{ns}}}worksheet")
+    max_cols = max((len(row) for row in rows), default=1)
+    ET.SubElement(worksheet, f"{{{ns}}}dimension").set("ref", f"A1:{ref(max(len(rows), 1), max(max_cols, 1))}")
+    views = ET.SubElement(worksheet, f"{{{ns}}}sheetViews")
+    view = ET.SubElement(views, f"{{{ns}}}sheetView", {"workbookViewId": "0"})
+    if header and rows:
+        ET.SubElement(view, f"{{{ns}}}pane", {"ySplit": "1", "topLeftCell": "A2", "activePane": "bottomLeft", "state": "frozen"})
+    cols = ET.SubElement(worksheet, f"{{{ns}}}cols")
+    for col in range(1, max_cols + 1):
+        width = min(42, max(10, max((len(str(row[col - 1])) for row in rows if col <= len(row) and row[col - 1] is not None), default=8) + 2))
+        ET.SubElement(cols, f"{{{ns}}}col", {"min": str(col), "max": str(col), "width": str(width), "customWidth": "1"})
+    data = ET.SubElement(worksheet, f"{{{ns}}}sheetData")
+    for r, row in enumerate(rows, 1):
+        node = ET.SubElement(data, f"{{{ns}}}row", {"r": str(r)})
+        for c, value in enumerate(row, 1):
+            if value is None:
+                continue
+            attrs = {"r": ref(r, c)}
+            if header and r == 1:
+                attrs["s"] = "1"
+            cell = ET.SubElement(node, f"{{{ns}}}c", attrs)
+            if isinstance(value, bool):
+                cell.set("t", "b")
+                ET.SubElement(cell, f"{{{ns}}}v").text = "1" if value else "0"
+            elif isinstance(value, (int, float)):
+                ET.SubElement(cell, f"{{{ns}}}v").text = str(value)
+            elif not literal and isinstance(value, str) and value.startswith("=") and len(value) > 1:
+                ET.SubElement(cell, f"{{{ns}}}f").text = value[1:]
+            else:
+                cell.set("t", "inlineStr")
+                text = ET.SubElement(ET.SubElement(cell, f"{{{ns}}}is"), f"{{{ns}}}t")
+                if str(value) != str(value).strip():
+                    text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+                text.text = str(value)
+    if header and rows and max_cols:
+        ET.SubElement(worksheet, f"{{{ns}}}autoFilter", {"ref": f"A1:{ref(len(rows), max_cols)}"})
+    return office.xml_bytes(worksheet)
+
+
+def xml_structure(raw):
+    return [(node.tag, sorted(node.attrib.items()), node.text or "") for node in office.ET.fromstring(raw).iter()]
+
+
 class CoworkOfficeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="ds4-cowork-test-")
@@ -36,6 +83,111 @@ class CoworkOfficeTests(unittest.TestCase):
             "args": {key: str(value) for key, value in kwargs.items()},
         }
         return office.dispatch(request, self.ws)
+
+    @staticmethod
+    def copy_from_view(shown):
+        """What a careful model does with read_document's view: rebuild the
+        text exactly as the view says, nothing more."""
+        header, _, rest = shown.partition("\n")
+        if "Each line is shown as its number" in header:
+            rows = rest.split("\n")
+            assert rows.pop() == ""
+            terminated = not rows or rows[-1] != office.NO_FINAL_BREAK
+            if not terminated:
+                rows.pop()
+            texts = [row.split(" ", 1)[1] for row in rows]
+            brk = "\r\n" if "CRLF line breaks" in header else "\r" if "CR line breaks" in header else "\n"
+            return brk.join(texts) + (brk if terminated and texts else ""), terminated
+        assert rest.endswith(office.END_OF_DOCUMENT + "\n"), repr(shown)
+        text = rest[: -len(office.END_OF_DOCUMENT) - 1]
+        return text, not text or text.endswith(("\n", "\r"))
+
+    def test_text_copy_through_the_tools_is_byte_exact(self):
+        # A copier that does exactly what the tool results say reproduces every
+        # byte, final line breaks included; the facts of the read and the write
+        # match. .txt/.md use the numbered-line view unless line breaks are mixed.
+        rng = random.Random(5)
+        texts = ["", "a", "a\n", "a\n\n", "\n", "\n\n\n", "one\ntwo", "one\ntwo\n", "crlf\r\nline\r\n",
+                 "mixed\r\nends\n", "lone\rcr", "trailing spaces  \n", "La citt\u00e0 caf\u00e9 <tag> & \"q\" \U0001f98a\n",
+                 "mentions \u27e6end of document\u27e7 inside\n", "\\ No newline at end of file\n", "7 looks numbered\n"]
+        alphabet = ["a", "\u00e8", " ", "\t", "\n", "\r\n", "<", "&", "\U0001f98a", "x", "1 "]
+        texts += ["".join(rng.choice(alphabet) for _ in range(rng.randrange(0, 60))) for _ in range(300)]
+        views = set()
+        for i, text in enumerate(texts):
+            for suffix in (".txt", ".md"):
+                (self.root / f"source{suffix}").write_bytes(text.encode("utf-8"))
+                shown = self.call("read_document", path=f"source{suffix}")
+                views.add("numbered" if "Each line is shown" in shown else "verbatim")
+                copied, terminated = self.copy_from_view(shown)
+                written = self.call("write_document", path=f"copy{i}{suffix}", content=copied,
+                                    final_newline="true" if terminated else "false")
+                self.assertEqual((self.root / f"copy{i}{suffix}").read_bytes(), text.encode("utf-8"), repr(text))
+                facts = shown.partition("\n")[0].split(": ", 1)[1].split(". Treat", 1)[0]
+                self.assertIn(f": {facts}, written byte for byte.", written)
+        self.assertEqual(views, {"numbered", "verbatim"})
+
+    def test_text_documents_end_with_a_line_break_unless_told_otherwise(self):
+        # The observed real-model failure: content without the final newline.
+        written = self.call("write_document", path="copy.txt", content="line one\nline two")
+        self.assertEqual((self.root / "copy.txt").read_bytes(), b"line one\nline two\n")
+        self.assertIn("ends with 1 line break (the final line break was added", written)
+        self.call("write_document", path="crlf.md", content="a\r\nb")
+        self.assertEqual((self.root / "crlf.md").read_bytes(), b"a\r\nb\r\n")
+        kept = self.call("write_document", path="exact.txt", content="no break", final_newline="false")
+        self.assertEqual((self.root / "exact.txt").read_bytes(), b"no break")
+        self.assertIn("does not end with a line break, written byte for byte", kept)
+        self.call("write_document", path="has.txt", content="ends\n\n")
+        self.assertEqual((self.root / "has.txt").read_bytes(), b"ends\n\n", "existing final breaks are kept as they are")
+        self.call("write_document", path="empty.txt", content="")
+        self.assertEqual((self.root / "empty.txt").read_bytes(), b"")
+        with self.assertRaises(office.ToolError):
+            self.call("write_document", path="bad.txt", content="x", final_newline="maybe")
+
+    def test_numbered_view_marks_a_missing_final_line_break(self):
+        (self.root / "a.txt").write_text("first\nlast", encoding="utf-8")
+        self.assertTrue(self.call("read_document", path="a.txt").endswith("1 first\n2 last\n\\ No newline at end of file\n"))
+        (self.root / "b.txt").write_text("first\nlast\n", encoding="utf-8")
+        self.assertTrue(self.call("read_document", path="b.txt").endswith("1 first\n2 last\n"))
+
+    def test_text_facts_name_the_final_line_breaks(self):
+        self.assertEqual(office.text_facts(""), "0 characters, 0 lines, does not end with a line break")
+        self.assertEqual(office.text_facts("a"), "1 character, 1 line, does not end with a line break")
+        self.assertEqual(office.text_facts("a\n"), "2 characters, 1 line, ends with 1 line break")
+        self.assertEqual(office.text_facts("a\nb\n\n"), "5 characters, 3 lines, ends with 2 line breaks")
+        self.assertEqual(office.text_facts("a\r\nb\r\n"), "6 characters, 2 lines, CRLF line breaks, ends with 1 line break")
+        # The copy that lost its final newline is distinguishable from the source.
+        self.assertNotEqual(office.text_facts("x\ny\n"), office.text_facts("x\ny"))
+
+    def test_a_long_document_says_what_is_not_shown(self):
+        saved = office.MAX_RETURN_CHARS
+        office.MAX_RETURN_CHARS = 400
+        try:
+            (self.root / "long.json").write_text("0123456789" * 100, encoding="utf-8")
+            shown = self.call("read_document", path="long.json")
+            (self.root / "long.txt").write_text("".join(f"line {i}\n" for i in range(200)), encoding="utf-8")
+            numbered = self.call("read_document", path="long.txt")
+        finally:
+            office.MAX_RETURN_CHARS = saved
+        self.assertIn("1,000 characters", shown)
+        self.assertIn("Showing only the first 400 characters; 600 more are not shown", shown)
+        self.assertNotIn(office.END_OF_DOCUMENT, shown)
+        self.assertTrue(shown.endswith("\u27e6600 characters not shown\u27e7\n"))
+        self.assertIn("200 lines", numbered)
+        self.assertRegex(numbered, r"\[Lines [0-9,]+-200 are not shown; read a shorter document or a part\.\]\n$")
+
+    def test_streamed_worksheet_matches_the_element_tree_writer(self):
+        rng = random.Random(9)
+        values = [None, "", "x", " padded ", "a&b<c>", "=SUM(A1:A2)", "=", "007", 0, -3, 2.5, 1e20, True, False,
+                  "\u00e8 \U0001f98a", "tab\there", "line\nbreak", "]]>"]
+        shapes = [[], [[]], [[], []], [[None]], [["only"]]]
+        shapes += [[[rng.choice(values) for _ in range(rng.randrange(0, 9))] for _ in range(rng.randrange(1, 25))]
+                   for _ in range(300)]
+        for rows in shapes:
+            for header in (True, False):
+                for literal in (True, False):
+                    want = reference_sheet_xml(rows, header=header, literal=literal)
+                    self.assertEqual(xml_structure(office.spreadsheet_xml(rows, header=header, literal=literal)),
+                                     xml_structure(want), (rows, header, literal))
 
     def test_xlsx_create_inspect_read_update_and_append(self):
         sheets = [

@@ -1,0 +1,73 @@
+/* First-party Cowork tool declarations. Included by every DStudio Agent
+ * variant after agent_is_cowork_runtime(). ds4ui_cowork_workspace_guard()
+ * refuses bash, bash_status and bash_stop in Cowork, so the Cowork tool prompt
+ * must not declare them: a declared tool that always fails costs calls and
+ * contradicts the Cowork instructions. The upstream schema text is reused
+ * unchanged; this removes only those tools' schema units (one line in the
+ * compact format, a "{" ... "}" block plus its blank separator in the pretty
+ * format) and upstream's paragraph on running bash jobs. The structured tool
+ * list (remote-tools.cfrag) applies the same exclusion. */
+
+static const char ds4ui_cowork_bash_paragraph[] =
+    "For long-running bash commands, pass refresh_sec. If a bash job is still running, use "
+    "bash_status to check it early or bash_stop to terminate it.\n\n";
+
+static bool ds4ui_cowork_shell_unit(const char *p, size_t n) {
+    static const char *const names[] = {"bash", "bash_status", "bash_stop"};
+    for (size_t i = 0; i + 7 < n; i++) {
+        if (memcmp(p + i, "\"name\":", 7)) continue;
+        size_t j = i + 7;
+        while (j < n && p[j] == ' ') j++;
+        if (j >= n || p[j] != '"') continue;
+        j++;
+        for (size_t k = 0; k < sizeof names / sizeof *names; k++) {
+            size_t len = strlen(names[k]);
+            if (j + len < n && !memcmp(p + j, names[k], len) && p[j + len] == '"') return true;
+        }
+    }
+    return false;
+}
+
+static const char *ds4ui_cowork_line_end(const char *p, const char *end) {
+    const char *eol = memchr(p, '\n', (size_t)(end - p));
+    return eol ? eol + 1 : end;
+}
+
+/* A new string without the shell tools (the caller frees it). */
+static char *ds4ui_cowork_without_shell(const char *text) {
+    size_t n = strlen(text);
+    char *out = xmalloc(n + 1);
+    const char *p = text, *end = text + n;
+    size_t o = 0;
+    while (p < end) {
+        const char *next = ds4ui_cowork_line_end(p, end);
+        size_t para = sizeof ds4ui_cowork_bash_paragraph - 1;
+        if ((size_t)(end - p) >= para && !memcmp(p, ds4ui_cowork_bash_paragraph, para)) {
+            p += para;
+            continue;
+        }
+        if (next - p == 2 && p[0] == '{') {
+            /* Pretty block: through its closing "}" line. An unclosed block
+             * is copied unchanged. */
+            const char *q = next;
+            while (q < end && !(q[0] == '}' && ds4ui_cowork_line_end(q, end) - q == 2)) q = ds4ui_cowork_line_end(q, end);
+            const char *after = q < end ? ds4ui_cowork_line_end(q, end) : end;
+            if (q < end && ds4ui_cowork_shell_unit(p, (size_t)(after - p))) {
+                if (after < end && after[0] == '\n') after++;
+                p = after;
+                continue;
+            }
+            memcpy(out + o, p, (size_t)(after - p));
+            o += (size_t)(after - p);
+            p = after;
+            continue;
+        }
+        if (!ds4ui_cowork_shell_unit(p, (size_t)(next - p))) {
+            memcpy(out + o, p, (size_t)(next - p));
+            o += (size_t)(next - p);
+        }
+        p = next;
+    }
+    out[o] = '\0';
+    return out;
+}

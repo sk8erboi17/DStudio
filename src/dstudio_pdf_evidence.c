@@ -2,6 +2,10 @@
  * Included by dstudio_pdf.c. Coordinates and quotations come from Poppler,
  * never from the answer. A unique exact whitespace-normalized match is the
  * only status that permits highlighting. This does NOT verify an assertion.
+ * A page without a text layer is matched against its local OCR lines
+ * (status ocr_matched): whole recognized lines are highlighted, and the text
+ * is a reading of the image, so it never counts as an exact source passage
+ * (calculations accept "matched" only).
  */
 #define PDF_EVIDENCE_WORDS 20000
 #define PDF_SOURCE_CACHE_BYTES (2LL * 1024 * 1024 * 1024)
@@ -186,6 +190,11 @@ static int pdf_section_hints(json_dyn_buf *out, json_dyn_buf *links,
 
 typedef struct { double x1, y1, x2, y2; size_t start, end; } pdf_evidence_word;
 
+/* The page's OCR lines as matching units, from the reader's OCR cache or a
+ * run of the helper for this page. Sets the page size as viewed. */
+static int pdf_evidence_ocr_units(const char *pdf, long page, pdf_evidence_word *words, json_dyn_buf *joined,
+                                  double *width, double *height);
+
 /* Poppler emits a small known XHTML vocabulary. No DTD/entity expansion. */
 static int pdf_xml_text(json_dyn_buf *out, const char *p, const char *end) {
     while (p < end) {
@@ -343,8 +352,14 @@ static void api_pdf_evidence_run(int fd, const char *body) {
         free(norm); end = close + 7;
         if (!good) { error = "oom"; http = "500 Internal Server Error"; goto done; }
     }
-    int matches = 0, first = -1, last = -1;
     size_t qlen = strlen(needle);
+    int ocr_lines = 0;
+    if (!count && qlen) {
+        double ow = 0, oh = 0;
+        count = pdf_evidence_ocr_units(pdf, page, words, &joined, &ow, &oh);
+        if (count > 0) { ocr_lines = 1; width = ow; height = oh; }
+    }
+    int matches = 0, first = -1, last = -1;
     for (int i = 0; qlen && i < count; i++) {
         size_t stop = words[i].start + qlen;
         if (stop > joined.len || memcmp(joined.ptr + words[i].start, needle, qlen)) continue;
@@ -357,7 +372,8 @@ static void api_pdf_evidence_run(int fd, const char *body) {
         pdf_evidence_word w = words[i];
         if (w.x1 < 0 || w.y1 < 0 || w.x2 <= w.x1 || w.y2 <= w.y1 || w.x2 > width || w.y2 > height) coords = 0;
     }
-    const char *status = !qlen ? "page_only" : !count ? "no_text_layer" : !matches ? "not_found" : matches > 1 ? "ambiguous" : !coords ? "unsupported_coordinates" : "matched";
+    const char *status = !qlen ? "page_only" : !count ? "no_text_layer" : !matches ? "not_found" : matches > 1 ? "ambiguous" :
+                         !coords ? "unsupported_coordinates" : ocr_lines ? "ocr_matched" : "matched";
     if (render) {
         if (!pdf_find_tool("pdftoppm", tool, sizeof tool) || !pdf_render(tool, pdf, prefix, (int)page, (int)page, 1600, 1, 1, 90) || !(uri = pdf_img_data_uri(img))) {
             error = "Cannot render this PDF page."; goto done;
@@ -376,4 +392,46 @@ done:
     else send_json(fd, "200 OK", result.ptr);
     free(raw); free(uri); free(words); free(needle); free(joined.ptr); free(result.ptr);
     unlink(pdf); unlink(xml); unlink(img); rmdir(dir);
+}
+
+static int pdf_evidence_ocr_units(const char *pdf, long page, pdf_evidence_word *words, json_dyn_buf *joined,
+                                  double *width, double *height) {
+    if (page < 1 || page > PDF_MAX_TOTAL_PAGES) return 0;
+    size_t n = 0;
+    char *bytes = jsonl_read_file(pdf, &n);
+    if (!bytes) return 0;
+    unsigned long long fnv = pdf_fnv(1469598103934665603ULL, bytes, n);  /* the reader's docfnv */
+    free(bytes);
+    static pdf_ocr_result r;
+    static const char *ps[PDF_MAX_TOTAL_PAGES];
+    static int pl[PDF_MAX_TOTAL_PAGES], pv[PDF_MAX_TOTAL_PAGES];
+    static unsigned char po[PDF_MAX_TOTAL_PAGES];
+    memset(&r, 0, sizeof r);
+    memset(pv, 0, sizeof pv);
+    memset(po, 0, sizeof po);
+    char helper[DSTUDIO_PATH_MAX];
+    pdf_ocr_engine(helper, sizeof helper, r.engine, sizeof r.engine);
+    if (r.engine[0]) pdf_ocr_pages(pdf, fnv, "", helper, (int)page, (int)page, ps, pl, pv, po, &r);
+    const char *line = po[page - 1] ? r.raw[page - 1] : NULL;
+    int count = 0;
+    const char *w = line ? strstr(line, "\"width\":") : NULL, *h = line ? strstr(line, "\"height\":") : NULL;
+    if (w && h) { *width = strtod(w + 8, NULL); *height = strtod(h + 9, NULL); }
+    const char *p = line && *width > 0 && *height > 0 ? strstr(line, "\"lines\":[") : NULL;
+    while (p && (p = strstr(p, "{\"text\":")) && count < PDF_EVIDENCE_WORDS) {
+        char *text = json_get_string_alloc_rpc(p, "text");
+        const char *box = strstr(p, "\"box\":[");  /* a quote inside text is escaped */
+        pdf_evidence_word *u = &words[count];
+        if (!text || !box || sscanf(box + 7, "%lf,%lf,%lf,%lf", &u->x1, &u->y1, &u->x2, &u->y2) != 4) { free(text); break; }
+        char *norm = pdf_quote_normalize(text);
+        free(text);
+        if (!norm) break;
+        if (*norm && (!count || json_dyn_puts(joined, " "))) {
+            u->start = joined->len;
+            if (json_dyn_puts(joined, norm)) { u->end = joined->len; count++; }
+        }
+        free(norm);
+        p = box + 7;
+    }
+    for (int i = 0; i < PDF_MAX_TOTAL_PAGES; i++) { free(r.texts[i]); free(r.raw[i]); }
+    return count;
 }

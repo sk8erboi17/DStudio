@@ -7,7 +7,7 @@ let browserType;
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 try {
   const playwright = await import('playwright');
-  assert.ok(['chromium', 'webkit'].includes(browserName), 'use chromium or webkit');
+  assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName), 'use chromium or webkit');
   browserType = playwright[browserName];
 } catch {
   console.log('ui_settings_redesign_playwright_test: playwright missing, NOT RUN');

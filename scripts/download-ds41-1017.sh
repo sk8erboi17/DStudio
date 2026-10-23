@@ -6,14 +6,18 @@
 #                      SHA-256, so the digest here is the published 1017 one).
 #   ds41f-1017-vision  the community 1017 vision sidecar (antirez publishes none);
 #                      source revision 1bae0e10, the same as the 1017 Q2.
+#   ds41f-q2-original  the original V4.1 Q2 (source revision df42c109), still
+#                      published in the same repository; it pairs with the
+#                      original sidecar (ds41f-vision) and resumes a download
+#                      started before ds41f-q2 became the 1017 file.
 # Each repository is pinned to a revision and every file is checked for exact
 # size + SHA-256. Run from the ds4 checkout (cwd) or set DS4_GGUF_DIR.
-# Usage: download-ds41-1017.sh ds41f-q2|ds41f-1017-vision [--token TOKEN]
+# Usage: download-ds41-1017.sh ds41f-q2|ds41f-q2-original|ds41f-1017-vision [--token TOKEN]
 #        download-ds41-1017.sh TARGET --print-pin   (repo revision file bytes sha256; no download)
 set -eu
 
 usage() {
-    echo "Usage: $0 ds41f-q2|ds41f-1017-vision [--token TOKEN | --print-pin]" >&2
+    echo "Usage: $0 ds41f-q2|ds41f-q2-original|ds41f-1017-vision [--token TOKEN | --print-pin]" >&2
 }
 
 [ $# -ge 1 ] || { usage; exit 1; }
@@ -26,6 +30,12 @@ case "$TARGET" in
         FILE="DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf"
         EXPECTED_BYTES=365713686528
         EXPECTED_SHA="5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a" ;;
+    ds41f-q2-original)
+        REPO="antirez/deepseek-v4.1-flash-gguf"
+        REVISION="9dcee51692e6540f697141fc98b097e3c96492a3"
+        FILE="DeepSeek-V4.1-Flash-Q2.gguf"
+        EXPECTED_BYTES=365713686528
+        EXPECTED_SHA="1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42" ;;
     ds41f-1017-vision)
         REPO="nazeshinjite/DeepSeek-V4.1-Flash-1017-ds4-GGUF"
         REVISION="796f58533a0e4b7a89cb006b22aeb44e783f0323"

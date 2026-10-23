@@ -57,6 +57,9 @@ static void ds41_progress_test(const char *root) {
         assert(!model_download_uses_hf_artifacts("ds41f-1017-q2"));
         assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 17 && partial);
         assert(ds41_download_bytes(g_ds4_dir, "ds41f-1017-vision", &partial) == 41 && partial);
+        /* ...it counts toward its own original-checkpoint target instead. */
+        assert(model_download_uses_hf_artifacts("ds41f-q2-original"));
+        assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2-original", &partial) == 29 && partial);
         assert(ds41_download_bytes(g_ds4_dir, "ds41f-vision", &partial) == 7);
         char rel[256]; long long want = 0;
         model_download_details("ds41f-q2", rel, sizeof rel, &want);
@@ -88,8 +91,22 @@ static void ds41_progress_test(const char *root) {
     response(pair, out, sizeof out); assert(strstr(out, "409 Conflict"));
     assert(model_download_bytes_present() == 17);
     for (int i = 0; i < 8; i++) assert(unlink(paths[i]) == 0);
-    assert(rmdir(download) == 0); assert(rmdir(hf) == 0); assert(rmdir(cache) == 0);
+    /* A partial of the original Q2 started before ds41f-q2 became the 1017
+     * file is found again after a restart, as its own resumable download. */
     g_dl_variant[0] = g_dl_rel[0] = g_dl_directory[0] = 0; g_dl_expected_bytes = 0;
+    char orphan[2300];
+    snprintf(orphan, sizeof orphan, "%s/opaque.1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42.x.incomplete", download);
+    fd = open(orphan, O_CREAT | O_EXCL | O_WRONLY, 0600); assert(fd >= 0);
+    assert(ftruncate(fd, 53) == 0); assert(close(fd) == 0);
+    assert(ds41_download_bytes(g_ds4_dir, "ds41f-q2", &partial) == 0 && !partial);
+    assert(paused_model_download(target, sizeof target, &have, &expected));
+    assert(!strcmp(target, "ds41f-q2-original") && have == 53 && expected == MODEL_DS41_Q2_BYTES);
+    char orphan_rel[256]; long long orphan_want = 0;
+    model_download_details(target, orphan_rel, sizeof orphan_rel, &orphan_want);
+    assert(!strcmp(orphan_rel, MODEL_DS41_Q2) && orphan_want == MODEL_DS41_Q2_BYTES);
+    assert(unlink(orphan) == 0);
+    assert(!paused_model_download(target, sizeof target, &have, &expected));
+    assert(rmdir(download) == 0); assert(rmdir(hf) == 0); assert(rmdir(cache) == 0);
     puts("V4.1 download: identity-bound progress, duplicate retries, Q4 assembly, selection isolation and no false completion PASS");
 }
 

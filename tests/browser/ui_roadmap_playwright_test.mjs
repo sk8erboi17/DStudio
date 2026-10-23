@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import {artifactRunDir, writeArtifact} from '../support/real_harness.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
-assert(['chromium', 'webkit'].includes(browserName), 'Unknown browser');
+assert(['chromium', 'webkit', 'firefox'].includes(browserName), 'Unknown browser');
 const modelFamily = process.env.DSTUDIO_TEST_MODEL || 'deepseek';
 const repairCheckout = process.env.DSTUDIO_TEST_STALE_CHECKOUT === '1';
 const modelFixture = {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'webkit';
-assert.ok(['webkit', 'chromium'].includes(browserName));
+assert.ok(['webkit', 'chromium', 'firefox'].includes(browserName));
 const browser = await (await import('playwright'))[browserName].launch();
 const html = fs.readFileSync('web/loading.html');
 const root = 'tests/.artifacts/loading-startup';

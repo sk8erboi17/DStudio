@@ -236,11 +236,11 @@
       },
       {
         "path": "scripts/apply-ds4-v41-vision-pairing.sh",
-        "sha256": "e87791ee0a7854eb03e1843c4dce7865ce65a4f6186d12cb66ab5b76ad92c63d"
+        "sha256": "762ec8a15bd4ea484a64dea8d879580c24e614f23f30615c964930c219f57f5b"
       },
       {
         "path": "scripts/download-ds41-1017.sh",
-        "sha256": "03bff582f9fd1e8187b4b89f1a47882c91a4d7f86efd8c6d14c12cbec4e968e2"
+        "sha256": "6d331e80d4f33c1f7636b54c8ff4673eacb1f2c14758115ebe894b2077f1e50d"
       }
     ],
     "laguna": [
@@ -387,7 +387,7 @@
       },
       {
         "path": "scripts/apply-ds4-v41-vision-pairing.sh",
-        "sha256": "e87791ee0a7854eb03e1843c4dce7865ce65a4f6186d12cb66ab5b76ad92c63d"
+        "sha256": "762ec8a15bd4ea484a64dea8d879580c24e614f23f30615c964930c219f57f5b"
       }
     ]
   },

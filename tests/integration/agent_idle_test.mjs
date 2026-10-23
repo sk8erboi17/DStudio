@@ -39,6 +39,7 @@ try {
   report.inputs = ['tests/integration/agent_idle_test.mjs', 'tests/support/agent_idle_probe.c',
     'patch/ds4-agent-jsonl/manifest', 'patch/ds4-agent-jsonl/bases.json', 'patch/ds4-agent-jsonl/build.mk',
     'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/remote-tools.cfrag',
+    'patch/ds4-agent-jsonl/cowork-tools.cfrag',
     'extension/remote/dstudio_remote_llm.c', 'src/harness/cowork/ds4_cowork.c',
     path.join(engine, 'ds4_agent.c'), path.join(engine, 'ds4_web.c')].map(capture);
   report.coreObjects = fs.readdirSync(engine).filter(f => f.endsWith('.o')).map(f => capture(path.join(engine, f)));

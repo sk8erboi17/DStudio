@@ -540,6 +540,7 @@ typedef struct lan_client_snapshot {
     char *json;
     size_t json_len;
     long updated_ms;
+    long touched_rev;   /* g_lan_clients_rev at its last publish: eviction order */
     struct lan_client_snapshot *next;
 } lan_client_snapshot;
 static lan_client_snapshot *g_lan_clients = NULL;
@@ -624,6 +625,12 @@ static char g_bind_host[64] = "127.0.0.1";
 static int  g_srv_fd = -1;     /* HTTP listen socket (rebindable for the LAN toggle) */
 static int  g_http_port = 5500;
 static int  g_reply_cors = 0;
+/* The caller's Origin when cors_origin_allowed() accepts it, else "": the only
+ * value ever granted in Access-Control-Allow-Origin. Per request. */
+static char g_cors_origin[256];
+/* Set per request by handle_connection: a paired LAN device's token admitted
+ * this request (dstudio_lan_cowork.c). */
+static int g_request_lan_cowork = 0;
 /* Set by the windowed launcher (app.cc) BEFORE forking the server: a pre-picked FREE port,
  * so if 5500 is squatted (e.g. a leftover dev server) DStudio opens on the next free
  * port instead of a blank window. 0 = not forced (CLI/headless uses the argv/default port). */
@@ -640,20 +647,27 @@ static int send_all(int fd, const char *p, size_t n) {
     return 0;
 }
 
-static const char CORS_HEADERS[] =
-    "Access-Control-Allow-Origin: *\r\n"
-    "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-    "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n";
+/* CORS response headers for the current request's accepted Origin, or "". */
+static const char *cors_headers(void) {
+    static char out[512];
+    if (!g_cors_origin[0]) return "";
+    snprintf(out, sizeof out,
+             "Access-Control-Allow-Origin: %s\r\n"
+             "Vary: Origin\r\n"
+             "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+             "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n", g_cors_origin);
+    return out;
+}
 
 static void send_response_hdrs(int fd, const char *status, const char *ctype,
                                const char *body, size_t blen, int head_only,
                                const char *extra_headers) {
-    char hdr[1024];
+    char hdr[2048];
     int add_cors = g_reply_cors && !(extra_headers && strstr(extra_headers, "Access-Control-Allow-Origin:"));
     int n = snprintf(hdr, sizeof hdr,
                      "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n%s%s\r\n",
                      status, ctype, blen, extra_headers ? extra_headers : "",
-                     add_cors ? CORS_HEADERS : "");
+                     add_cors ? cors_headers() : "");
     if (n < 0 || (size_t)n >= sizeof hdr) return;
     if (send_all(fd, hdr, (size_t)n) < 0) return;
     if (!head_only && blen > 0) send_all(fd, body, blen);
@@ -684,7 +698,7 @@ static void send_json(int fd, const char *status, const char *body) {
 
 static void send_json_cors(int fd, const char *status, const char *body) {
     send_response_hdrs(fd, status, "application/json; charset=utf-8", body, strlen(body), 0,
-                       CORS_HEADERS);
+                       cors_headers());
 }
 
 static int ascii_eq_ci(char a, char b) {
@@ -777,12 +791,11 @@ static void relay_engine_response(int client_fd, int engine_fd, int cors) {
         if (!end) continue;
         size_t hlen = (size_t)(end - head);
         if (send_all(client_fd, head, hlen) != 0) return;
-        if (cors && !mem_contains_ci(head, hlen, "\r\nAccess-Control-Allow-Origin:")) {
-            static const char CORS_RESPONSE_HEADERS[] =
-                "\r\nAccess-Control-Allow-Origin: *"
-                "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS"
-                "\r\nAccess-Control-Allow-Headers: Content-Type, Accept, X-Requested-With";
-            if (send_all(client_fd, CORS_RESPONSE_HEADERS, strlen(CORS_RESPONSE_HEADERS)) != 0) return;
+        if (cors && g_cors_origin[0] && !mem_contains_ci(head, hlen, "\r\nAccess-Control-Allow-Origin:")) {
+            /* cors_headers() lines end in CRLF; the engine head does not. */
+            const char *h = cors_headers();
+            size_t hl = strlen(h);
+            if (send_all(client_fd, "\r\n", 2) != 0 || send_all(client_fd, h, hl - 2) != 0) return;
         }
         if (send_all(client_fd, "\r\n\r\n", 4) != 0) return;
         size_t body = hlen + 4;
@@ -2346,6 +2359,8 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
     long long bytes = 0;
     if (!strcmp(target, "ds41f-q2")) {
         file = MODEL_DS41_1017_Q2; bytes = MODEL_DS41_1017_Q2_BYTES;
+    } else if (!strcmp(target, "ds41f-q2-original")) {
+        file = MODEL_DS41_Q2; bytes = MODEL_DS41_Q2_BYTES;
     } else if (!strcmp(target, "ds41f-q4")) {
         file = MODEL_DS41_Q4; bytes = MODEL_DS41_Q4_BYTES;
     } else if (!strcmp(target, "ds41f-vision")) {
@@ -2400,8 +2415,9 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
 }
 
 static int model_download_is_ds41(const char *target) {
-    return target && (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q4") ||
-                      !strcmp(target, "ds41f-vision") || !strcmp(target, "ds41f-1017-vision"));
+    return target && (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
+                      !strcmp(target, "ds41f-q4") || !strcmp(target, "ds41f-vision") ||
+                      !strcmp(target, "ds41f-1017-vision"));
 }
 static int model_download_uses_hf_artifacts(const char *target) {
     return model_download_is_ds41(target) || (target &&
@@ -2425,12 +2441,15 @@ static long long ds41_download_bytes(const char *checkout, const char *target,
         {MODEL_QWEN_Q2, "b1b93fa69aca5f187b0fb813aca8f3ec1beb5cf8cf0bd38cf041b93e0b6ccac9", MODEL_QWEN_Q2_BYTES},
         {MODEL_QWEN, "680944460a8cbe93ba8b6d7b6107213ffb7e22320bd913000e563ca0a0f25a8a", MODEL_QWEN_BYTES},
         {MODEL_DS41_1017_VISION, "861f1097e8686111fa23dc4a6bf139fd0c4cc114db2f1b4090a267f7683c0dbf", MODEL_DS41_1017_VISION_BYTES},
+        /* The original Q2 keeps its own digest so a partial started before
+         * ds41f-q2 became the 1017 file stays visible and resumable. */
+        {MODEL_DS41_Q2, "1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42", MODEL_DS41_Q2_BYTES},
     };
     if (has_partial) *has_partial = 0;
     if (!model_download_uses_hf_artifacts(target)) return 0;
     int first = !strcmp(target, "ds41f-q2") ? 0 : !strcmp(target, "ds41f-q4") ? 1 :
                 !strcmp(target, "ds41f-vision") ? 3 : !strcmp(target, "qwen38-q2") ? 4 :
-                !strcmp(target, "ds41f-1017-vision") ? 6 : 5;
+                !strcmp(target, "ds41f-1017-vision") ? 6 : !strcmp(target, "ds41f-q2-original") ? 7 : 5;
     int end = first == 1 ? 3 : first + 1;
     long long present[sizeof artifacts / sizeof artifacts[0]] = {0}, final_bytes = 0;
     char final_rel[1024], file[DSTUDIO_PATH_MAX + 1100];
@@ -2559,7 +2578,7 @@ static int paused_model_download(char *target, size_t targetsz,
     }
 
     static const char *ds41_targets[] = {"ds41f-q2", "ds41f-q4", "ds41f-vision", "qwen38-q2", "qwen38-q4k",
-                                         "ds41f-1017-vision"};
+                                         "ds41f-1017-vision", "ds41f-q2-original"};
     for (size_t i = 0; i < sizeof ds41_targets / sizeof ds41_targets[0]; i++) {
         const char *store = !strcmp(g_dl_variant, ds41_targets[i]) && g_dl_directory[0]
             ? g_dl_directory : g_ds4_dir;
@@ -3026,8 +3045,15 @@ static int native_launch_mode_supported(int mode, const char *model_rel,
 }
 /* A llama.cpp model is reached over RPC: the tools frontend holds no engine
  * session that /save could checkpoint. Conversations remain saved separately. */
+/* Saved sessions for the current piped runtime. Native ds4 keeps KV
+ * checkpoints. The native Agent/Cowork/Design runtimes on a resident
+ * llama.cpp/MLX model (or a LAN host) save their transcript instead
+ * (remote-agent.cfrag, ds4_design.c) and the model server prefills it again
+ * after a restore. The pi/OpenCode harnesses have no saved sessions there. */
 static int agent_disk_checkpoints_supported(void) {
-    return MODE_IS_PIPED(g_mode) && (g_remote_base_url[0] || !model_file_is_resident(current_model_rel()));
+    if (!MODE_IS_PIPED(g_mode)) return 0;
+    if (g_remote_base_url[0] || !model_file_is_resident(current_model_rel())) return 1;
+    return g_mode == ENGINE_COWORK || g_mode == ENGINE_DESIGN || (g_mode == ENGINE_AGENT && !g_harness[0]);
 }
 static int model_is_flash(void) {
     const char *rel = current_model_rel();
@@ -4822,6 +4848,9 @@ static void user_skills_dir(char *out, size_t outsz) {
  * source: skill() resolves only the writable user directory. */
 static void steer_prepare(void);
 static void steer_child_env(void);
+#ifndef _WIN32
+static int pdf_ocr_helper(char *out, size_t outsz);
+#endif
 static void child_setenv_skills(void) {
     steer_child_env();
     if (g_web_dir[0]) {
@@ -4831,6 +4860,12 @@ static void child_setenv_skills(void) {
         snprintf(p, sizeof p, "%s/src/harness/cowork/office_tool.py", g_web_dir);
         setenv("DS4UI_COWORK_HELPER", p, 1);
     }
+#ifndef _WIN32
+    /* Cowork tables read text-less PDF pages with the same local OCR helper. */
+    char ocr_helper[DSTUDIO_PATH_MAX];
+    if (pdf_ocr_helper(ocr_helper, sizeof ocr_helper)) setenv("DSTUDIO_OCR_HELPER", ocr_helper, 1);
+    else unsetenv("DSTUDIO_OCR_HELPER");
+#endif
     /* Local GLM 5.3 and DeepSeek Vision-Exp receive their matching encoder and
      * inspect pixels natively. Laguna and every non-native/remote runtime are
      * deliberately text-only; the guard also fails closed for stale schemas. */
@@ -6798,7 +6833,7 @@ static void api_model_download(int fd, const char *body) {
 
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
-        "ds41f-q2", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
+        "ds41f-q2", "ds41f-q2-original", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
         "ds4f-q2", "ds4f-q2-q4", "ds4f-q4", "ds4f-mxfp4",
         "ds4f-dspark",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
@@ -6968,10 +7003,12 @@ static void api_model_download(int fd, const char *body) {
             _exit(127);
         }
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
-        if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-1017-vision")) {
+        if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
+            !strcmp(target, "ds41f-1017-vision")) {
             /* DStudio-owned pinned downloader. The vendored download_model.sh
              * (0aaea5a) still names the original Q2, and upstream 5379c1c, which
-             * renamed it to the 1017 file, kept the old SHA-256. */
+             * renamed it to the 1017 file, kept the old SHA-256. The original
+             * Q2 is pinned here too, independent of the vendored script. */
             char helper[DSTUDIO_PATH_MAX + 64];
             snprintf(helper, sizeof helper, "%s/scripts/download-ds41-1017.sh", g_web_dir);
             execl("/bin/sh", "sh", helper, target, (char *)NULL);
@@ -8845,6 +8882,17 @@ static void api_agent_send(int fd, const char *body) {
     }
     char orchestration[32] = "auto";
     (void)json_get_string(body, "orchestration", orchestration, sizeof orchestration);
+    if (g_request_lan_cowork) {
+        /* A paired LAN device sends prompts only: the runtime would treat a
+         * leading "/" as a session command (list/switch/delete the host's saved
+         * sessions) and \x1e as a control frame; goals stay on the host too. */
+        const char *first = prompt;
+        while (*first == ' ' || *first == '\t' || *first == '\r' || *first == '\n') first++;
+        if (*first == '/' || strchr(prompt, '\x1e') || strchr(display, '\x1e') || strcmp(orchestration, "auto")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"code\":\"host_only\",\"error\":\"A shared device sends prompts only; commands and goals stay on the host.\"}");
+            return;
+        }
+    }
     size_t display_len = strlen(display);
     const char *kind = task_kind_for_mode(g_mode);
     const char *target = mode_name(g_mode);
@@ -9075,7 +9123,7 @@ static void api_design_session(int fd, const char *body) {
 
     if (strcmp(action, "new") && !agent_disk_checkpoints_supported()) {
         send_json(fd, "409 Conflict",
-            "{\"ok\":false,\"code\":\"unsupported_session_checkpoint\",\"error\":\"Qwen3.6 cannot save or restore complete disk checkpoints yet. Your conversation is saved separately; live context is retained while the engine runs.\"}");
+            "{\"ok\":false,\"code\":\"unsupported_session_checkpoint\",\"error\":\"This runtime cannot save or restore sessions on a llama.cpp/MLX model yet. Your conversation is saved separately; live context is retained while the engine runs.\"}");
         return;
     }
 
@@ -10155,6 +10203,30 @@ static lan_client_snapshot *lan_client_find(const char *id) {
     return NULL;
 }
 
+/* Mirrors are an in-memory view (lost on restart), bounded in count and bytes:
+ * before keeping a new snapshot of `len` bytes, drop the least recently
+ * updated OTHER clients until it fits. A device that was dropped reappears at
+ * its next publish. */
+#define LAN_CLIENTS_MAX 32
+#define LAN_CLIENTS_BYTES_MAX (256L * 1024 * 1024)
+static void lan_clients_make_room(const lan_client_snapshot *keep, size_t len) {
+    for (;;) {
+        size_t count = 0, bytes = len;
+        lan_client_snapshot **oldest = NULL;
+        for (lan_client_snapshot **pp = &g_lan_clients; *pp; pp = &(*pp)->next) {
+            if (*pp == keep) continue;
+            count++; bytes += (*pp)->json_len;
+            if (!oldest || (*pp)->touched_rev < (*oldest)->touched_rev) oldest = pp;
+        }
+        if ((count + 1 <= LAN_CLIENTS_MAX && bytes <= (size_t)LAN_CLIENTS_BYTES_MAX) || !oldest) return;
+        lan_client_snapshot *gone = *oldest;
+        *oldest = gone->next;
+        free(gone->json);
+        free(gone);
+        g_lan_clients_rev++;
+    }
+}
+
 static void api_lan_client_chats_set(int fd, char *body, size_t len) {
     char id[128] = "", name[160] = "";
     json_get_string(body, "clientId", id, sizeof id);
@@ -10167,6 +10239,7 @@ static void api_lan_client_chats_set(int fd, char *body, size_t len) {
         return;
     }
     lan_client_snapshot *c = lan_client_find(id);
+    lan_clients_make_room(c, len);
     if (!c) {
         c = calloc(1, sizeof *c);
         if (!c) {
@@ -10183,7 +10256,7 @@ static void api_lan_client_chats_set(int fd, char *body, size_t len) {
     c->json = body;
     c->json_len = len;
     c->updated_ms = (long)(time(NULL) * 1000L);
-    g_lan_clients_rev++;
+    c->touched_rev = ++g_lan_clients_rev;
     char out[80];
     snprintf(out, sizeof out, "{\"ok\":true,\"rev\":%ld}", g_lan_clients_rev);
     send_json_cors(fd, "200 OK", out);
@@ -10280,6 +10353,7 @@ typedef struct {
 } web_source_list;
 
 #include "dstudio_remote.c"
+#include "dstudio_lan_cowork.c"
 #include "dstudio_websearch.c"
 
 #include "dstudio_media_memory.c"
@@ -10697,13 +10771,17 @@ static int cowork_attachment_name(const char *in, char *out, size_t outsz) {
 }
 #endif
 
-static void api_cowork_attach_file(int fd, const char *body) {
+/* forced_dir: a paired LAN device can only write into the shared folder,
+ * whatever "dir" it sends. */
+static void api_cowork_attach_file(int fd, const char *body, const char *forced_dir) {
 #ifdef _WIN32
-    (void)body;
+    (void)body; (void)forced_dir;
     web_json_error(fd, "501 Not Implemented", "not available in the Windows build yet");
 #else
     char dir[DSTUDIO_PATH_MAX] = "";
-    if (!json_get_string(body, "dir", dir, sizeof dir) || dir[0] != '/') {
+    if (forced_dir) cstr_copy(dir, sizeof dir, forced_dir);
+    else if (!json_get_string(body, "dir", dir, sizeof dir)) dir[0] = '\0';
+    if (dir[0] != '/') {
         web_json_error(fd, "400 Bad Request", "dir (absolute workspace path) is required");
         return;
     }
@@ -10820,17 +10898,27 @@ static void api_http_probe_run(int fd, const char *body) {
     web_json_error(fd, "501 Not Implemented", "http probe is not available in the Windows build yet");
     return;
 #else
-    char *argv[18];
+    /* A LAN device gets the checked, pinned address and no blind redirects:
+     * a 3xx is returned with its Location, which it may probe in turn. */
+    int lan = g_request_from_lan;
+    web_pin pin;
+    char pin_err[256];
+    if (lan && !web_target_pin(url, &pin, pin_err, sizeof pin_err)) {
+        web_json_error(fd, "403 Forbidden", pin_err);
+        return;
+    }
+    char *argv[24];
     int n = 0;
     argv[n++] = "curl";
     argv[n++] = "-sS";
-    argv[n++] = "-L";
+    if (!lan) argv[n++] = "-L";
     argv[n++] = !strcmp(method, "HEAD") ? "-I" : "-i";
-    argv[n++] = "--max-redirs"; argv[n++] = "6";
+    argv[n++] = "--max-redirs"; argv[n++] = lan ? "0" : "6";
+    if (lan) { argv[n++] = "--proto"; argv[n++] = "=http,https"; argv[n++] = "--resolve"; argv[n++] = pin.resolve; }
     argv[n++] = "--connect-timeout"; argv[n++] = "8";
     argv[n++] = "--max-time"; argv[n++] = "24";
     argv[n++] = "-A"; argv[n++] = "DStudio/1.0";
-    argv[n++] = "-w"; argv[n++] = "\n__DSTUDIO_CURL_META__%{http_code} %{url_effective}\n";
+    argv[n++] = "-w"; argv[n++] = lan ? WEB_PIN_META : "\n__DSTUDIO_CURL_META__%{http_code} %{url_effective}\n";
     argv[n++] = url;
     argv[n] = NULL;
 
@@ -10842,7 +10930,16 @@ static void api_http_probe_run(int fd, const char *body) {
     }
     int status = 0;
     char final_url[2048] = "";
-    char *marker = strstr(raw, "\n__DSTUDIO_CURL_META__");
+    if (lan) {
+        char ip[64] = "";
+        if (!web_pin_meta(raw, &status, ip, sizeof ip) || strcmp(ip, pin.addr)) {
+            free(raw);
+            web_json_error(fd, "502 Bad Gateway", "the response did not come from the checked address; nothing returned");
+            return;
+        }
+        cstr_copy(final_url, sizeof final_url, url);
+    }
+    char *marker = lan ? NULL : strstr(raw, "\n__DSTUDIO_CURL_META__");
     if (marker) {
         *marker = '\0';
         const char *meta = marker + strlen("\n__DSTUDIO_CURL_META__");
@@ -11219,6 +11316,31 @@ static void api_web_read_run(int fd, const char *body) {
     int include_image = json_get_bool(body, "includeImage");
     int st = 0;
     int fallback_used = 0;
+    if (g_request_from_lan) {
+        /* A LAN device: pinned curl only (see web_lan_visit_page). */
+        char lan_err[512] = "";
+        int forbidden = 0;
+        char *md = web_lan_visit_page(url, &forbidden, lan_err, sizeof lan_err);
+        if (!md) { web_json_error(fd, forbidden ? "403 Forbidden" : "502 Bad Gateway", lan_err); return; }
+        char *excerpt = web_markdown_excerpt(md, 24000);
+        char *title = web_markdown_title(md);
+        json_dyn_buf out = {0};
+        int ok = json_dyn_puts(&out, "{\"ok\":true,\"url\":") && json_dyn_put_escaped(&out, url) &&
+                 json_dyn_puts(&out, ",\"canonicalUrl\":") && json_dyn_put_escaped(&out, url) &&
+                 json_dyn_puts(&out, ",\"title\":") && json_dyn_put_escaped(&out, title ? title : "Page") &&
+                 json_dyn_puts(&out, ",\"sourceKind\":") &&
+                 json_dyn_put_escaped(&out, web_guess_source_kind(url, title ? title : "", excerpt ? excerpt : "")) &&
+                 json_dyn_puts(&out, ",\"reader\":\"curl\",\"cdpOnly\":false,\"markdown\":") && json_dyn_put_escaped(&out, md) &&
+                 json_dyn_puts(&out, ",\"excerpt\":") && json_dyn_put_escaped(&out, excerpt ? excerpt : "") &&
+                 json_dyn_printf(&out, ",\"metadata\":{\"markdownChars\":%zu,\"fallback\":true},\"warnings\":[", strlen(md)) &&
+                 json_dyn_put_escaped(&out, "read for a LAN device without the browser (no JavaScript rendering)") &&
+                 json_dyn_puts(&out, "]}");
+        free(md); free(excerpt); free(title);
+        if (!ok) { free(out.ptr); web_json_error(fd, "500 Internal Server Error", "out of memory"); return; }
+        send_json(fd, "200 OK", out.ptr);
+        free(out.ptr);
+        return;
+    }
     char *visit_json = web_helper_capture(include_image ? "visit_page_visual" : "visit_page", "--url", url, WEB_HELPER_VISIT_TIMEOUT_MS, &st);
     char *visit_err = visit_json ? json_get_string_alloc(visit_json, "error") : NULL;
     char *visit_md = visit_json ? json_get_string_alloc(visit_json, "markdown") : NULL;
@@ -11416,7 +11538,7 @@ static void relay_engine_exchange(int client_fd, int engine_fd, int engine_port,
 
 static void api_v1_proxy(int client_fd, const char *method, const char *path,
                          const char *req, size_t got, size_t header_len, size_t clen) {
-    int cors = !client_is_loopback(client_fd);
+    int cors = !client_is_loopback(client_fd) && g_cors_origin[0];
     const int owned_qwen = resident_running() || model_file_is_resident(current_model_rel());
     if (owned_qwen) {
         resident_tick();
@@ -11441,7 +11563,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
         if (cors) {
             send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
-                               body, strlen(body), 0, CORS_HEADERS);
+                               body, strlen(body), 0, cors_headers());
         } else {
             send_json(client_fd, "503 Service Unavailable", body);
         }
@@ -11552,6 +11674,9 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/task-graph/node/cancel")) return api_dtg_node_mutation(fd, body, dtg_node_cancel);
     if (!strcmp(path, "/api/task-graph/node/undo")) return api_dtg_node_mutation(fd, body, dtg_node_undo);
     if (!strcmp(path, "/api/start"))       { api_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/lan/cowork"))  { api_lan_cowork(fd, "POST", body); return 200; }
+    if (!strcmp(path, "/api/lan/cowork/revoke")) { api_lan_cowork_revoke(fd, body); return 200; }
+    if (!strcmp(path, "/api/lan/cowork/pair")) { api_lan_cowork_pair(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills/delete")) { api_user_skill_delete(fd, body); return 200; }
     if (!strcmp(path, "/api/user-skills")) { api_user_skill_save(fd, body); return 200; }
     if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); return 200; }
@@ -11659,6 +11784,8 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strncmp(path, "/api/user-skills/get", 20)) { api_user_skill_get(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/user-skills")) { api_user_skills(fd); return 200; }
     if (is_get && !strncmp(path, "/api/agent/poll", 15)) { api_agent_poll(fd, path); return 200; }
+    if (is_get && path_eq_clean(path, "/api/lan/cowork")) { api_lan_cowork(fd, "GET", NULL); return 200; }
+    if (is_get && path_eq_clean(path, "/api/lan/cowork/status")) { api_lan_cowork_status(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design/status")) { api_design_status(fd); return 200; }
     if (is_get && !strncmp(path, "/api/design/events", 18)) { api_design_events(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/design/state")) { api_design_state(fd); return 200; }
@@ -11702,6 +11829,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
 
 static void handle_connection(int fd) {
     g_reply_cors = 0;
+    g_cors_origin[0] = '\0';
 #ifdef _WIN32
     int tv = IO_TIMEOUT_S * 1000;
     (void)setsockopt((SOCKET)(intptr_t)fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
@@ -11732,6 +11860,16 @@ static void handle_connection(int fd) {
     sanitize(method); sanitize(path);
     int head_only_req = !strcmp(method, "HEAD");
     int local_client = client_is_loopback(fd);
+    g_request_from_lan = !local_client;
+    if (!host_header_allowed(req, header_len)) {
+        send_json(fd, "421 Misdirected Request",
+                  "{\"ok\":false,\"error\":\"DStudio does not answer to this host name; add it to DS4UI_ALLOWED_HOSTS to allow it\"}");
+        close(fd);
+        return;
+    }
+    char origin[256];
+    if (request_header_value(req, header_len, "origin", origin, sizeof origin) == 1 && cors_origin_allowed(origin))
+        snprintf(g_cors_origin, sizeof g_cors_origin, "%s", origin);
     g_reply_cors = !local_client && lan_public_path_allowed(method, path);
 
     if (!local_client && (!strcmp(method, "GET") || head_only_req) && loading_page_path(path)) {
@@ -11741,16 +11879,31 @@ static void handle_connection(int fd) {
     }
 
     if (!strcmp(method, "OPTIONS") && lan_public_path_allowed(method, path)) {
-        send_response_hdrs(fd, "204 No Content", "text/plain; charset=utf-8", "", 0, 0,
-                           "Access-Control-Allow-Origin: *\r\n"
-                           "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-                           "Access-Control-Allow-Headers: Content-Type, Accept, X-Requested-With\r\n"
-                           "Access-Control-Max-Age: 600\r\n");
+        /* No grant for an Origin outside cors_origin_allowed(): the browser
+         * then refuses the actual request. */
+        char pre[640];
+        snprintf(pre, sizeof pre, "%s%s", cors_headers(), g_cors_origin[0] ? "Access-Control-Max-Age: 600\r\n" : "Vary: Origin\r\n");
+        send_response_hdrs(fd, "204 No Content", "text/plain; charset=utf-8", "", 0, 0, pre);
         close(fd);
         return;
     }
 
-    if (!local_client && !lan_public_path_allowed(method, path)) {
+    /* A paired LAN device (dstudio_lan_cowork.c): its token admits the few
+     * Cowork paths, and only while the host shares Cowork in that folder. */
+    g_request_lan_cowork = 0;
+    if (!local_client && lan_cowork_device_path(path)) {
+        int device = lan_cowork_device_for(req, header_len);
+        if (device >= 0 && (path_eq_clean(path, "/api/lan/cowork/status") || lan_cowork_sharing())) {
+            g_request_lan_cowork = 1;
+            g_lan_cowork.devices[device].last_used = (long long)time(NULL);
+        } else if (device >= 0) {
+            send_json(fd, "409 Conflict", "{\"ok\":false,\"code\":\"not_shared\",\"error\":\"The host is not sharing Cowork in this folder right now.\"}");
+            close(fd);
+            return;
+        }
+    }
+
+    if (!local_client && !lan_public_path_allowed(method, path) && !g_request_lan_cowork) {
         send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"endpoint is host-local only\"}");
         close(fd);
         return;
@@ -11786,6 +11939,11 @@ static void handle_connection(int fd) {
      * intentionally separate from /api/store: non-loopback clients can POST
      * their snapshot, but only the host-local UI can GET the aggregate. */
     if (!strcmp(method, "POST") && path_eq_clean(path, "/api/lan-client/chats")) {
+        /* The header forces a CORS preflight, so a web page on a LAN device
+         * cannot post a snapshot with a "simple" cross-site request. */
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json_cors(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
         char *buf = NULL;
         size_t off = 0;
         if (!read_request_body_alloc(fd, req, got, header_len, clen, 16L * 1024 * 1024,
@@ -11885,7 +12043,7 @@ static void handle_connection(int fd) {
             close(fd);
             return;
         }
-        api_cowork_attach_file(fd, buf);
+        api_cowork_attach_file(fd, buf, g_request_lan_cowork ? g_lan_cowork.workdir : NULL);
         free(buf);
         close(fd);
         return;

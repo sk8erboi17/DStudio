@@ -23,13 +23,27 @@ ds4 `5379c1c` downloads that Q2 but still binds vision to `df42c109`.
 `scripts/apply-ds4-v41-vision-pairing.sh` accepts `check`, `apply`, `build`
 (apply alias) or `restore`, with `DS4_DIR` set. Already applied (reverse check)
 exits 0; applicable applies; drift or a partial patch fails with no file
-changed. If `ds4.c` no longer contains the hard-coded revision (the PR was
-merged upstream, or the checkout has no V4.1 vision encoder) the script reports
-that and exits 0. It is not platform-gated and runs wherever the other managed
-runtime patches run, after `apply-ds4-vision-streaming.sh`.
+changed. When neither direction applies, the script skips (exit 0) only if
+`deepseek4_vision_weights_bind` no longer hard-codes any V4.1 revision (upstream
+pairs another way, or the checkout has no V4.1 vision encoder). A bind that
+still pins a V4.1 revision this patch does not know, for example upstream
+switching the constant to the 1017 checkpoint, is drift and fails: skipping it
+would silently refuse every other sidecar. It is not platform-gated and runs
+wherever the other managed runtime patches run, after
+`apply-ds4-vision-streaming.sh`.
 
 Removal condition: delete this set, the script and its call sites once the
-pinned ds4 contains PR #1225 (the no-op guard makes that safe in the meantime).
+pinned ds4 contains PR #1225. A verbatim merge is reported as already applied.
+
+`make test-v41-vision-pairing` exercises apply, repeat, restore, drift, a
+re-pinned upstream, an edited patch and the not-needed cases on copies of the
+pinned `ds4.c`. `make test-v41-vision-pairing-live` (network for headers only)
+builds the real `ds4` CLI from the pinned engine with the production runtime
+patch stack, without and with this patch, and runs `ds4 --inspect --vision` on
+sparse files carrying the published headers of the original and 1017 Q2 and
+sidecars. No weights are downloaded or read; image inference is not run. The
+pinned engine accepts the 1017 Q2 with the original sidecar and refuses its own
+1017 sidecar; with the patch each Q2 opens only with its own sidecar.
 
 The patch changes `ds4.c` only, so every ds4 binary that links the engine core
 (`ds4-server`, `ds4-server-pld`, `ds4-agent-jsonl`, `ds4-cowork`, `ds4-design`)

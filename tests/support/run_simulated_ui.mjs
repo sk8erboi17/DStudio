@@ -20,7 +20,7 @@ const suites = [
   'ui_gsa_playwright_test', 'ui_rsa_playwright_test', 'ui_workflow_playwright_test',
 ];
 const browsers = process.env.DSTUDIO_TEST_BROWSER ? [process.env.DSTUDIO_TEST_BROWSER] : ['webkit', 'chromium'];
-assert.ok(browsers.every(browser => ['webkit', 'chromium'].includes(browser)));
+assert.ok(browsers.every(browser => ['webkit', 'chromium', 'firefox'].includes(browser)));
 const executions = [
   ...suites.map(suite => ({ suite, name: suite })),
   ...['qwen38', 'qwen35', 'qwen27'].map(model => ({ suite: 'ui_roadmap_playwright_test',

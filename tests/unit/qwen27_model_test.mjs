@@ -145,8 +145,8 @@ await check('download phase distinguishes setup, hashing, completion and a resum
     pausedDownload: true, pausedDownloadVariant: 'qwen27-q6'}).paused, true);
 });
 await check('27B download installs no Qwen engine synchronously and keeps the selection', async () => {
-  // llama.cpp is built by the background download worker; the UI only makes
-  // sure the main installation (its gguf/ store) is the active one.
+  // llama.cpp is built by the background download worker. The host captures
+  // the managed gguf/ store itself, so the UI selects no engine checkout.
   const h = harness(), posts = [], updates = [], notices = [], engines = [];
   Object.assign(h.context, {ensureModelDownloadEngine: async (engine) => {engines.push(engine); return {active: true};},
     toast: (...value) => notices.push(value), fetch: async (url, init) => {posts.push([url, JSON.parse(init.body)]); return {json: async () => ({ok: true})};},
@@ -155,7 +155,7 @@ await check('27B download installs no Qwen engine synchronously and keeps the se
   vm.runInContext(`let dlPoll = null; ${extractFunction(source, 'downloadModel')}`, h.context);
   const original = plain(h.settings());
   await h.context.downloadModel({target: 'qwen27-q6', engine: 'main', llama: true});
-  assert.deepEqual(engines, ['main']);
+  assert.deepEqual(engines, []);
   assert.deepEqual(posts, [['/api/model/download', {target: 'qwen27-q6'}]]);
   assert.deepEqual(plain(h.settings()), original);
   assert.equal(updates.at(-1).download.variant, 'qwen27-q6');
