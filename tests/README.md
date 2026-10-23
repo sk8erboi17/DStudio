@@ -1257,8 +1257,8 @@ CUDA, ROCm, Vulkan, Linux or Windows; those paths were only cross-compiled with
 
 Qwen3.6-35B-A3B also runs from the MLX MXFP8 folder
 (`mlx-community/Qwen3.6-35B-A3B-mxfp8`, pinned revision `5c216c8`) on the MLX
-runtime bundled as unmodified wheels in `src/engines/mlx/` (mlx 0.32.3,
-mlx-lm 0.32.0). The same resident owner, guard and model RPC serve it; only the
+runtime bundled as unmodified wheels in `src/engines/mlx/` (mlx 0.32.4,
+mlx-lm 0.32.2). The same resident owner, guard and model RPC serve it; only the
 server (`python -m mlx_lm server` from a private virtual environment, with
 `patch/mlx-lm-single-model`) and the readiness probe (`/v1/models` must list
 exactly the admitted folder) differ.

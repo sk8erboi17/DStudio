@@ -1,18 +1,21 @@
 {
   "schema": 1,
   "package": "mlx-lm",
-  "version": "0.32.0",
+  "version": "0.32.2",
   "repository": "https://github.com/ml-explore/mlx-lm",
-  "revision": "a9bd8af5c02118882af735cef60705d2efce9fd0",
-  "after": ["mlx-lm-single-model/single-model.patch", "mlx-lm-reasoning-content/reasoning-content.patch"],
+  "revision": "93e6d4a6447b3080861985947f0820e76fcb957d",
+  "after": [
+    "mlx-lm-single-model/single-model.patch",
+    "mlx-lm-reasoning-content/reasoning-content.patch"
+  ],
   "order": [
     "tool-streaming.patch"
   ],
   "patches": {
     "tool-streaming.patch": {
-      "sha256": "240752d10c0fda689a055630d40a188e3651d7e12bfe4e05f191301e039baa09",
+      "sha256": "711c76048cf503de01b1f5a42ce87cab47dc04a009cd2d5461292b7d4c860fce",
       "baseFile": "mlx_lm/server.py",
-      "baseSHA256": "7b172a5204d0354e59ac29c38d824c78e5052894da3e03db0f6bf53da4fcbeb2",
+      "baseSHA256": "8023e5050e36b5d4ab8fe9891638346cf5f58b21762b515862cfd3831154114a",
       "baseNote": "the wheel's server.py after single-model.patch and reasoning-content.patch; also creates mlx_lm/dstudio_tool_stream.py"
     }
   }

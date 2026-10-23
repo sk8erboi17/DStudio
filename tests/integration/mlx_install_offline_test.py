@@ -44,7 +44,7 @@ def first():
     out = json.loads(done.stdout.strip().splitlines()[-1])
     assert out['built'] and not out['reused'], out
     receipt = json.loads((root / 'mlx/.dstudio-mlx.json').read_text())
-    assert receipt['pins'] == {'mlx': '0.32.3', 'mlx-lm': '0.32.0'} and receipt['network'] is False
+    assert receipt['pins'] == {'mlx': '0.32.4', 'mlx-lm': '0.32.2'} and receipt['network'] is False
     assert not list(root.glob('.dstudio-mlx-stage-*')), 'no stage is left behind'
 
 

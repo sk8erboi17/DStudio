@@ -1,7 +1,7 @@
 # mlx-lm: one owned model per server
 
-Base: `mlx-lm` 0.32.0 ([ml-explore/mlx-lm](https://github.com/ml-explore/mlx-lm) at
-`a9bd8af5c02118882af735cef60705d2efce9fd0`), `mlx_lm/server.py` as installed from
+Base: `mlx-lm` 0.32.2 ([ml-explore/mlx-lm](https://github.com/ml-explore/mlx-lm) at
+`93e6d4a6447b3080861985947f0820e76fcb957d`), `mlx_lm/server.py` as installed from
 the bundled wheel in [`src/engines/mlx`](../../src/engines/mlx/). Apply order:
 `single-model.patch`. [`scripts/install-mlx.py`](../../scripts/install-mlx.py)
 applies it to the installed package with `git apply --check` first and records

@@ -109,8 +109,8 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 
 ## MLX runtime (bundled wheels for Qwen3.6 on Apple Silicon)
 
-- **MLX** https://github.com/ml-explore/mlx v0.32.3 (`64ea011`) and **MLX LM**
-  https://github.com/ml-explore/mlx-lm v0.32.0 (`a9bd8af`): MIT, Copyright © 2023 Apple Inc.
+- **MLX** https://github.com/ml-explore/mlx v0.32.4 (`36969c0`) and **MLX LM**
+  https://github.com/ml-explore/mlx-lm v0.32.2 (`93e6d4a`): MIT, Copyright © 2023 Apple Inc.
   The `mlx-metal` wheel also contains Apple's metal-cpp headers (Apache-2.0).
 - DStudio ships the unmodified PyPI wheels for macOS 26 arm64 and CPython 3.12–3.14 in
   [`src/engines/mlx/wheels/`](src/engines/mlx/wheels/), with their SHA-256 and declared license in

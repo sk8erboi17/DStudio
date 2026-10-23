@@ -16,7 +16,7 @@ runtime checkouts, user changes, settings and model paths are preserved.
 | Main: DeepSeek, GLM and current Qwen Next | [ds4](../src/engines/ds4/) | `0aaea5a238fb41a35106a551e73c8409dfb751ac` |
 | Laguna S 2.1 | [ds4-laguna-s21](../src/engines/ds4-laguna-s21/) | `448d5695d1c86401a4e9447c440feb983b73e6de` |
 | Qwen3.6-35B-A3B and Qwen3.8-27B (llama-server) | [llama.cpp](../src/engines/llama.cpp/) | `99b95488cac0f00ce3f05af113a8c1e287753f87` (tag `b11371`) |
-| Qwen3.6-35B-A3B MXFP8 on Apple Silicon (MLX server) | [mlx wheels](../src/engines/mlx/) | mlx 0.32.3 (`64ea011`), mlx-lm 0.32.0 (`a9bd8af`); [see below](#mlx-runtime-apple-silicon) |
+| Qwen3.6-35B-A3B MXFP8 on Apple Silicon (MLX server) | [mlx wheels](../src/engines/mlx/) | mlx 0.32.4 (`36969c0`), mlx-lm 0.32.2 (`93e6d4a`); [see below](#mlx-runtime-apple-silicon) |
 
 Only active engines are distributed. Qwen Next uses main; its retired separate
 fork is preserved in Git history and the historical patches, without shipping
@@ -101,7 +101,7 @@ listed with digests in the manifest.
 ### MLX runtime (Apple Silicon)
 
 MLX is not compiled from source: DStudio ships the unmodified PyPI wheels for
-macOS 26 on arm64 and CPython 3.12, 3.13 and 3.14 (46 files, about 116 MB) with a
+macOS 26 on arm64 and CPython 3.12, 3.13 and 3.14 (46 files, about 127 MB) with a
 [manifest](../src/engines/mlx/manifest.json) of their names, versions, licenses,
 sizes and SHA-256. [`scripts/install-mlx.py`](../scripts/install-mlx.py), run in
 the background before the first launch or the weight download, verifies every

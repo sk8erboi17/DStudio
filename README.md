@@ -272,7 +272,7 @@ hit the test's former one-hour bound before finishing.
 On Apple Silicon with macOS 26, Qwen3.6-35B-A3B can also run on **MLX**,
 Apple's machine-learning framework, from the MXFP8 folder
 `mlx-community/Qwen3.6-35B-A3B-mxfp8`. MLX ships as verified PyPI wheels
-(mlx 0.32.3, mlx-lm 0.32.0) in [`src/engines/mlx`](src/engines/mlx/): nothing is
+(mlx 0.32.4, mlx-lm 0.32.2) in [`src/engines/mlx`](src/engines/mlx/): nothing is
 compiled or fetched. The first start installs them offline into a private
 Python environment (Python 3.12–3.14 must be installed, for example from
 Homebrew); a later Python upgrade that removes the old version triggers a
@@ -1164,7 +1164,7 @@ DStudio removes product friction, not physics: the local models are large.
   browser tests.
 
 Engine pins: ds4 main `0aaea5a`, Laguna `448d569`, llama.cpp `b11371`
-(`99b9548`), mlx 0.32.3 / mlx-lm 0.32.0, with per-file provenance in
+(`99b9548`), mlx 0.32.4 / mlx-lm 0.32.2, with per-file provenance in
 [docs/BUNDLED_ENGINES.md](docs/BUNDLED_ENGINES.md). DeepSeek V4.1 status:
 [update checkpoint](docs/DS41_UPDATE_CHECKPOINT.md).
 
