@@ -31,7 +31,7 @@
 - [Requirements](#requirements)
 - [Development and tests](#development-and-tests)
 - [Network access](#network-lan) · [How it works](#how-it-works) · [Security](#security)
-- [WIP checklist](#wip-checklist--october-3-2026)
+- [WIP checklist](#wip-checklist--october-25-2026)
 - [Project layout](docs/PROJECT_LAYOUT.md)
 
 DStudio is one desktop application for local AI. It runs large open-weight
@@ -72,7 +72,7 @@ downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/rele
 **What changed since that release**
 
 - **Qwen moved to bundled engines.** Qwen3.6-35B-A3B and Qwen3.8-27B run on
-  llama.cpp `b11371`; Qwen3.6 also runs on MLX on Apple Silicon. The former
+  llama.cpp `b11836`; Qwen3.6 also runs on MLX on Apple Silicon. The former
   Qwen side engines (vagrillo/ds4 and Ninnix/q36) are retired. Qwen3.8-Flash-Next
   runs on ds4 main.
 - **Every mode on every engine.** Chat, Agent, Cowork and Design work on ds4,
@@ -138,9 +138,12 @@ These are focused development checks, not a quality score or a ranking.
   not available on Windows.
 - pi/OpenCode were not run with GLM, Laguna, Qwen3.8-Flash-Next, DeepSeek V4.1
   or a cloud endpoint, nor with Plan, GSA or RSA.
+- Twelve proposed modules and improvements (Agent harness guards, KV slots
+  for llama.cpp, a reasoning-budget pause, constrained JSON and more); none
+  is started. See [the list](PLAN.MD#proposals).
 - Learn/Tutor, PDF/vision, long tasks, the native desktop matrix, generated
   Design projects and final release admission. See the
-  [WIP checklist](#wip-checklist--october-3-2026),
+  [WIP checklist](#wip-checklist--october-25-2026),
   [remaining work](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
 
 ## Install
@@ -232,7 +235,7 @@ restores it afterwards.
 
 ### Qwen3.6 and Qwen3.8-27B on llama.cpp
 
-Both checkpoints run on **llama.cpp** `b11371` (`99b9548`), shipped in
+Both checkpoints run on **llama.cpp** `b11836` (`f5027fb`), shipped in
 [`src/engines/llama.cpp`](src/engines/llama.cpp/). DStudio builds `llama-server`
 from those sources the first time you start one of them, without the network,
 and reuses the build afterwards. The weights live in the shared `ds4/gguf/`
@@ -259,13 +262,15 @@ does not reload it.
 - **The 27B** needs its matching F16 projector; DStudio downloads and checks
   both files and admits images in Chat, Agent and Cowork.
 
-On October 3, 2026 a real run through the production host passed **6/6 on each
-model**: an Agent turn computes a generated CSV total with real tool calls and
+On October 3, 2026, on llama.cpp `b11371`, a real run through the production
+host passed **6/6 on each model**: an Agent turn computes a generated CSV total with real tool calls and
 writes it, recalls a fact from a workspace file, Cowork writes a document,
 Design saves a page with the exact requested heading, Chat answers with thinking
 on and off, and a killed DStudio leaves no server behind. Retained failures
 include a thinking-off arithmetic error (Qwen3.6) and the 27B Design run that
 hit the test's former one-hour bound before finishing.
+After the move to `b11836` on October 23, Qwen3.6 passed the same six checks
+again; Qwen3.8-27B has not been rerun on `b11836` yet.
 
 ### Qwen3.6 on MLX (Apple Silicon)
 
@@ -1163,8 +1168,8 @@ DStudio removes product friction, not physics: the local models are large.
   free for MiniMax H3 video (Apple Silicon only); Node and Playwright only for
   browser tests.
 
-Engine pins: ds4 main `0aaea5a`, Laguna `448d569`, llama.cpp `b11371`
-(`99b9548`), mlx 0.32.4 / mlx-lm 0.32.2, with per-file provenance in
+Engine pins: ds4 main `0aaea5a`, Laguna `448d569`, llama.cpp `b11836`
+(`f5027fb`), mlx 0.32.4 / mlx-lm 0.32.2, with per-file provenance in
 [docs/BUNDLED_ENGINES.md](docs/BUNDLED_ENGINES.md). DeepSeek V4.1 status:
 [update checkpoint](docs/DS41_UPDATE_CHECKPOINT.md).
 
@@ -1392,7 +1397,7 @@ right testers.
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta. Bundled third-party sources
 keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## WIP checklist — October 3, 2026
+## WIP checklist — October 25, 2026
 
 The macOS/Apple Silicon campaign is **incomplete**. Checked items mean the
 stated implementation or scoped verification is complete; they do not qualify
@@ -1434,6 +1439,16 @@ every model or a release. Exact acceptance criteria and retained failures are in
 - [x] Ship 25 offline Design systems with guides and recipes; 402/402 authored
   preview checks pass in Chromium/WebKit (no model ran).
   [Catalog](docs/DESIGN_SYSTEMS.md).
+- [x] Offer DeepSeek V4.1 Flash 1017 Q2 (the official file) with its vision
+  sidecar; each V4.1 checkpoint opens only with its own sidecar, and the
+  original Q2 stays resumable. `make test-v41-vision-pairing-live` checks the
+  real engine on published headers (no weights read, no inference).
+- [x] Offer only the publishers' official weights; modified derivatives are
+  refused and left untouched on disk.
+- [x] Update the bundled MLX to mlx 0.32.4 and mlx-lm 0.32.2: real offline
+  install reaching Metal, and real Qwen3.6 MXFP8 tool-call streaming in Agent,
+  Cowork and Design. Two earlier Design attempts failed on the test client's
+  start limit; their receipts are kept.
 
 ### Still required
 
@@ -1480,11 +1495,31 @@ every model or a release. Exact acceptance criteria and retained failures are in
   admission with qualifying receipts for every required gate.
 - [ ] Complete held-out Search/Research evaluation and native-vision webpage
   checks.
-- [ ] Qualify DeepSeek V4.1 Q2/Q4 and GLM 5.3 across modes, vision, memory and
-  SSD settings.
+- [ ] Qualify DeepSeek V4.1 1017 Q2, V4.1 Q4 and GLM 5.3 across modes, vision,
+  memory and SSD settings. The original Q2's retained format failure does not
+  transfer to the 1017 file.
 - [ ] Complete the six-agent/two-lane comparison with held-out cases, phase
   profiling, matched baselines and reviewed Matplotlib publication.
 - [ ] Validate the two-photo MiniMax H3 path end to end.
+
+### Proposed modules and improvements (not started)
+
+Candidates added October 25, outside the campaign; what exists today and what
+is missing for each is in [PLAN.MD](PLAN.MD#proposals).
+
+- [ ] Guards for the pi/OpenCode harnesses: duplicate-call breaker, read-only
+  Plan mode and mid-turn steering.
+- [ ] Disk KV slots for llama.cpp and an MLX prefix cache.
+- [ ] A pre-action reasoning budget that pauses with a clarifying question.
+- [ ] Constrained JSON for structured internal steps, per engine.
+- [ ] A read-only local state audit in Doctor.
+- [ ] Independent edit receipts and restore for Office files in Cowork.
+- [ ] A stream integrity check, report-only first.
+- [ ] A mastery ledger with graded assessments in Learn.
+- [ ] An import/include index and JSON Canvas export for Open Blueprint.
+- [ ] A PDF ↔ web claim agreement matrix in Search.
+- [ ] Conversation branches instead of a destructive Regenerate.
+- [ ] An opt-in watched drop folder for Cowork.
 
 Private prompts, documents, transcripts, weights and raw receipts remain
 ignored. Publishing this checkpoint does not qualify any unchecked requirement.

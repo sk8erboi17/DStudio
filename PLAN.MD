@@ -1,8 +1,8 @@
 # DStudio — remaining macOS completion work
 
-Updated October 1, 2026. This document contains only unfinished implementation
+Updated October 25, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete and paused; this
-documentation cleanup does not resume it. The owner reserves the complete
+documentation update does not resume it. The owner reserves the complete
 quality-suite rerun.
 
 Completed tranches, superseded reconnaissance, original failures and exact
@@ -24,22 +24,47 @@ in this campaign.
 | --- | --- | --- |
 | DeepSeek V4 Flash Vision-Exp IQ2XXS | main 0aaea5a | First group |
 | Laguna S 2.1 Q4_K_M | laguna 448d569 | First group |
-| Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp 99b9548 (b11371) | First group |
-| Qwen3.8-27B UD-Q6_K_XL | llama.cpp 99b9548 (b11371) | First group |
+| Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
+| Qwen3.8-27B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
-| DeepSeek V4.1 Flash Q2 | main 0aaea5a | Last, dedicated session |
+| DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Last, dedicated session |
 | DeepSeek V4.1 Flash Q4 | main 0aaea5a | Last, dedicated session |
 | GLM 5.3 Flash Q2 | main 0aaea5a | Last, dedicated session |
 
-These are recorded pins, not a claim that remote tips were rechecked on
-October 1. Exact revisions, patches and release targets live in
+These are recorded pins, not a claim that remote tips were rechecked for this
+update. Exact revisions, patches and release targets live in
 [engine-upstream.json](docs/engine-upstream.json); bundled-source provenance is
 documented in [BUNDLED_ENGINES.md](docs/BUNDLED_ENGINES.md). The retired Qwen
 Next fork is neither an installer target nor a bundled reference.
 
 On October 3 the owner replaced the vagrillo/ds4 (`ds4-qwen35`) and Ninnix/q36
 Qwen engines with the bundled llama.cpp; their earlier results are history.
+
+On October 23, 2026 the bundled llama.cpp moved from `b11371` (`99b9548`)
+to `b11836` (`f5027fb`). On `b11836` Qwen3.6 passed the same six production-host
+checks again (`run-7Ad19x`); an earlier attempt (`run-RpFauU`) stopped on a
+stale test assertion that predated transcript restoration and is retained.
+Qwen3.8-27B has not been rerun on `b11836`; `b11371` results do not transfer.
+
+Since October 22 the Q2 row is the official antirez 1017 checkpoint
+(`ds41f-q2`, revision `9dcee516`) with the community 1017 vision sidecar. The
+original V4.1 Q2 remains downloadable as `ds41f-q2-original` so existing
+partial downloads stay resumable; V4.1 Q4 is the original checkpoint. The
+retained strict-format failure (13/14) belongs to the original Q2 and stays
+FAIL there; it neither transfers to nor is cleared by the 1017 file, which
+needs its own qualification. With the versioned
+[vision-pairing patch](patch/ds4-v41-vision-pairing/README.md), each V4.1
+checkpoint opens only with its own sidecar (`make test-v41-vision-pairing-live`
+checks the headers, not inference). V4.1 vision qualification follows P4.
+
+Qwen3.6-35B-A3B MXFP8 also runs on bundled MLX (mlx 0.32.4 `36969c0`, mlx-lm
+0.32.2 `93e6d4a`; Apple Silicon, macOS 26) since October 3. It is a different
+engine and quantization: its results do not qualify the GGUF row, nor the
+reverse, and no quality comparison between them exists. It has no target in
+the admission matrix and is not counted in the nine selections or their
+denominators until the owner admits it; its current results are development
+checks only.
 
 Out of scope: non-macOS platforms/backends, multi-GPU/distributed execution,
 q27's removed Linux/CUDA admission target, Pro/GLM5.2, other
@@ -158,17 +183,19 @@ patch migrations and retired-Next removal are implemented.
    explicitly recheck remote revisions and record the date/SHA; never make
    setup fetch or pull a moving upstream tree.
 2. Resolve the missing release receipts/reviews in
-   [the matrix](docs/engine-upstream.json). On October 1 it declares nine macOS
-   targets with 117 required gate slots and zero linked receipts. This is
-   incomplete qualification, not 117 failed tests. Link existing evidence
-   only when its exact engine/patch/model/binary identities and scope match.
+   [the matrix](docs/engine-upstream.json). On October 25 it declares nine macOS
+   targets with 107 required gate slots and zero linked receipts (117 before
+   the Qwen targets moved to llama.cpp). This is incomplete qualification, not
+   107 failed tests. MLX has no target yet. Link existing evidence only when
+   its exact engine/patch/model/binary identities and scope match.
 3. Complete Agent/Cowork dependency signatures, coordinated crash-safe
    publication of the runtime pair and verified recovery of legacy patched
    source markers. Preserve originals, backups and unrelated checkout edits.
    See [the build limitations](patch/ds4-agent-jsonl/README.md#verification).
 4. Complete current full-model multi-session coverage for the llama.cpp
-   Qwen models (the q36 directory/parser item retired with that engine). Profile the relevant control and owner paths; do not claim
-   multi-session quality from operator or single-owner fixtures.
+   Qwen models and the MLX Qwen3.6 server (the q36 directory/parser item
+   retired with that engine). Profile the relevant control and owner paths; do
+   not claim multi-session quality from operator or single-owner fixtures.
 5. For new changes, retain versioned external `.patch` files with exact bases/
    order. Exercise fresh/repeat/restore, partial/drift/wrong-order rejection,
    crash/failure and unrelated-edit preservation. Changing an actual dependency
@@ -181,14 +208,26 @@ patches, complete supported macOS admission evidence and no false alignment clai
 <a id="p3"></a>
 ## P3 — Finish adapters and per-model mode parity
 
-Status: IN_PROGRESS; Qwen Chat/Agent/Cowork integration exists.
+Status: IN_PROGRESS. Chat, Agent, Cowork and Design run on the llama.cpp Qwen
+models and the MLX Qwen3.6, with development checks only.
 
-1. Implement and qualify the independent Design adapter for Qwen3.6,
-   Qwen3.8-27B and Qwen3.8-Flash-Next. Preserve current explicit rejection
-   until the structured contract is implemented; keep DeepSeek/GLM/Laguna usable.
-2. Implement complete disk-session checkpoint restoration for Qwen3.6 and
-   Qwen27B, including every native recurrent/KV/session dependency. Saved
-   conversation history alone is not resumption.
+1. Design on Qwen3.6 and Qwen3.8-27B (llama.cpp) and on the MLX Qwen3.6 is
+   implemented with structured tool calls; each passed one real development
+   Design case through the production host on October 3. The 27B Design run
+   with thinking on hit that test's former one-hour bound before finishing;
+   keep that receipt. Remaining: qualify Design on these paths through P8, and
+   implement and qualify the independent Design adapter for
+   Qwen3.8-Flash-Next. Keep any unsupported launch explicitly rejected and
+   DeepSeek/GLM/Laguna usable.
+2. Transcript restoration is implemented (October 3): Agent, Cowork and Design
+   on llama.cpp/MLX (and a LAN host) save the transcript after every turn and
+   rebuild it after a restart; old tool calls never run again
+   (`make test-remote-session`, real runtimes with simulated model frames).
+   Still open: bounded KV/session snapshot restoration across engine restarts,
+   including every native recurrent/KV dependency (a restored session is now
+   prefilled again), and saved pi/OpenCode sessions on these models. Saved
+   conversation history alone is not KV resumption. A candidate route is
+   llama-server's slot save/restore ([proposal 2](#proposals)).
 3. Complete Learn/Tutor on every selection: effective thinking/context,
    research → curriculum → audit → lesson/exercise/correction, actual references,
    progress and reopen. No hidden DeepSeek fallback or generic DeepSeek-only
@@ -197,8 +236,9 @@ Status: IN_PROGRESS; Qwen Chat/Agent/Cowork integration exists.
    request. Its diagnostic harness is corrected, but the real non-thinking
    loop/completion outcome is not established.
 5. Revalidate the retained Qwen3.6 long-Agent timeout and partial-function
-   overcount on the current adapter/prefill stack. Keep v102's failure
-   historical; correct any reproducible summary/completion defect.
+   overcount on llama.cpp and MLX. v102's failure was measured on the retired
+   engine and stays historical; correct any reproducible summary/completion
+   defect on the current stack.
 6. Complete native vision adapters/components where the checkpoint requires
    them, particularly the unqualified Qwen3.6/Next paths, through P4.
    Qualify Next Q2 independently of Q4.
@@ -207,6 +247,11 @@ Status: IN_PROGRESS; Qwen Chat/Agent/Cowork integration exists.
    Cowork exports. Keep the existing DStudio tool loops and workspace confinement.
    A resident server has separate PID/lease/cancellation ownership from its
    lightweight Agent/Cowork client; never load a second unowned copy.
+8. pi and OpenCode run as Agent harnesses (24/24 real development tasks on
+   Qwen3.6 llama.cpp, Qwen3.6 MLX, Qwen3.8-27B and DeepSeek V4 Flash; see
+   [the harness results](docs/HARNESSES.md)). Run them with GLM, Laguna,
+   Qwen3.8-Flash-Next, DeepSeek V4.1 and a cloud endpoint, and qualify Plan,
+   GSA and RSA with them. Keep their workspace confinement and model identity.
 
 Acceptance: four complete modes with independently checked effects, selected
 model identity and supported image/PDF semantics. Design receives its own gates.
@@ -215,6 +260,9 @@ model identity and supported image/PDF semantics. Design receives its own gates.
 ## P4 — Complete PDF, vision and text-model isolation
 
 Status: IN_PROGRESS; extraction, evidence and browser foundations exist.
+Scanned pages are read with local Apple Vision OCR on macOS, labelled as OCR
+with OCR line evidence (`make test-pdf-ocr`). OCR text is a derived
+representation; it does not qualify a model's pixel path.
 
 1. Record matching checkpoint/tokenizer/processor/encoder/projector identities,
    capability, installation and effective mode/backend. Verify component
@@ -234,8 +282,8 @@ Status: IN_PROGRESS; extraction, evidence and browser foundations exist.
    byte/page/resolution/context/memory budgets and honest omissions.
 6. For verified text-only models, test observable rejection of pixels/vision
    tokens/visual embeddings through UI, API, history, tools and runtime. Preserve
-   attachments; declared text extraction may still be used. A textless scan
-   produces an honest limitation.
+   attachments; declared text extraction and labelled OCR may still be used.
+   A scan without usable text or OCR produces an honest limitation.
 7. Verify vision → text → vision after reload in every mode. Summaries, tool
    results, caches, late responses and KV cannot reinject incompatible data.
 8. Revalidate citation chooser → physical page → highlight, light/dark and
@@ -249,8 +297,11 @@ text-model isolation and intact source data after error or Stop. No fallback VLM
 ## P5 — Extend installation, upgrade and recovery coverage
 
 Status: IN_PROGRESS. Main, Laguna and llama.cpp build offline from isolated
-empty relocated profiles. The real q36 cross-version cache-preserving upgrade
-was verified before q36 was retired and does not cover llama.cpp. Extend this evidence rather than scheduling those as new features.
+empty relocated profiles; MLX installs from its bundled verified wheels with
+outbound network denied (`make test-mlx-install`, no model). The real q36
+cross-version cache-preserving upgrade was verified before q36 was retired and
+does not cover llama.cpp or MLX. Extend this evidence rather than scheduling
+those as new features.
 
 1. Complete the final-bundle matrix using task-owned empty profiles and paths
    with spaces. Setup must verify pinned bundled sources with external source
@@ -277,20 +328,24 @@ real four-mode results, with all failed attempts and preserved user bytes.
 ## P6 — Complete numerical, answer and product quality
 
 Status: IN_PROGRESS. The common 100-case corpus and grader exist.
-September 29 receipts are complete: 27B **61/100**, corrected-Q6_K Qwen3.6
-**63/100**, current-main single-file Next Q4 **75/100**, including **8/8**
-long-context cases. They retain all failures. These are not scores for the
-September 30 27B online-attention/3.6 batched-prefill overlays; details and
-receipt identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
+Current-main single-file Next Q4 scored **75/100**, including **8/8**
+long-context cases (September 29). The September 29 Qwen3.8-27B **61/100**
+(q36) and corrected-Q6_K Qwen3.6 **63/100** (vagrillo/ds4) were measured on the
+retired engines: they are history and do not score llama.cpp or MLX, which
+have not run the corpus. All failures are retained; details and receipt
+identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
 
-1. Qualify the full 27B online-attention and 3.6 batched-prefill paths with
-   compatible model/quant-specific numerical oracles and the original long
-   requests. Operator checks are completed; full-model long-context/numerical
-   evidence and any invalidated corpus reruns remain owner-controlled.
+1. Run the common 100 cases and the original long-context requests for
+   Qwen3.6 and Qwen3.8-27B on llama.cpp, and for Qwen3.6 on MLX if admitted,
+   with compatible model/quant-specific numerical references. The 27B
+   online-softmax and 3.6 batched-prefill overlays retired with their engines;
+   their operator checks do not carry over. These corpus reruns remain
+   owner-controlled.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
+   Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.
 3. Verify tokenizer/templates/stops, finite logits, quant/dequant, prefill/
    decode, attention/GDN/recurrence, KV save/load/replay/rewind, snapshot tail,
    context boundaries, multiple sessions and cancellation. Use exact checks
@@ -308,6 +363,13 @@ receipt identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
 6. Complete actual Chat, Agent, Learn/Tutor and Cowork quality, source-grounded
    facts, independently reopened DOCX/PDF/XLSX/PPTX content/formulas/revisions,
    interrupted tools, steering and resume without duplicated effects.
+   Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS: resume profile 2/2; long
+   profile 10/11 so far. `ambiguous-edit` failed in a reasoning loop until the
+   test's one-hour limit and a second sample was stopped on request;
+   `path-escape`, `long-seed`, `long-followup`, `long-revision` and
+   `long-deck` have not run. Run them on runtime v106, which no longer declares
+   the refused shell tools, and keep the failed receipts. A reasoning-budget
+   pause is proposed for the `ambiguous-edit` loop ([proposal 3](#proposals)).
 7. Complete Search/Research held-out answers and actual native-vision webpage
    checks beyond the existing development questions and single-model fixtures.
    Verify requested detail/language/length, grounded disagreements and honest
@@ -491,3 +553,92 @@ The final deliverable requires current source/patch provenance, all applicable
 numerical and quality cases, real four-mode and desktop results, vision/text
 isolation, fresh/upgrade recovery, 18 audited Design projects, complete agent
 comparisons, justified profiling and reviewed final-build publication.
+
+<a id="proposals"></a>
+## Proposed modules and improvements (outside P0–P11)
+
+Added October 25, 2026. None is implemented or scheduled: these are candidates,
+not acceptance requirements of P0–P11, and starting one is the owner's decision.
+Each statement about the current code was checked against the source. Effort is
+a rough estimate (S/M/L), not a measurement.
+
+1. **Guards for the pi and OpenCode harnesses.** pi starts with `--no-approve
+   --no-session` and the workspace guard; OpenCode allows every tool except
+   question, webfetch, websearch, external_directory and doom_loop
+   ([the bridge](src/harness/bridge/dstudio-harness.mjs)). Paths are already
+   confined. Missing: a duplicate-call breaker on canonical arguments with
+   no-progress detection, deterministic gates for destructive actions, a Plan
+   mode enforced as read-only (including mutating shell commands), mid-turn
+   steering forwarded to the harness, and an honest executed/blocked summary
+   when the breaker stops a turn. Effort S–M.
+2. **Disk KV slots for llama.cpp, and an MLX prefix cache.** The bundled
+   llama-server supports `--slot-save-path` and `/slots` save/restore;
+   `src/dstudio_resident.c` does not use them. This is a route for P3.2's open
+   KV item, not new scope. The key must cover model digest, quantization,
+   engine/patch revision, context, chat template and prefix hash; a mismatch
+   falls back to normal prefill; the UI reports a restore separately from a
+   fresh prefill; the store has a byte cap and eviction and is deleted with its
+   chat. Confirm save/restore for the Qwen hybrid recurrent layers first.
+   Effort M.
+3. **Pre-action reasoning budget with a clarifying pause.** Design accepts a
+   thinking-token setting (`src/harness/design/ds4_design.c`); Cowork has none.
+   Counted in processed tokens, never elapsed time, with a large default, a
+   one-click extension that keeps the computed prefix, and a structured pause
+   (what is clear, what blocks, options). Targets the P6.6 `ambiguous-edit`
+   loop; the risk is interrupting legitimate reasoning. Effort M.
+4. **Constrained JSON for structured internal steps.** Neither
+   `src/dstudio_model_rpc.c` nor `extension/search/runtime.js` passes
+   `json_schema`, `response_format` or a grammar; Search, PDF planning and
+   roadmap blocks rely on prompts and post-hoc parsing. Enable it per engine
+   capability (llama.cpp supports it; ds4 and MLX to verify), only on the final
+   output after `<think>` or on non-thinking steps, and reject it explicitly
+   where unsupported. Effort S–M.
+5. **Local state audit in Doctor.** `api_doctor()` in `src/dstudio.c` checks
+   first-launch prerequisites only. Add an on-demand, read-only report:
+   abandoned partial downloads, orphaned DStudio-owned leases or engine
+   processes, Task Graph `state.json` diverging from `events.jsonl` (reported,
+   never rewritten), Blueprint citations to missing files and cache sizes.
+   Bounded scan outside shared locks; each action needs user confirmation;
+   never touches weights, chats or foreign processes. Effort S.
+6. **Independent edit receipts and restore for Office files in Cowork.**
+   `src/harness/cowork/office_tool.py` returns the writer's receipt and states
+   that it is not an independent readback. Missing: before/after SHA-256, an
+   independent structural diff (cells and formulas, paragraphs and tables,
+   slides), refusal to report success on an empty or off-target diff, bounded
+   snapshots, and restore only while the file still matches its recorded
+   after-hash. Effort M.
+7. **Stream integrity check.** No detector for repetition collapse,
+   unrequested script/language drift or leaked template tokens exists. Start
+   report-only in turn metadata; stopping a generation requires measured
+   false-positive rates on code, tables and multilingual text. Bounded
+   per-request memory; no automatic retry of non-idempotent actions.
+   Effort S–M.
+8. **Mastery ledger in Learn.** Roadmap topics carry `practice` and
+   `assessment`, and `roadmapStudyThreads` keeps per-topic transcripts
+   (`web/index.html`); there is no per-topic status. Missing: status per topic,
+   an assessment graded against explicit criteria on the learner's actual
+   answer (a model self-assessment cannot mark mastery), a cross-roadmap gap
+   summary and a local Markdown export. Effort S–M.
+9. **Open Blueprint structural index and JSON Canvas export.** Blueprint
+   already checks each cited quote against the file bytes (verified, moved,
+   unverified, missing; `verifySource()` in `web/index.html`). Missing: a
+   bounded, deterministic import/include index presented as static structure
+   rather than a call graph, and export to the open JSON Canvas `.canvas`
+   format. Effort S–M.
+10. **PDF ↔ web claim agreement matrix.** `compareResearchQuantities()` in
+    `extension/search/runtime.js` compares numeric quantities across web pages,
+    and PDF evidence verifies citations and pages. Missing: per-claim
+    supports/contradicts/not attested across attached PDFs and web sources,
+    deterministic rejection of citation tags outside the retrieved evidence,
+    and export as a Cowork table. Effort M.
+11. **Conversation branches.** Regenerate removes the previous assistant
+    message (`Store.removeMessage` in the regenerate path of `web/index.html`).
+    Missing: sibling branches with a parent and active leaf, editing an earlier
+    user message as a new branch, migration of flat chats, late streams
+    confined to their own branch, LAN mirror consistency and shared attachments
+    by reference. Effort M.
+12. **Watched drop folder for Cowork.** No filesystem watcher exists in the
+    host. Missing: an opt-in watcher on one workspace subfolder
+    (FSEvents/kqueue), waiting for writes to settle, symlink confinement,
+    bounded preparation (digest, extraction) outside locks, and no model run
+    until the user confirms. Effort M.
