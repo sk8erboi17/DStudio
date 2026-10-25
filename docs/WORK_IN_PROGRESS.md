@@ -31,7 +31,7 @@ complete quality rerun.
 | Install / upgrade | Extend verified bundled/offline installation (main, Laguna, llama.cpp builds; MLX from its bundled wheels) to full current engine/mode/failure/recovery coverage and the final bundle. The retired q36 upgrade evidence does not carry over. |
 | Engine admission | Complete applicable source reviews and bind exact qualifying receipts. The nine-target matrix currently has 107 required gate slots (117 before the Qwen targets moved to llama.cpp) and zero linked receipts; these are unfilled evidence requirements, not 107 failed tests. MLX has no target yet. |
 | Search / Research | Held-out source-grounded answer evaluation beyond development questions, actual vision-model webpage checks and real validation of the retained writer incident after the software corrections. |
-| V4.1 / GLM | Dedicated final session. Since October 22 the Q2 selection is the official 1017 checkpoint with its own vision sidecar; the original Q2's retained format failure stays FAIL for that file and does not transfer. Complete 1017 Q2 and Q4 mode/quality/vision/SSD-Engram qualification; GLM's matching 100 continuations, vision and complete product qualification. |
+| V4.1 / GLM | Not in the maintainer's execution plan: on the maintainer's M2 Max (96 GB) they run only with SSD streaming and only limited runs exist. Kept in scope as BLOCKED; a contributor with suitable hardware can take them on ([how](../PLAN.MD#contributors)). Since October 22 the Q2 selection is the official 1017 checkpoint with its own vision sidecar; the original Q2's retained format failure stays FAIL for that file and does not transfer. Complete 1017 Q2 and Q4 mode/quality/vision/SSD-Engram qualification; GLM's matching 100 continuations, vision and complete product qualification. |
 | Comparisons / profiling / release | Six agents/two lanes, at least seventy cases and three repetitions; correct matched baselines, phase profiling, final build admission and reviewed Matplotlib publication. |
 
 One earlier WebKit Design gallery-filter clearing failure is unresolved: it did
@@ -44,6 +44,23 @@ substitute for native-model desktop qualification.
 The catalog now includes 25 systems. The 16 added systems need their own future
 generated-project briefs/oracles and model qualification; the frozen 18-project
 corpus does not cover them. Their authored browser checks are separate.
+
+## Contributor hardware wanted
+
+The maintainer (Giuseppe Perrotta) runs the campaign on an Apple M2 Max with
+96 GB. These selections run there only with SSD expert streaming and only
+limited runs exist, so their complete qualification is outside the
+maintainer's execution plan; they remain open and BLOCKED, not passed:
+
+| Selection | Size on SSD | Remaining work |
+| --- | ---: | --- |
+| DeepSeek V4.1 Flash 1017 Q2 | 365.7 GB + 0.97 GB vision | Modes, 100-case corpus, vision, memory/SSD/Engram, install/recovery, desktop |
+| DeepSeek V4.1 Flash Q4 | 518.6 GB + 0.97 GB vision | The same, independently of Q2 |
+| GLM 5.3 Flash Q2 | 96.5 GB + 1.1 GB vision | 100 continuations, answers, vision, product matrix, desktop |
+
+A contributor with an Apple Silicon Mac that can run them is welcome to; the
+pins, evidence contract and reporting rules are in
+[PLAN.MD](../PLAN.MD#contributors).
 
 ## Proposed modules and improvements (not started)
 
@@ -70,7 +87,8 @@ the owner's decision. What exists today and what is missing for each is in
 
 The nine included macOS Metal selections and exact acceptance criteria are in
 [PLAN.MD](../PLAN.MD). Only Vision-Exp remains among the old DeepSeek V4 Flash
-variants. V4.1 Q2/Q4 and GLM are processed last in a dedicated session.
+variants. V4.1 Q2/Q4 and GLM are left to contributors: they are not in the maintainer's
+execution plan and stay in every denominator as BLOCKED.
 The MLX Qwen3.6 MXFP8 path is not counted among the nine selections until the
 owner admits it; its results do not qualify the GGUF, nor the reverse.
 Non-macOS hardware/backends are excluded, not blockers or inferred passes.

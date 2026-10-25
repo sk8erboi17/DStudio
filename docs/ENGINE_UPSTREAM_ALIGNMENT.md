@@ -39,8 +39,9 @@ The matrix declares nine macOS Metal targets. On September 29, 2026 the user
 limited the campaign to macOS on Apple Silicon; the 23 Linux and six Windows
 targets (CPU, CUDA, ROCm, Vulkan) were removed as out of scope, not qualified.
 The same decision keeps only the Vision-Exp DeepSeek V4 Flash checkpoint; its
-four non-Vision rows were removed. DeepSeek V4.1 and GLM 5.3 Flash are
-qualified last, in a separate session.
+four non-Vision rows were removed. DeepSeek V4.1 and GLM 5.3 Flash are left
+to contributors and remain BLOCKED in the maintainer's plan
+([contributor hardware](../PLAN.MD#contributors)).
 Every receipt must still match its target's operating system as well as the
 engine and patches. The full campaign
 census, additional format/quantization choices

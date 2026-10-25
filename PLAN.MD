@@ -28,9 +28,9 @@ in this campaign.
 | Qwen3.8-27B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
-| DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Last, dedicated session |
-| DeepSeek V4.1 Flash Q4 | main 0aaea5a | Last, dedicated session |
-| GLM 5.3 Flash Q2 | main 0aaea5a | Last, dedicated session |
+| DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
+| DeepSeek V4.1 Flash Q4 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
+| GLM 5.3 Flash Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
 
 These are recorded pins, not a claim that remote tips were rechecked for this
 update. Exact revisions, patches and release targets live in
@@ -58,6 +58,26 @@ needs its own qualification. With the versioned
 checkpoint opens only with its own sidecar (`make test-v41-vision-pairing-live`
 checks the headers, not inference). V4.1 vision qualification follows P4.
 
+<a id="contributors"></a>
+**Maintainer's execution plan and contributor hardware.** The maintainer,
+Giuseppe Perrotta, runs this campaign on an Apple M2 Max with 96 GB of unified
+memory. DeepSeek V4.1 Flash (1017 Q2 365.7 GB and Q4 518.6 GB, each with
+disk-backed Engram tables and a 0.97 GB vision sidecar) and GLM 5.3 Flash Q2
+(96.5 GB plus its 1.1 GB vision encoder) are not in the maintainer's execution
+plan. On that Mac they run only with SSD expert streaming, and only limited runs
+exist: GLM 5.3's 100 reference continuations on an earlier main revision and a
+14-case set on the original V4.1 Q2 (13/14); V4.1 Q4 has not run there. Their
+complete qualification is left to contributors. The three selections stay in
+scope and in every denominator as BLOCKED, never as passed or excluded.
+A contributor with an Apple Silicon Mac that can run them is welcome to take
+them on: use the recorded pins (ds4 main `0aaea5a` with the versioned patches),
+the frozen cases and the evidence contract below; keep every failed attempt;
+record the machine, unified memory, effective memory mode (resident, SSD
+expert streaming, Engram, disk KV), context and settings; and share only
+reviewed aggregates and provenance hashes. Results from another machine
+qualify that machine's configuration, not the maintainer's Mac. DStudio has
+not established a minimum memory size for these models.
+
 Qwen3.6-35B-A3B MXFP8 also runs on bundled MLX (mlx 0.32.4 `36969c0`, mlx-lm
 0.32.2 `93e6d4a`; Apple Silicon, macOS 26) since October 3. It is a different
 engine and quantization: its results do not qualify the GGUF row, nor the
@@ -80,7 +100,8 @@ engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
 Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11.
-V4.1 Q2/Q4 and GLM stay in the denominator until their dedicated final session.
+V4.1 Q2/Q4 and GLM stay in the denominator as BLOCKED until a contributor runs
+them ([contributor hardware](#contributors)).
 Source builds sharing a checkout and heavy inference sharing the GPU are
 sequential. No model run, download, app restart or push is part of this cleanup.
 
@@ -356,7 +377,7 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    no additional model download is authorized. Inspect the exact supported
    pinned upstream oracles; missing
    compatible references remain unresolved rather than borrowed from a family.
-5. In the dedicated final session, run GLM's **100 continuations** on the
+5. On contributor hardware ([see scope](#contributors)), run GLM's **100 continuations** on the
    matching final stack with NLL/first-token/greedy/logprob coverage and long
    contexts. This is not 100 answered questions. Verify scorer support for
    each architecture; no llama.cpp or unrelated-model oracle download.

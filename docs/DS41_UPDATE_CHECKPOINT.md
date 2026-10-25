@@ -1,8 +1,10 @@
 # Engine and DeepSeek V4.1 — remaining qualification
 
 Updated October 1, 2026. The wider macOS campaign is incomplete and paused.
-DeepSeek V4.1 Q2/Q4 and GLM 5.3 are qualified last in a separate dedicated
-session. This document lists remaining work; the dated source/build/install
+DeepSeek V4.1 Q2/Q4 and GLM 5.3 are not in the maintainer's execution plan:
+on the maintainer's M2 Max (96 GB) they run only with SSD streaming, and their
+complete qualification is left to contributors. They remain BLOCKED and open
+for a contributor with suitable hardware ([contributor hardware](../PLAN.MD#contributors)). This document lists remaining work; the dated source/build/install
 history and original failures are retained in
 [the archived update checkpoint](history/engine-update-through-2026-10-01.md).
 

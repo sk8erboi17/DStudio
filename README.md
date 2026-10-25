@@ -1497,7 +1497,10 @@ every model or a release. Exact acceptance criteria and retained failures are in
   checks.
 - [ ] Qualify DeepSeek V4.1 1017 Q2, V4.1 Q4 and GLM 5.3 across modes, vision,
   memory and SSD settings. The original Q2's retained format failure does not
-  transfer to the 1017 file.
+  transfer to the 1017 file. **Contributor hardware wanted:** on the maintainer's
+  M2 Max (96 GB) they run only with SSD streaming and their complete
+  qualification is left to contributors; they stay BLOCKED, not passed.
+  [How to help](PLAN.MD#contributors).
 - [ ] Complete the six-agent/two-lane comparison with held-out cases, phase
   profiling, matched baselines and reviewed Matplotlib publication.
 - [ ] Validate the two-photo MiniMax H3 path end to end.
