@@ -199,60 +199,60 @@
    "source": "https://pypi.org/project/mdurl/0.1.2/",
    "version": "0.1.2"
   },
-  "mlx-0.32.3-cp312-cp312-macosx_26_0_arm64.whl": {
+  "mlx-0.32.4-cp312-cp312-macosx_26_0_arm64.whl": {
    "abi": "cp312",
-   "bytes": 651118,
+   "bytes": 667622,
    "license": "MIT",
    "name": "mlx",
    "platform": "macosx_26_0_arm64",
    "python": "cp312",
-   "sha256": "72711cb23cc6dccc5a460f63f39c11931a00b2c6dcd6fba253921090072e21bc",
-   "source": "https://pypi.org/project/mlx/0.32.3/",
-   "version": "0.32.3"
+   "sha256": "7928869076db6267ab3ebdb253b2c80be1e738b3032c783170bd1d59d460c578",
+   "source": "https://pypi.org/project/mlx/0.32.4/",
+   "version": "0.32.4"
   },
-  "mlx-0.32.3-cp313-cp313-macosx_26_0_arm64.whl": {
+  "mlx-0.32.4-cp313-cp313-macosx_26_0_arm64.whl": {
    "abi": "cp313",
-   "bytes": 651075,
+   "bytes": 667575,
    "license": "MIT",
    "name": "mlx",
    "platform": "macosx_26_0_arm64",
    "python": "cp313",
-   "sha256": "75333afef55819afd2a31e87ffbed0bf59f379bca21771e6b13a95a675e4c85b",
-   "source": "https://pypi.org/project/mlx/0.32.3/",
-   "version": "0.32.3"
+   "sha256": "ef130e3da895c85374b11a6c389acb122893f2ffcbed826b8b62fd45a20b7ad6",
+   "source": "https://pypi.org/project/mlx/0.32.4/",
+   "version": "0.32.4"
   },
-  "mlx-0.32.3-cp314-cp314-macosx_26_0_arm64.whl": {
+  "mlx-0.32.4-cp314-cp314-macosx_26_0_arm64.whl": {
    "abi": "cp314",
-   "bytes": 652880,
+   "bytes": 668817,
    "license": "MIT",
    "name": "mlx",
    "platform": "macosx_26_0_arm64",
    "python": "cp314",
-   "sha256": "452c621862684e8769be93c1517420c8ba2fd6e8b01a1c970c8ba8069022f0ac",
-   "source": "https://pypi.org/project/mlx/0.32.3/",
-   "version": "0.32.3"
+   "sha256": "1dd56491b44a2bfa217f60da66a5c9c889add7ad9dc2cbcf526389ea31d83bee",
+   "source": "https://pypi.org/project/mlx/0.32.4/",
+   "version": "0.32.4"
   },
-  "mlx_lm-0.32.0-py3-none-any.whl": {
+  "mlx_lm-0.32.2-py3-none-any.whl": {
    "abi": "none",
-   "bytes": 513667,
+   "bytes": 546040,
    "license": "MIT",
    "name": "mlx-lm",
    "platform": "any",
    "python": "py3",
-   "sha256": "9a0f3843135fd88d36ad791f0d82210cdc4130c5c1cb5416f5f0c4b56a135778",
-   "source": "https://pypi.org/project/mlx-lm/0.32.0/",
-   "version": "0.32.0"
+   "sha256": "5c0991248cfff5872503d74f466d2532dd8cb7fb3670cb9be7a06d7305dadc04",
+   "source": "https://pypi.org/project/mlx-lm/0.32.2/",
+   "version": "0.32.2"
   },
-  "mlx_metal-0.32.3-py3-none-macosx_26_0_arm64.whl": {
+  "mlx_metal-0.32.4-py3-none-macosx_26_0_arm64.whl": {
    "abi": "none",
-   "bytes": 67661845,
+   "bytes": 78106861,
    "license": "MIT",
    "name": "mlx-metal",
    "platform": "macosx_26_0_arm64",
    "python": "py3",
-   "sha256": "34ae9b83ad2f0ccdd3e5d48ec35176e7119f57069eef187122916dc941a4ae1f",
-   "source": "https://pypi.org/project/mlx-metal/0.32.3/",
-   "version": "0.32.3"
+   "sha256": "514df92d41a286895d2564b4b18f4da45096bd7a4a0c47e1042f345ad5a7f936",
+   "source": "https://pypi.org/project/mlx-metal/0.32.4/",
+   "version": "0.32.4"
   },
   "numpy-2.5.3-cp312-cp312-macosx_14_0_arm64.whl": {
    "abi": "cp312",
@@ -509,10 +509,10 @@
   }
  },
  "macos": "26.0",
- "note": "PyPI wheels as published, unmodified; resolved for mlx-lm==0.32.0 on macOS 26 arm64.",
+ "note": "PyPI wheels as published, unmodified; resolved for mlx-lm==0.32.2 on macOS 26 arm64.",
  "pins": {
-  "mlx": "0.32.3",
-  "mlx-lm": "0.32.0"
+  "mlx": "0.32.4",
+  "mlx-lm": "0.32.2"
  },
  "python": [
   "3.12",
@@ -520,8 +520,8 @@
   "3.14"
  ],
  "repositories": {
-  "mlx": "https://github.com/ml-explore/mlx (v0.32.3, 64ea011cb65f14d9ce2737e60db9a4ae91ed7441)",
-  "mlx-lm": "https://github.com/ml-explore/mlx-lm (v0.32.0, a9bd8af5c02118882af735cef60705d2efce9fd0)"
+  "mlx": "https://github.com/ml-explore/mlx (v0.32.4, 36969c094354086e15d2a327a9c50feb20b9cf11)",
+  "mlx-lm": "https://github.com/ml-explore/mlx-lm (v0.32.2, 93e6d4a6447b3080861985947f0820e76fcb957d)"
  },
  "schema": "dstudio.mlx-wheels.v1"
 }

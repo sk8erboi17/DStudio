@@ -50,7 +50,7 @@ try {
   const profile = path.join(root, 'isolated-profile'), elsewhere = path.join(root, 'elsewhere');
   const custom = path.join(elsewhere, 'custom engine');
   fs.mkdirSync(profile); fs.mkdirSync(custom, { recursive: true });
-  fs.mkdirSync(path.join(elsewhere, 'ds4-qwen35')); // retired: not inventoried
+  fs.mkdirSync(path.join(elsewhere, 'other-engine')); // not a managed sibling: not inventoried
   const dense = path.join(elsewhere, 'llama.cpp');
   fs.mkdirSync(path.join(dense, 'bin'), { recursive: true });
   fs.symlinkSync(dense, path.join(root, 'llama.cpp'));
@@ -61,7 +61,7 @@ try {
   assert.equal(discovered.errors.length, 0);
   assert.equal(discovered.profiles.length, 1);
   assert.equal(discovered.profiles[0].selected, custom);
-  assert.equal(discovered.directories.length, 2, 'the persisted external checkout and the managed llama.cpp sibling are included once; retired ds4-qwen35 is not');
+  assert.equal(discovered.directories.length, 2, 'the persisted external checkout and the managed llama.cpp sibling are included once; an unmanaged sibling is not');
   assert.equal(discovered.directories.find(x => x.directory === fs.realpathSync(custom)).aliases.length, 2);
   assert.equal(discovered.directories.find(x => x.directory === fs.realpathSync(dense)).aliases.length, 2,
     'The llama.cpp engine must be inventoried without counting its symlink as another installation');

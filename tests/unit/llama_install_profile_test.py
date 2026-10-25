@@ -22,9 +22,11 @@ spec = importlib.util.spec_from_file_location('install_llama', ROOT / 'scripts/i
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
-# The build identity of every macOS receipt written before the dynamic layout
-# existed (scripts/install-llama.py at the llama.cpp import).
-MACOS_BUILD_ID = '54bc9e1237ebc60dc4dfedb59b9f2e45221af855593f1383364304c053740871'
+# The build identity of the tested macOS static recipe at the current pin
+# (b11836). It keeps the form receipts had before the dynamic layout existed
+# and changes only with the pin, build number and commit: the same recipe at
+# b11371 gives 54bc9e1237ebc60dc4dfedb59b9f2e45221af855593f1383364304c053740871.
+MACOS_BUILD_ID = '808e915768c00b6836f77b66fbbecf01e6aa2a02e9c6d563c5f1f3c014ef6e3f'
 
 
 def tool(directory, name, body='exit 0'):
@@ -72,7 +74,7 @@ class Profiles(unittest.TestCase):
         for option in ('-DBUILD_SHARED_LIBS=ON', '-DGGML_BACKEND_DL=ON', '-DGGML_NATIVE=OFF',
                        '-DGGML_CPU_ALL_VARIANTS=ON', '-DGGML_METAL=OFF', '-DCMAKE_INSTALL_RPATH=$ORIGIN',
                        '-DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON',
-                       '-DLLAMA_BUILD_NUMBER=11371', '-DLLAMA_BUILD_COMMIT=99b9548'):
+                       '-DLLAMA_BUILD_NUMBER=11836', '-DLLAMA_BUILD_COMMIT=f5027fb'):
             self.assertIn(option, linux.options)
         self.assertFalse(any(o.startswith(('-DGGML_CUDA', '-DGGML_HIP', '-DGGML_VULKAN')) for o in linux.options))
         self.assertNotEqual(linux.build_id, MACOS_BUILD_ID)

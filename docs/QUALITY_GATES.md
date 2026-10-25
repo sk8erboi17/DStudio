@@ -238,7 +238,7 @@ When a gate fails, classify it before editing code:
 ## Roadmap
 
 1. **Current macOS qualification:** complete applicable G0–G6 evidence for the
-   nine included selections and exact final configurations in [PLAN.MD](../PLAN.MD).
+   ten included selections and exact final configurations in [PLAN.MD](../PLAN.MD).
    Preserve each existing release profile and original failure; the historical
    81 GB IQ2XXS profile does not qualify the entire current matrix. Excluded
    media workers are not campaign requirements.

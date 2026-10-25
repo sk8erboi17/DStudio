@@ -124,7 +124,7 @@ def main():
         shutil.copytree(target, moved)
         version = subprocess.run([str(moved / 'bin/llama-server'), '--version'], capture_output=True, text=True,
                                  cwd=moved / 'bin', timeout=60)
-        assert '(build 11371, commit 99b9548)' in version.stdout + version.stderr
+        assert '(build 11836, commit f5027fb)' in version.stdout + version.stderr
         devices = subprocess.run([str(moved / 'bin/llama-server'), '--list-devices'], capture_output=True,
                                  text=True, cwd=moved / 'bin', timeout=60)
         listing = devices.stdout + devices.stderr

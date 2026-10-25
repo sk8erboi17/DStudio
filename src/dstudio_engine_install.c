@@ -176,8 +176,3 @@ static void api_setup_qwen(int fd) {
     /* A stale client must never reinstall the retired checkout. */
     send_json(fd, "410 Gone", "{\"ok\":false,\"engine\":\"main\",\"error\":\"Qwen Next is included in ds4 main. Update DStudio and download the single-file Qwen Next Q2 or Q4 model from Settings > Models.\"}");
 }
-
-static void api_setup_qwen35(int fd) {
-    /* A stale client must never reinstall the retired vagrillo/ds4 engine. */
-    send_json(fd, "410 Gone", "{\"ok\":false,\"engine\":\"llama\",\"error\":\"Qwen3.6 now runs on DStudio's bundled llama.cpp engine, which is built on first use. Choose the model from the model menu; old files are preserved.\"}");
-}

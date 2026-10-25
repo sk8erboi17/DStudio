@@ -97,7 +97,7 @@ await check('an already cancelled request cannot launch a model', async () => {
 });
 await check('a stale selected model is rejected before launch', async () => {
   const h = harness({mode: 'none', running: false});
-  h.select({...qwen, modelGguf: 'gguf/Qwen3.6-35B-A3B.gguf', modelEngineDir: '/fixture/ds4-qwen35'});
+  h.select({...qwen, modelGguf: 'gguf/Qwen3.6-35B-A3B.gguf', modelEngineDir: '/fixture/other-engine'});
   await assert.rejects(h.call(), /model selection changed/i);
   assert.equal(h.starts.length, 0);
 });

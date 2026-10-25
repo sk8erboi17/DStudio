@@ -1,4 +1,4 @@
-// REAL inference: DStudio's own llama.cpp engine (bundled b11371, built by
+// REAL inference: DStudio's own llama.cpp engine (bundled b11836, built by
 // scripts/install-llama.py) serving the pinned local Qwen checkpoints through
 // the production host: launch preparation, the guard-owned llama-server, the
 // /props readiness check, the Agent tools frontend over model RPC, and Chat
@@ -6,6 +6,8 @@
 //
 //   node tests/live/llama_resident_live_test.mjs
 //   DSTUDIO_LLAMA_MODELS=qwen36 | qwen27      one model only
+//   DSTUDIO_LLAMA_MODELS=qwen36-q4_k_m        any other pinned variant by its
+//                                             scripts/qwen-variants.json id
 //   DSTUDIO_REAL_TEST_TIMEOUT_MS=0            no wall-clock bound for model work
 //
 // Held-out tasks: generated per run with values the model cannot have seen,
@@ -28,11 +30,17 @@ import {
 const run = artifactRunDir('llama-resident-live');
 const boundMs = Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS ?? 3_600_000);
 const MODELS = {
-  qwen36: { file: 'gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf', id: 'qwen3.6-35b-a3b', vision: false },
-  qwen27: { file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', id: 'qwen3.8-27b', vision: true },
+  qwen36: { file: 'gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf', id: 'qwen3.6-35b-a3b', vision: false, family: 'qwen36' },
+  qwen27: { file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', id: 'qwen3.8-27b', vision: true, family: 'qwen27' },
   // The same Qwen3.6 on the bundled MLX runtime (a folder of safetensors).
-  qwen36mlx: { file: 'mlx/Qwen3.6-35B-A3B-mxfp8', id: 'qwen3.6-35b-a3b-mlx', vision: false, mlx: true },
+  qwen36mlx: { file: 'mlx/Qwen3.6-35B-A3B-mxfp8', id: 'qwen3.6-35b-a3b-mlx', vision: false, mlx: true, family: 'qwen36' },
 };
+// Every other pinned variant, by its catalog id. The alias names the family
+// and engine (the host's resident_model_id); only 27B on llama.cpp reads images.
+for (const v of JSON.parse(fs.readFileSync('scripts/qwen-variants.json', 'utf8')).variants)
+  if (!Object.values(MODELS).some((m) => m.file === v.path))
+    MODELS[v.id] = { file: v.path, id: `${v.family === 'qwen27' ? 'qwen3.8-27b' : 'qwen3.6-35b-a3b'}${v.engine === 'mlx' ? '-mlx' : ''}`,
+      vision: v.family === 'qwen27' && v.engine === 'llama', mlx: v.engine === 'mlx', family: v.family };
 const wanted = String(process.env.DSTUDIO_LLAMA_MODELS || 'qwen36,qwen27').split(',').map((s) => s.trim()).filter(Boolean);
 const receipt = { scope: 'REAL inference: DStudio host + bundled llama.cpp + pinned Qwen GGUF; held-out generated tasks with independent checks',
   startedAt: new Date().toISOString(), models: [], failures: [] };
@@ -113,7 +121,7 @@ if (await listening(28000)) {
   receipt.blocked = true;
 }
 for (const key of receipt.blocked ? [] : wanted) {
-  const spec = MODELS[key];
+  const spec = MODELS[key] || { file: '' };
   const row = { model: key, file: spec.file, cases: [] };
   receipt.models.push(row);
   let server = null;
@@ -149,7 +157,9 @@ for (const key of receipt.blocked ? [] : wanted) {
     assert.equal(startup.mode, 'agent');
     assert.ok(startup.residentPid > 0, 'the llama.cpp server is owned by the host');
     assert.equal(startup.modelFile, spec.file);
-    assert.equal(startup.agentDiskCheckpointsSupported, false, 'no engine session to checkpoint over RPC');
+    // No KV snapshot over RPC, but the native Agent saves its transcript and the
+    // model server prefills it again after a restore.
+    assert.equal(startup.agentDiskCheckpointsSupported, true, 'the native Agent restores sessions from its transcript');
     // Identity reported by the actual server, not by DStudio's own status.
     let modelPath;
     if (spec.mlx) {
@@ -165,7 +175,7 @@ for (const key of receipt.blocked ? [] : wanted) {
       row.engine = { build: props.build_info, alias: props.model_alias, model: props.model_path, ctx: props.default_generation_settings?.n_ctx,
         slots: props.total_slots, vision: props.modalities?.vision };
       writeArtifact(dir, 'props.json', row.engine);
-      assert.equal(props.build_info, 'b11371-99b9548');
+      assert.equal(props.build_info, 'b11836-f5027fb');
       assert.equal(props.model_alias, spec.id);
       assert.equal(path.basename(props.model_path), path.basename(spec.file));
       assert.equal(props.modalities?.vision, spec.vision);
@@ -300,6 +310,14 @@ for (const key of receipt.blocked ? [] : wanted) {
           { type: 'image_url', image_url: { url: `data:image/png;base64,${image.toString('base64')}` } }] }], false);
         chatCase.vision = seen;
         assert.match(seen.content, /blue/i, 'the generated image is blue on the left');
+      } else if (spec.mlx && spec.family === 'qwen27') {
+        // 27B on MLX is text only: an image part must be refused, not dropped.
+        const image = png(64, 64, () => Buffer.from([32, 64, 224]));
+        chatCase.imageRefused = await chat(server.baseUrl, spec.id, [{ role: 'user', content: [
+          { type: 'text', text: 'What colour is this image?' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${image.toString('base64')}` } }] }], false)
+          .then((answered) => ({ answered }), (error) => ({ error: String(error.message) }));
+        assert.ok(chatCase.imageRefused.error && !chatCase.imageRefused.answered, 'MLX 27B answered an image request');
       }
       chatCase.status = 'PASS';
     } catch (error) { chatCase.status = 'FAIL'; chatCase.error = String(error.stack || error); receipt.failures.push(`${key} chat: ${error.message}`); }

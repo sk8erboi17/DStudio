@@ -11,12 +11,15 @@ const report = {scope: 'Production UI functions with simulated catalog entries; 
 const helpers = source.slice(source.indexOf('    const isGlm53Gguf ='), source.indexOf('    function relativeTime('));
 const downloads = source.slice(source.indexOf('    const MODEL_DOWNLOADS ='), source.indexOf('    function availableModelDownloads('));
 const functions = ['parseGgufName', 'modelIdForEngineStatus', 'ggufIsDsparkSupport', 'ggufIsGlmVisionEncoder',
-  'ggufIsDeepseekVisionEncoder', 'ggufIsEngineComponent', 'ggufIsModifiedWeights', 'ggufIsUsableModel', 'availableModelDownloads']
+  'ggufIsDeepseekVisionEncoder', 'ggufIsEngineComponent', 'ggufIsModifiedWeights', 'ggufIsUsableModel',
+  'availableModelDownloads']
   .map(name => extractFunction(source, name)).join('\n');
 function load(platform) {
   const context = vm.createContext({console, Store: {getSettings: () => ({})}, isLanClientMode: () => false,
     ...(platform ? {navigator: {platform}} : {})});
   vm.runInContext(`${helpers}\n${downloads}\n${functions}`, context);
+  // What GET /api/model/qwen-variants serves: the shipped file, byte for byte.
+  assert.equal(context.applyQwenCatalog(JSON.parse(fs.readFileSync('scripts/qwen-variants.json', 'utf8'))), true);
   return context;
 }
 const plain = value => JSON.parse(JSON.stringify(value));

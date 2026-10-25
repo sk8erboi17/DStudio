@@ -20,7 +20,7 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-WHEEL = next(ROOT.glob('src/engines/mlx/wheels/mlx_lm-0.32.0-*.whl'))
+WHEEL = next(ROOT.glob('src/engines/mlx/wheels/mlx_lm-0.32.2-*.whl'))
 PATCHES = ['patch/mlx-lm-single-model/single-model.patch', 'patch/mlx-lm-reasoning-content/reasoning-content.patch',
            'patch/mlx-lm-tool-streaming/tool-streaming.patch']
 

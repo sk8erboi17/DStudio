@@ -1,6 +1,6 @@
 --- a/mlx_lm/server.py
 +++ b/mlx_lm/server.py
-@@ -1448,6 +1448,15 @@
+@@ -1600,6 +1600,15 @@
  
          # Tool call formatter
          tool_formatter = ToolCallFormatter(ctx.tool_parser, request.tools, self.stream)
@@ -16,29 +16,29 @@
  
          # Initialize the text state machine
          sm_state = ctx.text_sm.make_state(ctx.initial_state)
-@@ -1488,9 +1497,19 @@
-                     reasoning_text += clean_text
-                 elif current_state == "tool":
-                     tool_text += clean_text
-+                    if tool_stream is not None:
-+                        deltas = tool_stream.begin() if prev_state != "tool" else []
-+                        deltas += tool_stream.feed(clean_text)
-+                        if deltas:
-+                            resp = self.generate_response("", None, tool_calls=deltas)
-+                            self.wfile.write(f"data: {json.dumps(resp)}\n\n".encode())
-+                            self.wfile.flush()
-                 elif current_state == "normal":
-                     if prev_state == "tool":
--                        tool_calls.append(tool_text)
+@@ -1637,9 +1646,19 @@
+                         reasoning_text += clean_text
+                     elif current_state == "tool":
+                         tool_text += clean_text
 +                        if tool_stream is not None:
-+                            tool_stream.end()  # already streamed: never formatted again
-+                        else:
-+                            tool_calls.append(tool_text)
-                         tool_text = ""
-                         made_tool_call = True
-                     text += clean_text
-@@ -1525,7 +1544,10 @@
-                 prev_state = current_state
++                            deltas = tool_stream.begin() if prev_state != "tool" else []
++                            deltas += tool_stream.feed(clean_text)
++                            if deltas:
++                                resp = self.generate_response("", None, tool_calls=deltas)
++                                self.wfile.write(f"data: {json.dumps(resp)}\n\n".encode())
++                                self.wfile.flush()
+                     elif current_state == "normal":
+                         if prev_state == "tool":
+-                            tool_calls.append(tool_text)
++                            if tool_stream is not None:
++                                tool_stream.end()  # already streamed: never formatted again
++                            else:
++                                tool_calls.append(tool_text)
+                             tool_text = ""
+                             made_tool_call = True
+                         text += clean_text
+@@ -1673,7 +1692,10 @@
+                     finish_reason = gen.finish_reason
  
              if prev_state == "tool" and tool_text:
 -                tool_calls.append(tool_text)

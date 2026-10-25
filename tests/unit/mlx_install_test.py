@@ -45,7 +45,7 @@ class Wheels(unittest.TestCase):
 
     def test_the_shipped_wheels_match_their_manifest(self):
         installer.verify_wheels(ROOT, MANIFEST)
-        self.assertEqual(MANIFEST['pins'], {'mlx': '0.32.3', 'mlx-lm': '0.32.0'})
+        self.assertEqual(MANIFEST['pins'], {'mlx': '0.32.4', 'mlx-lm': '0.32.2'})
 
     def test_changed_missing_extra_or_linked_wheels_install_nothing(self):
         folder = self.assets / 'src/engines/mlx/wheels'
@@ -69,13 +69,13 @@ class Selection(unittest.TestCase):
         for version in ('3.12', '3.13', '3.14'):
             text = installer.requirements(MANIFEST, version)
             lines = dict(line.split(' ', 1) for line in text.strip().splitlines())
-            self.assertIn('mlx==0.32.3', lines)
-            self.assertIn('mlx-lm==0.32.0', lines)
+            self.assertIn('mlx==0.32.4', lines)
+            self.assertIn('mlx-lm==0.32.2', lines)
             tag = installer.python_tag(version)
             mlx_hashes = {m['sha256'] for m in MANIFEST['files'].values() if m['name'] == 'mlx'}
             own = {m['sha256'] for m in MANIFEST['files'].values() if m['name'] == 'mlx' and m['python'] == tag}
             self.assertEqual(len(own), 1)
-            self.assertEqual({h for h in mlx_hashes if h in lines['mlx==0.32.3']}, own, 'another Python ABI is never offered')
+            self.assertEqual({h for h in mlx_hashes if h in lines['mlx==0.32.4']}, own, 'another Python ABI is never offered')
         names = {m['name'].lower() for m in MANIFEST['files'].values()}
         self.assertEqual(len(installer.requirements(MANIFEST, '3.14').strip().splitlines()), len(names))
 

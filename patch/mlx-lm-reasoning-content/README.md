@@ -1,7 +1,7 @@
 # mlx-lm: reasoning in `reasoning_content`
 
-Base: `mlx-lm` 0.32.0 ([ml-explore/mlx-lm](https://github.com/ml-explore/mlx-lm) at
-`a9bd8af5c02118882af735cef60705d2efce9fd0`), `mlx_lm/server.py` from the bundled
+Base: `mlx-lm` 0.32.2 ([ml-explore/mlx-lm](https://github.com/ml-explore/mlx-lm) at
+`93e6d4a6447b3080861985947f0820e76fcb957d`), `mlx_lm/server.py` from the bundled
 wheel in [`src/engines/mlx`](../../src/engines/mlx/) **after**
 [`single-model.patch`](../mlx-lm-single-model/README.md). Apply order:
 `mlx-lm-single-model/single-model.patch`, then `reasoning-content.patch`.

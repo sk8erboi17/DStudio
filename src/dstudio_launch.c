@@ -9,7 +9,7 @@
 #define LAUNCH_SYS_MAX 65536
 #define LAUNCH_RESULT_MAX (6 * LAUNCH_SYS_MAX + 4096)
 #define LAUNCH_CANCEL_MS 5000
-#define LAUNCH_DEP_MAX 24
+#define LAUNCH_DEP_MAX 32
 
 typedef struct {
     engine_cfg cfg;
@@ -189,6 +189,8 @@ static int launch_prepare_cli(int argc, char **argv) {
         strlen(argv[7]) >= sizeof g_design_system) return 2;
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, argv[3]);
     cstr_copy(g_web_dir, sizeof g_web_dir, argv[4]);
+    /* The same catalog file the owner captured as a launch dependency. */
+    qwen_catalog_reload();
     cstr_copy(g_model_override, sizeof g_model_override, argv[5]);
     cstr_copy(g_skill, sizeof g_skill, argv[6]);
     cstr_copy(g_design_system, sizeof g_design_system, argv[7]);
@@ -439,11 +441,22 @@ static int launch_capture_dependencies(launch_job *j) {
         if (ok) ok = launch_add_dependency(j, request->engine_dir, rel, 0);
     }
     if (ok && !request->remote.base_url[0]) {
+        /* The other parts of a split GGUF are read by llama.cpp beside the first. */
+        const qwen_variant *variant = qwen_variant_for_rel(request->model);
+        for (int part = 1; ok && variant && part < variant->parts; part++) {
+            char rel[128];
+            snprintf(rel, sizeof rel, "gguf/%s", variant->files[part].name);
+            ok = launch_add_dependency(j, request->engine_dir, rel, 0);
+        }
         const char *vision = native_vision_encoder_rel_for_model(request->model);
-        if (vision) ok = launch_add_dependency(j, request->engine_dir, vision, 0);
+        if (ok && vision) ok = launch_add_dependency(j, request->engine_dir, vision, 0);
         if (ok && request->dspark) ok = launch_add_dependency(j, request->engine_dir, dspark_rel_for_model(request->model), 0);
     }
     if (ok) ok = launch_add_dependency(j, request->assets_dir, "src/harness/cowork/COWORK.md", 0);
+    /* Which files are pinned Qwen models (and which engine serves them) comes
+     * from this catalog; the worker reads it again. A missing file stays
+     * "missing" (the compiled pins) and must still be missing at publication. */
+    if (ok) ok = launch_add_dependency(j, request->assets_dir, QWEN_CATALOG_REL, 0);
     if (ok && request->skill[0]) {
         char dir[1100], rel[96]; user_skills_dir(dir, sizeof dir);
         snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
@@ -464,6 +477,26 @@ static int launch_capture_dependencies(launch_job *j) {
     return ok;
 }
 
+/* The separately owned server a resident model needs: engine kind, served
+ * alias and, for 27B on llama.cpp, its projector (MLX is text only). */
+static int launch_resident_init(launch_job *j) {
+    const launch_request *request = &j->request;
+    j->resident = calloc(1, sizeof *j->resident);
+    if (!j->resident) return 0;
+    j->resident->cfg = request->cfg;
+    cstr_copy(j->resident->directory, sizeof j->resident->directory, request->engine_dir);
+    cstr_copy(j->resident->model, sizeof j->resident->model, request->model);
+    cstr_copy(j->resident->model_id, sizeof j->resident->model_id, resident_model_id(request->model));
+    j->resident->kind = model_file_is_mlx(request->model) ? RESIDENT_MLX : RESIDENT_LLAMA;
+    const char *projector = qwen_projector_rel(request->model);
+    if (projector) cstr_copy(j->resident->vision, sizeof j->resident->vision, projector);
+    if (!resident_install_dir_kind(j->resident->kind, request->engine_dir, j->resident->install, sizeof j->resident->install)) {
+        free(j->resident); j->resident = NULL;
+        return 0;
+    }
+    return 1;
+}
+
 static void launch_begin(int fd, const launch_request *request, unsigned long long resume_task) {
     if (g_launch || g_child_stop_requested || (resident_running() && g_resident.stopping)) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"code\":\"launch_busy\",\"error\":\"An engine transition is already in progress. Wait or cancel it first.\"}"); return;
@@ -474,22 +507,7 @@ static void launch_begin(int fd, const launch_request *request, unsigned long lo
     j->request = *request;
     j->result = malloc(LAUNCH_RESULT_MAX);
     int resident = !request->remote.base_url[0] && model_file_is_resident(request->model);
-    if (resident) {
-        j->resident = calloc(1, sizeof *j->resident);
-        if (j->resident) {
-            j->resident->cfg = request->cfg;
-            cstr_copy(j->resident->directory, sizeof j->resident->directory, request->engine_dir);
-            cstr_copy(j->resident->model, sizeof j->resident->model, request->model);
-            cstr_copy(j->resident->model_id, sizeof j->resident->model_id, resident_model_id(request->model));
-            j->resident->kind = model_file_is_mlx(request->model) ? RESIDENT_MLX : RESIDENT_LLAMA;
-            if (model_file_is_qwen27(request->model))
-                cstr_copy(j->resident->vision, sizeof j->resident->vision, MODEL_QWEN27_VISION);
-            if (!resident_install_dir_kind(j->resident->kind, request->engine_dir, j->resident->install, sizeof j->resident->install)) {
-                free(j->resident); j->resident = NULL;
-            }
-        }
-    }
-    int ok = j->result && (!resident || j->resident) && launch_capture_dependencies(j);
+    int ok = j->result && (!resident || launch_resident_init(j)) && launch_capture_dependencies(j);
     if (!ok || !g_launch_executable[0]) {
         launch_dispose(j); send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"Could not capture the launch dependencies\"}"); return;
     }

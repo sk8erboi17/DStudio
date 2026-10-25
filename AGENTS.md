@@ -39,6 +39,15 @@ Do not create a second authoritative copy in a cache, worker or frontend view.
 Task Graph's `events.jsonl` is authoritative; its `state.json` is rebuildable.
 Other stores retain their own documented ownership and recovery contracts.
 
+DStudio's engines are exactly four: ds4 main (DeepSeek, GLM and
+Qwen3.8-Flash-Next), Laguna (`ds4-laguna-s21`), llama.cpp (the Qwen3.6-35B-A3B
+and Qwen3.8-27B GGUFs) and MLX (Qwen3.6 MXFP8 on Apple Silicon). Do not add
+code, tests, installers or setup endpoints for any other engine, and do not keep
+name-specific handling for retired ones: a checkout whose `.dstudio-source.json`
+receipt names another engine is refused by one generic rule. Historical records
+may describe retired engines. A new engine needs the owner's explicit decision
+and its own pinned sources under `src/engines/`.
+
 Model family, quantization, engine revision, API protocol and application mode
 are separate compatibility axes. Route a selected model to its supported engine
 and capabilities. Reject unsupported combinations explicitly; do not silently

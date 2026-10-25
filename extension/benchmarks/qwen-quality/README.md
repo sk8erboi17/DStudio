@@ -2,7 +2,7 @@
 
 > **Retired engine.** This run used the Ninnix/q36 engine, which DStudio
 > retired on October 3, 2026. Qwen3.8-27B now runs on the bundled llama.cpp
-> `b11371`, which has not run this corpus yet. These results describe q36 only.
+> `b11836`, which has not run this corpus yet. These results describe q36 only.
 
 **61 of 100 tasks passed in this completed local run.** The other 39 remain
 failures: 31 answers did not meet their checks, and eight long requests did

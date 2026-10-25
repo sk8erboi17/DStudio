@@ -76,6 +76,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/diagnostics') { json(res, 200, { ok: true, tasks: [], logs: [] }); return; }
   if (url.pathname === '/api/lan-client/chats') { json(res, 200, { ok: true, chats: [] }); return; }
   if (url.pathname === '/api/user-skills') { json(res, 200, { ok: true, skills: [] }); return; }
+  // The host serves the shipped Qwen variant catalog byte for byte.
+  if (url.pathname === '/api/model/qwen-variants') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(fs.readFileSync('scripts/qwen-variants.json')); return; }
   if (url.pathname === '/api/ggufs') { json(res, 200, { ok: true, models: [] }); return; }
   if (url.pathname === '/api/engine-checkouts') { json(res, 200, { ok: true, checkouts: [] }); return; }
   if (url.pathname === '/api/fs/list') { const body = await bodyOf(req); json(res, 200, { ok: true, path: body.path, entries: 0, dirs: [] }); return; }

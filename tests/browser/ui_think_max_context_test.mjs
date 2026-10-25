@@ -71,6 +71,8 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/storerev') return json(res, 200, { rev: 0 });
   if (p === '/api/agent/poll') return json(res, 200, { base: 0, len: 0, working: false, ready: true, loadPct: 100, text: '' });
   if (p === '/api/doctor') return json(res, 200, { ok: true, checks: [] });
+  // The host serves the shipped Qwen variant catalog byte for byte.
+  if (p === '/api/model/qwen-variants') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(fs.readFileSync('scripts/qwen-variants.json')); return; }
   if (p === '/api/ggufs') return json(res, 200, { ok: true, files: [] });
   if (p === '/api/engine/checkouts') return json(res, 200, { ok: true, checkouts: [] });
   if (p === '/api/remote/status') return json(res, 200, { ok: true, enabled: false });

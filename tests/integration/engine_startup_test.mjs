@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
-import {artifactRunDir, freePort, sleep, writeArtifact} from '../support/real_harness.mjs';
+import {artifactRunDir, csrfHeaders, freePort, sleep, writeArtifact} from '../support/real_harness.mjs';
 
 assert.notEqual(process.platform, 'win32', 'POSIX startup gate: Windows NOT RUN');
 const binary = fs.realpathSync(process.argv[2] || 'tests/.build/dstudio-server-test');
@@ -20,12 +20,15 @@ let active, cancelled = false;
 for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
   cancelled = true; active?.kill('SIGTERM');
 });
-// Retired Qwen side checkouts (no sibling ds4 here to fall back to) are left
-// exactly as they are: no ds4 Agent recovery runs on them. A ds4-family
-// checkout with its own Agent source keeps its recovery diagnostics visible.
+// A checkout whose DStudio source receipt names an engine DStudio does not
+// run (no sibling ds4 here to fall back to) is left exactly as it is: no ds4
+// Agent recovery runs on it. A ds4-family checkout with its own Agent source
+// keeps its recovery diagnostics visible.
 const scenarios = [
-  {id: 'retired-q36-left-untouched', checkout: 'q36'},
-  {id: 'retired-qwen35-left-untouched', checkout: 'ds4-qwen35', source: '/*DS4UI_JSONL*/\n'},
+  {id: 'unsupported-engine-left-untouched', checkout: 'other-engine', source: '/*DS4UI_JSONL*/\n',
+    receipt: '{"commit":"0000000000000000000000000000000000000000","engine":"unsupported"}\n'},
+  {id: 'unsupported-receipt-without-engine', checkout: 'other-engine', source: '/*DS4UI_JSONL*/\n',
+    receipt: '{"commit":"0000000000000000000000000000000000000000"}\n'},
   {id: 'native-clean', checkout: 'ds4-laguna-s21', source: '/* Independent native source fixture. */\n'},
   {id: 'native-missing', checkout: 'ds4-laguna-s21', error: /ds4_agent\.c/},
   {id: 'native-legacy-patched', checkout: 'ds4-laguna-s21', source: '/*DS4UI_JSONL*/\n',
@@ -40,6 +43,7 @@ for (const scenario of scenarios) {
   fs.writeFileSync(path.join(engine, 'Makefile'), 'all:\n\t@false\n');
   if (scenario.source) fs.writeFileSync(path.join(engine, 'ds4_agent.c'), scenario.source);
   if (scenario.backup) fs.writeFileSync(path.join(engine, 'ds4_agent.c.bak'), scenario.backup);
+  if (scenario.receipt) fs.writeFileSync(path.join(engine, '.dstudio-source.json'), scenario.receipt);
   fs.writeFileSync(path.join(profile, 'engine-checkout'), engine + '\n');
   const files = () => Object.fromEntries(fs.readdirSync(engine).sort().map(name => [name, hash(path.join(engine, name))]));
   const before = files(), port = await freePort(), base = `http://127.0.0.1:${port}`;
@@ -72,6 +76,15 @@ for (const scenario of scenarios) {
     if (scenario.error) assert.match(state.engineError, scenario.error, 'native recovery errors must remain visible');
     else assert.equal(state.engineError, '', 'an independent engine must not receive ds4 Agent recovery');
     assert.deepEqual(files(), before, 'startup must preserve the source and any unverified backup');
+    if (scenario.receipt) {
+      // Choosing the same folder explicitly is refused with a stable code.
+      const response = await fetch(base + '/api/engine/checkout', {method: 'POST', headers: csrfHeaders,
+        body: JSON.stringify({dir: engine}), signal: AbortSignal.timeout(5000)});
+      row.checkout = {status: response.status, body: await response.json()};
+      assert.equal(row.checkout.status, 400);
+      assert.equal(row.checkout.body.code, 'unsupported_engine', 'the refusal names the reason');
+      assert.deepEqual(files(), before, 'a refused checkout keeps its files');
+    }
     row.status = 'PASS';
   } catch (error) {row.status = 'FAIL'; row.error = error.stack;}
   finally {

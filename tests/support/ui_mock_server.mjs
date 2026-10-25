@@ -47,6 +47,12 @@ export async function uiMockServer(handle = () => false, { document } = {}) {
       if (url.pathname === '/api/embed/stop' || url.pathname === '/api/stop')
         return jsonReply(res, { ok: true });
       if (url.pathname === '/api/ggufs') return jsonReply(res, { ok: true, files: [] });
+      // The host serves the shipped Qwen variant catalog byte for byte.
+      if (url.pathname === '/api/model/qwen-variants') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(fs.readFileSync(path.resolve('scripts/qwen-variants.json')));
+        return;
+      }
       if (url.pathname === '/api/video/status') return jsonReply(res, { ok: true, models: [], running: false });
       if (url.pathname === '/api/engine/checkouts') return jsonReply(res, { ok: true, checkouts: [] });
       if (url.pathname === '/api/remote/status') return jsonReply(res, { ok: true, enabled: false });

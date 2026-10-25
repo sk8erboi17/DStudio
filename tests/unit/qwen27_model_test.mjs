@@ -18,7 +18,7 @@ const file = 'Qwen3.8-27B-UD-Q6_K_XL.gguf', projector = 'Qwen3.8-27B-mmproj-F16.
 const q27 = {model: 'qwen3.8-27b', modelGguf: `gguf/${file}`, modelEngineDir: '/fixture/ds4',
   chatBackend: 'local', ctxSize: 65536, thinkLevel: 'high', enginePower: 90,
   ssdStreaming: 'on', dspark: true, metalHotlistSeed: true};
-function harness(settings = q27, confirm = async () => true) {
+function harness(settings = q27, confirm = async () => true, catalog = true) {
   const prompts = [];
   const context = vm.createContext({console, DOMException, initialSettings: {...settings},
     DS4_TRUE_MAX_CONTEXT: 393216, isLanClientMode: () => false,
@@ -34,6 +34,8 @@ function harness(settings = q27, confirm = async () => true) {
     const Store = {getSettings: () => state.settings, setSettings, setSettingsNow};
     globalThis.settingsStore = Store;
   `, context);
+  // What GET /api/model/qwen-variants serves: the shipped file, byte for byte.
+  if (catalog) assert.equal(context.applyQwenCatalog(JSON.parse(fs.readFileSync('scripts/qwen-variants.json', 'utf8'))), true);
   return {context, prompts, settings: () => context.settingsStore.getSettings(),
     select: patch => context.settingsStore.setSettings(patch)};
 }
@@ -116,6 +118,41 @@ await check('switching to a textual model keeps attachments but admits no image 
     assert.deepEqual(h.pdfRequests, []); assert.equal(h.notices.length, 2);
     assert(!c.localNativeVisionInfo(h.settings()));
   }
+});
+await check('27B on MLX is text only: attachments are kept but no image request is admitted', async () => {
+  const h = attachmentHarness(), c = h.context;
+  h.select({modelGguf: 'mlx/Qwen3.8-27B-4bit'});
+  assert(!c.localNativeVisionInfo(h.settings()), 'the F16 projector exists for llama.cpp only');
+  assert.equal(await c.preparePendingAttachments('Read this image', {consume: false}), null);
+  assert.equal(await c.prepareCoworkPendingAttachments('Read this image', {consume: false}), null);
+  assert.equal(vm.runInContext('pendingAttachments.length', c), 1);
+  assert.deepEqual(h.pdfRequests, []); assert.equal(h.notices.length, 2);
+  assert.match(String(h.notices[0][0]), /Images are unavailable with this model/);
+  h.select({modelGguf: 'gguf/Qwen3.8-27B-UD-Q4_K_M.gguf'});
+  assert.equal(c.localNativeVisionInfo(h.settings())?.kind, 'qwen27', 'every 27B GGUF keeps its projector');
+});
+await check('every pinned 27B quantization is selectable with what it needs, and only those', () => {
+  const {context: c} = harness();
+  const part = item(projector);
+  for (const [name, quant] of [['Qwen3.8-27B-UD-Q4_K_M.gguf', 'Q4_K_M'], ['Qwen3.8-27B-Q8_0.gguf', 'Q8_0'], ['Qwen3.8-27B-UD-IQ2_XXS.gguf', 'IQ2_XXS']]) {
+    const model = item(name);
+    assert.equal(c.ggufIsUsableModel(model, [model, part]), true, name);
+    assert.equal(c.ggufIsUsableModel(model, [model]), false, `${name} needs its projector`);
+    assert.deepEqual(plain(c.parseGgufName(name)), {model: 'Qwen3.8-27B', kind: 'text + images', quant});
+  }
+  const first = item('Qwen3.8-27B-BF16-00001-of-00002.gguf'), second = item('Qwen3.8-27B-BF16-00002-of-00002.gguf');
+  assert.equal(c.ggufIsUsableModel(first, [first, part]), false, 'both BF16 parts are required');
+  assert.equal(c.ggufIsUsableModel(first, [first, {...second, engineDir: '/fixture/other'}, part]), false);
+  assert.equal(c.ggufIsUsableModel(first, [first, second, part]), true);
+  assert.equal(c.ggufIsUsableModel(second, [first, second, part]), false);
+  assert.equal(c.ggufIsEngineComponent(second), true);
+  assert.equal(c.parseGgufName(first.file).quant, 'BF16');
+  const mlx = {file: 'Qwen3.8-27B-4bit', path: 'mlx/Qwen3.8-27B-4bit', format: 'mlx', engineDir: '/fixture/q36'};
+  assert.equal(c.ggufIsUsableModel(mlx, [mlx]), true, 'MLX needs no projector');
+  assert.deepEqual(plain(c.parseGgufName(mlx.file)), {model: 'Qwen3.8-27B', kind: 'text · MLX', quant: '4-bit'});
+  for (const name of ['Qwen3.8-27B-Q4_K_M.gguf', 'Qwen3.8-27B-abliterated-UD-Q4_K_M.gguf'])
+    assert.equal(c.ggufIsUsableModel(item(name), [item(name), part]), false, `${name} is not a pinned file`);
+  assert.equal(c.ggufIsUsableModel({...mlx, file: 'Qwen3.8-27B-OptiQ-4bit', path: 'mlx/Qwen3.8-27B-OptiQ-4bit'}, [mlx]), false);
 });
 await check('cloud and LAN do not inherit the locally installed 27B projector', () => {
   const {context: c} = harness();
