@@ -122,7 +122,7 @@ try {
   assert.equal(await search.evaluate(node => node === document.activeElement), true);
   await search.fill('');
   assert.equal(await rows.count(), 8, 'seven usable chat models plus H3, with no checkout, encoder or unqualified quantization entries');
-  assert.doesNotMatch(await menu.innerText(), /Engine branch|qwen35moe-support|ds4-qwen35|qwen3\.8-flash-next|DSpark-support|Vision-Encoder|PLE-Q4|mmproj|27B-Q4_K_M/);
+  assert.doesNotMatch(await menu.innerText(), /Engine branch|qwen3\.8-flash-next|DSpark-support|Vision-Encoder|PLE-Q4|mmproj|27B-Q4_K_M/);
   const loaded = menu.getByRole('region', { name: 'Loaded' }).locator('.cbar-model-item');
   assert.equal(await loaded.count(), 1);
   assert.match(await loaded.innerText(), /GLM 5\.3 Flash.*Q2/s);
@@ -254,7 +254,6 @@ try {
   await trigger.filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor();
   await trigger.click();
   await menu.getByRole('region', { name: 'Loaded' }).filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor();
-  assert.doesNotMatch(await trigger.innerText(), /qwen35moe-support|ds4-qwen35/);
   await search.press('Escape');
   catalogFailure = true;
   await trigger.click();

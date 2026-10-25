@@ -1023,6 +1023,16 @@ test-design-controls:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Design control probe requires node" && exit 1)
 	@node tests/unit/design_control_probe_test.mjs
 
+# The graders used by tests/live/real_design_quality_test.mjs, on authored
+# positive/negative pages: creativity analysis, and font diversity measured in
+# a real headless Chrome (NOT RUN, and failing, when Chrome is missing).
+.PHONY: test-design-quality-gates
+test-design-quality-gates:
+	@node tests/unit/design_creativity_gate_test.mjs
+	@node tests/unit/design_font_diversity_gate_test.mjs
+
+test-design-runtime: test-design-quality-gates
+
 .PHONY: test-design-originals
 test-design-originals: $(TEST_SERVER)
 	@node tests/browser/design_originals_test.mjs $(TEST_SERVER)
@@ -1186,6 +1196,16 @@ test-pdf-evidence: $(TEST_SERVER)
 test-pdf-complete: $(TEST_SERVER) test-pdf-ocr
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
 
+# PDF library benchmark tooling: the benchmark HTTP client, the report builder
+# and the published Matplotlib charts, on controlled inputs. No model or network.
+.PHONY: test-pdf-benchmark-tools
+test-pdf-benchmark-tools:
+	@node tests/unit/pdf_benchmark_http_test.mjs
+	@python3 tests/unit/pdf_library_report_test.py
+	@python3 tests/unit/published_benchmark_charts_test.py
+
+check-fast: test-pdf-benchmark-tools
+
 # Real helper and Vision OCR on generated scans; no model. macOS only.
 test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)
 	@node tests/integration/pdf_ocr_test.mjs $(TEST_SERVER) $(OCR_HELPER)
@@ -1207,6 +1227,16 @@ test-ui-sidebar:
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_sidebar_playwright_test.mjs
 
 test-ui-browser: test-ui-sidebar
+
+# The UI opened from another LAN device: plain http on a non-loopback name, an
+# insecure context without crypto.randomUUID or navigator.clipboard. Real
+# browsers through a proxy to the simulated host; generation is SIMULATED.
+.PHONY: test-ui-insecure-origin
+test-ui-insecure-origin:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_insecure_origin_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_insecure_origin_playwright_test.mjs
+
+test-ui-browser: test-ui-insecure-origin
 
 # All runtime/generation/download responses are fixtures; no engine is started.
 .PHONY: test-ui-simulated test-ui-chat-images test-ui-chat-controls test-ui-selection test-ui-stability test-ui-stream-interaction test-ui-roadmap-hover test-ui-document-policy
@@ -1329,6 +1359,13 @@ test-ui-lan-cowork: $(TEST_SERVER)
 
 test-gsa-bench-validate:
 	@if command -v node >/dev/null 2>&1; then node src/harness/gsa/bench/validate.mjs; else echo "node missing: NOT RUN GSA benchmark validation"; exit 1; fi
+
+# REAL cloud inference, explicit and billed: the complete GSA loop against the
+# DeepSeek API through an already running DStudio launcher. Needs
+# DEEPSEEK_API_KEY; not part of check-real. Pass options in GSA_CLOUD_ARGS.
+.PHONY: test-gsa-cloud-live
+test-gsa-cloud-live:
+	@node tests/live/gsa_cloud_loop_test.mjs $(GSA_CLOUD_ARGS)
 
 check-fast: $(BIN) test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-lan-unit test-remote-utf8 test-cowork test-cowork-bench-validate test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-frontend-unit test-ui-browser test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-checkout test-http-lan test-gsa-bench-validate
 

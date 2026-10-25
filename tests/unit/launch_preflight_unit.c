@@ -135,7 +135,7 @@ int main(void) {
     assert(rmdir(gguf) == 0 && rmdir(engine) == 0);
 
     const struct {
-        const char *label, *checkout, *model, *options, *code, *missing;
+        const char *label, *checkout, *model, *options, *code, *missing, *receipt;
     } cases[] = {
         /* llama.cpp serves the pinned Qwen checkpoints from the main installation. */
         {"Qwen3.6 throttled power", "ds4", MODEL_QWEN35, "", "unsupported_power", NULL},
@@ -145,10 +145,13 @@ int main(void) {
         {"Qwen3.6 Agent missing model", "ds4", MODEL_QWEN35, ",\"power\":100,\"mode\":\"agent\"", "model_unavailable", MODEL_QWEN35},
         {"Qwen3.6 Cowork missing model", "ds4", MODEL_QWEN35, ",\"power\":100,\"mode\":\"cowork\"", "model_unavailable", MODEL_QWEN35},
         {"Qwen27B without its projector", "ds4", MODEL_QWEN27, ",\"power\":100,\"mode\":\"agent\"", "model_component_missing", NULL},
-        /* Retired side checkouts are recognized and never used. */
-        {"Qwen3.6 in retired Qwen3.6 checkout", DS4_QWEN35_DIR_NAME, MODEL_QWEN35, ",\"power\":100", "engine_model_mismatch", NULL},
-        {"Qwen27B in retired q36 checkout", Q36_DIR_NAME, MODEL_QWEN27, ",\"power\":100", "engine_model_mismatch", NULL},
-        {"Qwen3.8 in Qwen3.6 checkout", DS4_QWEN35_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
+        /* A checkout whose DStudio receipt names another engine is never used;
+         * a main receipt is accepted and reaches the model's own checks. */
+        {"Qwen3.6 in an unsupported engine checkout", "other-engine", MODEL_QWEN35, ",\"power\":100", "engine_model_mismatch", NULL, "{\"engine\":\"unsupported\"}\n"},
+        {"Qwen27B in an unsupported engine checkout", "other-engine", MODEL_QWEN27, ",\"power\":100", "engine_model_mismatch", NULL, "{\"engine\":\"unsupported\"}\n"},
+        {"Qwen3.8 in an unsupported engine checkout", "other-engine", MODEL_QWEN, "", "engine_model_mismatch", NULL, "{\"engine\":\"unsupported\"}\n"},
+        {"Qwen3.8 in a checkout whose receipt names no engine", "other-engine", MODEL_QWEN, "", "engine_model_mismatch", NULL, "{\"commit\":\"0\"}\n"},
+        {"Qwen3.6 throttled power with a main receipt", "ds4", MODEL_QWEN35, "", "unsupported_power", NULL, "{\"engine\":\"main\"}\n"},
         {"Qwen3.6 in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN35, "", "engine_model_mismatch", NULL},
         {"Flash in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_FLASH, "", "engine_model_mismatch", NULL},
         {"New Qwen in retired checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
@@ -177,6 +180,9 @@ int main(void) {
         cstr_copy(g_ds4_dir, sizeof g_ds4_dir, engine);
         for (size_t j = 0; j < sizeof files / sizeof files[0]; j++)
             if (!cases[i].missing || strcmp(files[j], cases[i].missing)) fixture_file(engine, files[j], 1);
+        char receipt[1100];
+        snprintf(receipt, sizeof receipt, "%s/.dstudio-source.json", engine);
+        if (cases[i].receipt) assert(jsonl_write_file(receipt, cases[i].receipt, strlen(cases[i].receipt)));
         char body[4096];
         /* Omit mode to exercise the real server default, not duplicate JSON keys. */
         snprintf(body, sizeof body, "{\"ctx\":65536,\"skill\":\"new-skill\"%s%s%s%s}",
@@ -199,6 +205,7 @@ int main(void) {
         failures += !reject_without_effects(body, cases[i].label, "", expected_code, status);
         for (size_t j = 0; j < sizeof files / sizeof files[0]; j++)
             if (!cases[i].missing || strcmp(files[j], cases[i].missing)) fixture_file(engine, files[j], 0);
+        if (cases[i].receipt) assert(unlink(receipt) == 0);
         assert(rmdir(gguf) == 0 && rmdir(engine) == 0);
     }
     assert(rmdir(temp) == 0);

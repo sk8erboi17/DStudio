@@ -190,9 +190,14 @@ Ninnix/q36 (`q36`, commit `1305843`) stopped shipping. Their snapshots, patches,
 apply scripts, the q36 installer, the hash-only legacy q36 inventories and their
 dedicated tests were removed; Git history retains all of them. The same pinned
 Qwen weights now run on llama.cpp from the main installation's `gguf/` store.
-A leftover `ds4-qwen35/` or `q36/` directory is recognized and left untouched: it
-is no longer offered, selected or rebuilt, a persisted selection falls back to
-the sibling `ds4/`, and the old setup endpoint answers 410 Gone.
+On October 25 their name-specific handling and its setup endpoint were removed
+as well. A leftover checkout is handled by the generic rule for any engine
+DStudio does not run: when its `.dstudio-source.json` receipt names another
+engine (or no engine), it is never offered, selected, patched or rebuilt, a
+persisted selection falls back to the sibling `ds4/`, and choosing it returns
+`unsupported_engine`; its files are left untouched. A checkout without a
+receipt, such as a Git clone, is judged by its contents like any user-selected
+folder.
 
 Before the removal, the replacement passed real inference through the production
 host with both models (`tests/live/llama_resident_live_test.mjs`, receipts in

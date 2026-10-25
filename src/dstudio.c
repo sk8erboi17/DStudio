@@ -366,12 +366,8 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define MODEL_QWEN_Q2 "gguf/Qwen3.8-Flash-Next-Q2.gguf"
 #define MODEL_QWEN_Q2_BYTES 147207127040LL
 #define MODEL_LEGACY_QWEN "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf"
-/* The local Qwen checkpoints run on the bundled llama.cpp engine. Their
- * former side engines (vagrillo/ds4 for Qwen3.6, Ninnix/q36 for the dense 27B)
- * are retired: these names only recognize a leftover checkout, which is never
- * reinstalled, selected or deleted. Keep the tested quants explicit. */
-#define DS4_QWEN35_DIR_NAME "ds4-qwen35"
-#define Q36_DIR_NAME "q36"
+/* The local Qwen checkpoints run on the bundled llama.cpp engine. Keep the
+ * tested quants explicit. */
 #define MODEL_QWEN35 "gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
 #define MODEL_QWEN35_BYTES 31843777504LL
 /* Bundled ggml-org/llama.cpp (tag b11836): DStudio builds llama-server from
@@ -2974,12 +2970,27 @@ static int model_file_is_qwen27(const char *rel) {
     const char *base = strrchr(rel, '/');
     return !strcmp(base ? base + 1 : rel, &MODEL_QWEN27[5]);
 }
-/* A leftover vagrillo/ds4 or q36 checkout: recognized so it is never offered,
- * selected or rebuilt. Its files are left untouched. */
-static int checkout_is_retired_qwen(const char *dir) {
-    const char *base = strrchr(dir, '/');
-    const char *name = base ? base + 1 : dir;
-    return !strcmp(name, DS4_QWEN35_DIR_NAME) || !strcmp(name, Q36_DIR_NAME);
+/* DStudio's engines are ds4 main, Laguna, llama.cpp and MLX; only main and
+ * Laguna are ds4-family checkouts. Every checkout DStudio installed carries
+ * the .dstudio-source.json receipt naming its engine. A receipt naming any
+ * other engine marks a checkout that is never offered, selected, patched or
+ * rebuilt; its files are left untouched. A checkout without a receipt (for
+ * example the user's own clone) is judged by its contents, as before. The
+ * read is bounded and happens only for the active and fixed sibling folders. */
+static int checkout_engine_unsupported(const char *dir) {
+    char path[DSTUDIO_PATH_MAX + 32];
+    int n = snprintf(path, sizeof path, "%s/.dstudio-source.json", dir);
+    if (n < 0 || (size_t)n >= sizeof path) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char buf[16384];
+    size_t len = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[len] = '\0';
+    char engine[64] = "";
+    /* A receipt that names no engine is not one DStudio wrote: refuse it. */
+    if (!json_get_string(buf, "engine", engine, sizeof engine) || !engine[0]) return 1;
+    return strcmp(engine, "main") && strcmp(engine, "laguna");
 }
 /* Pinned local Qwen checkpoints served by the DStudio-owned llama-server
  * (bundled llama.cpp). The main ds4 installation supplies gguf/ and the
@@ -3016,7 +3027,7 @@ static int checkout_is_legacy_qwen(const char *dir) {
     return !strcmp(branch, "qwen3.8-flash-next");
 }
 static int selected_checkout_is_qwen(void) {
-    return checkout_is_retired_qwen(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir);
+    return checkout_engine_unsupported(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir);
 }
 static int checkout_is_laguna(const char *dir) {
     const char *base = strrchr(dir, '/');
@@ -3494,7 +3505,7 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
         if (model_file_is_resident(model_rel)) {
             const char *label = resident_model_label(model_rel);
             /* gguf/ and the tools frontend come from the main installation. */
-            if (checkout_is_retired_qwen(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir) ||
+            if (checkout_engine_unsupported(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir) ||
                 checkout_is_laguna(g_ds4_dir)) {
                 snprintf(err, errsz, "%s now runs on DStudio's llama.cpp engine from the main installation; choose it from the model menu", label);
                 return "engine_model_mismatch";
@@ -3533,8 +3544,8 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
             return "unsupported_backend";
         }
 #endif
-        if (checkout_is_legacy_qwen(g_ds4_dir) || checkout_is_retired_qwen(g_ds4_dir)) {
-            snprintf(err, errsz, "This engine checkout was retired; choose the model from the model menu to use the main installation.");
+        if (checkout_is_legacy_qwen(g_ds4_dir) || checkout_engine_unsupported(g_ds4_dir)) {
+            snprintf(err, errsz, "This engine checkout is not one of DStudio's engines; choose the model from the model menu to use the main installation.");
             return "engine_model_mismatch";
         }
         if (qwen38) {
@@ -7068,7 +7079,7 @@ static void api_model_folder_open(int fd, const char *body) {
     char engine[24] = "";
     json_get_string(body, "engine", engine, sizeof engine);
     char checkout[DSTUDIO_PATH_MAX];
-    if (!engine[0] || !strcmp(engine, "main") || !strcmp(engine, "laguna") || !strcmp(engine, "qwen") || !strcmp(engine, "qwen35") || !strcmp(engine, "q36")) {
+    if (!engine[0] || !strcmp(engine, "main") || !strcmp(engine, "laguna") || !strcmp(engine, "qwen")) {
         /* The native app's web directory is Application Support, while the
          * selected engine checkout can live anywhere. Every managed engine's
          * gguf entry points at the shared physical store, so resolve it from
@@ -7587,8 +7598,6 @@ static int collect_engine_checkouts(
      * be backed by a file provider, where opendir() can block the single local
      * HTTP loop indefinitely. Managed runtimes have fixed sibling names; an
      * arbitrary user-selected checkout is already included as `active`. */
-    /* The retired Qwen side engines are not offered: their checkpoints run on
-     * llama.cpp from the main installation. */
     const char *managed_names[] = { "ds4", DS4_LAGUNA_DIR_NAME };
     for (size_t ni = 0; ni < sizeof managed_names / sizeof managed_names[0] && ndirs < cap; ni++) {
         char full[DSTUDIO_PATH_MAX + 64], abs[DSTUDIO_PATH_MAX];
@@ -7654,7 +7663,7 @@ static char *gguf_catalog_build(void) {
                             !strcmp(branch, "laguna-s2.1");
         if (legacy_glm_engine) continue;
         if (checkout_is_legacy_qwen(dirs[ci])) continue;
-        if (checkout_is_retired_qwen(dirs[ci])) continue;
+        if (checkout_engine_unsupported(dirs[ci])) continue;
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
             snprintf(dir, sizeof dir, "%s%s%s", dirs[ci],
@@ -7791,7 +7800,7 @@ static char *gguf_catalog_build_known(void) {
             int laguna_model = !strcmp(rel, MODEL_LAGUNA) ||
                                mem_contains_ci(rel, strlen(rel), "laguna");
             if (checkout_is_legacy_qwen(dirs[ci])) continue;
-            if (checkout_is_retired_qwen(dirs[ci])) continue;
+            if (checkout_engine_unsupported(dirs[ci])) continue;
             if (laguna_model != laguna_engine) continue;
             char full[DSTUDIO_PATH_MAX + 512];
             struct stat st;
@@ -8058,8 +8067,8 @@ static void api_engine_checkout_set(int fd, const char *body) {
         send_json(fd, "410 Gone", "{\"ok\":false,\"error\":\"The separate Qwen Next engine was retired. Select Qwen Next from ds4 main; old files are preserved.\"}");
         return;
     }
-    if (checkout_is_retired_qwen(abs)) {
-        send_json(fd, "410 Gone", "{\"ok\":false,\"error\":\"This Qwen engine was retired: Qwen3.6 and Qwen3.8-27B run on DStudio's llama.cpp engine from the main installation. Old files are preserved.\"}");
+    if (checkout_engine_unsupported(abs)) {
+        send_json(fd, "400 Bad Request", "{\"ok\":false,\"code\":\"unsupported_engine\",\"error\":\"This checkout belongs to an engine DStudio does not run. DStudio's engines are ds4 main, Laguna, llama.cpp and MLX; the folder is left untouched.\"}");
         return;
     }
 #ifndef _WIN32
@@ -11647,7 +11656,7 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (launch_preparation_busy() && (!strcmp(path, "/api/engine/checkout") ||
         !strcmp(path, "/api/webdir") || !strcmp(path, "/api/updates/run") ||
         !strcmp(path, "/api/ds4/setup") || !strcmp(path, "/api/laguna/setup") ||
-        !strcmp(path, "/api/qwen/setup") || !strcmp(path, "/api/qwen35/setup") ||
+        !strcmp(path, "/api/qwen/setup") ||
         !strcmp(path, "/api/setup/content") || !strcmp(path, "/api/user-skills") ||
         !strcmp(path, "/api/user-skills/delete"))) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"code\":\"launch_busy\",\"error\":\"Wait for the pending launch or cancel it before changing engine files\"}"); return 409;
@@ -11707,7 +11716,6 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
     if (!strcmp(path, "/api/qwen/setup")) { api_setup_qwen(fd); return 200; }
-    if (!strcmp(path, "/api/qwen35/setup")) { api_setup_qwen35(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
@@ -12297,15 +12305,15 @@ int main(int argc, char **argv)
     }
     resolve_ds4_dir();   /* launch from Finder/bundle: cwd = "/", the relative one must be resolved */
     int test_mode = getenv("DS4UI_TEST_MODE") && getenv("DS4UI_TEST_MODE")[0];
-    /* A persisted retired Qwen checkout falls back to the sibling main
-     * installation, which holds the same gguf/ store. The old directory and
-     * its files are left exactly as they are. */
-    if (checkout_is_retired_qwen(g_ds4_dir)) {
+    /* A persisted checkout of an engine DStudio does not run falls back to the
+     * sibling main installation, which holds the same gguf/ store. The old
+     * directory and its files are left exactly as they are. */
+    if (checkout_engine_unsupported(g_ds4_dir)) {
         char main_dir[DSTUDIO_PATH_MAX];
         const char *slash = strrchr(g_ds4_dir, '/');
         int n = slash ? snprintf(main_dir, sizeof main_dir, "%.*s/ds4", (int)(slash - g_ds4_dir), g_ds4_dir) : -1;
         if (n > 0 && (size_t)n < sizeof main_dir && ds4_dir_valid_path(main_dir)) {
-            fprintf(stderr, "engine: %s is retired; using %s\n", g_ds4_dir, main_dir);
+            fprintf(stderr, "engine: %s is not a DStudio engine; using %s\n", g_ds4_dir, main_dir);
             cstr_copy(g_ds4_dir, sizeof g_ds4_dir, main_dir);
             if (!test_mode) (void)persist_ds4_checkout(main_dir);
         }
@@ -12314,7 +12322,7 @@ int main(int argc, char **argv)
 #ifndef _WIN32
     /* Existing persisted selections also receive newly shipped reversible
      * patches after an app update, without waiting for another folder pick. */
-    if (!test_mode && !checkout_is_retired_qwen(g_ds4_dir) && ds4_dir_valid_path(g_ds4_dir) &&
+    if (!test_mode && !checkout_engine_unsupported(g_ds4_dir) && ds4_dir_valid_path(g_ds4_dir) &&
         !run_ext_script("scripts/apply-ds4-visible-downloads.sh", "apply")) {
         fprintf(stderr, "engine: visible-download patch failed for %s\n", g_ds4_dir);
     }
@@ -12352,7 +12360,7 @@ int main(int argc, char **argv)
     store_load();   /* host-local browser history; LAN clients do not reach this store */
 
     /* Diagnose unverified legacy Agent edits without overwriting their backup. */
-    if (!test_mode && !checkout_is_retired_qwen(g_ds4_dir)) run_build_jsonl("restore");
+    if (!test_mode && !checkout_engine_unsupported(g_ds4_dir)) run_build_jsonl("restore");
 
     /* Startup is network-free for visual content. */
     if (!content_present())

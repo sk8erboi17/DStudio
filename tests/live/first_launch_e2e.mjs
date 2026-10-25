@@ -147,7 +147,7 @@ try {
   page.on('pageerror', e => { report.pageErrors.push(e.message); save(); });
   page.on('response', async response => {
     if (response.request().method() !== 'POST') return;
-    if (!/\/api\/(?:ds4\/setup|laguna\/setup|qwen\/setup|qwen35\/setup|engine\/checkout)$/.test(response.url())) return;
+    if (!/\/api\/(?:ds4\/setup|laguna\/setup|qwen\/setup|engine\/checkout)$/.test(response.url())) return;
     try { report.requests.push({ url: response.url(), status: response.status(), body: await response.json() }); save(); } catch {}
   });
   await step('real loading page offers first-run engine installation', async () => {

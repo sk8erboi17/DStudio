@@ -29,7 +29,6 @@ try {
   assert.deepEqual(pins.engines.map(e=>e.id).sort(),Object.keys(repositories).sort());
   assert.equal(pins.engines.find(e=>e.id==='main').commit,'0aaea5a238fb41a35106a551e73c8409dfb751ac');
   assert(!pins.engines.some(e=>e.directory==='ds4-qwen38'),'retired Qwen Next engine must not be installable');
-  for(const retired of ['ds4-qwen35','q36']) assert(!pins.engines.some(e=>e.directory===retired),`retired ${retired} engine must not be installable`);
   assert.equal(new Set(pins.engines.map(e=>e.directory)).size,pins.engines.length);
   for(const engine of pins.engines) {
     assert.match(engine.commit,/^[a-f0-9]{40}$/);

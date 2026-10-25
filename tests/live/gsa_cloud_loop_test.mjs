@@ -16,7 +16,7 @@
  * parentRunDir = the previous run (the GSA advisory-chain loop).
  *
  * Usage:
- *   DEEPSEEK_API_KEY=sk-... node tests/unit/gsa_cloud_loop_test.mjs \
+ *   DEEPSEEK_API_KEY=sk-... node tests/live/gsa_cloud_loop_test.mjs \
  *     [--base-url http://127.0.0.1:5500] [--iterations 2] [--timeout-min 20] \
  *     [--case reverse-engineering-easy-03-protocol-decoder] [--model deepseek-v4-pro]
  */
@@ -38,7 +38,7 @@ const FIXTURES_ROOT = path.join(repoRoot, 'src', 'harness', 'gsa', 'fixtures');
 
 function usage() {
   console.error([
-    'usage: node tests/unit/gsa_cloud_loop_test.mjs [options]',
+    'usage: node tests/live/gsa_cloud_loop_test.mjs [options]',
     '',
     'Options:',
     '  --base-url <url>    Running DStudio launcher (default http://127.0.0.1:5500)',

@@ -454,7 +454,7 @@ download test uses tiny real SHA-checked files and simulated transport. The
 int32 oracle under ASan/UBSan and the unchanged 256 KiB scratch bound.
 `make test-first-launch-e2e` instead builds the bundled engine sources from an
 empty profile through headless WebKit, with external network denied; it refuses weights before transfer and
-checks Qwen Q2/Q4 reuse main plus the retired endpoint's 410 response.
+checks Qwen Q2/Q4 reuse main plus the retired Qwen Next endpoint's 410 response.
 
 ## Host relay and model RPC
 
@@ -679,10 +679,12 @@ Default backend link tests cover the active main and Laguna trees; Qwen Next
 uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
 
-`make test-engine-startup` runs four real HTTP startup cases without
+`make test-engine-startup` runs five real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
-fixtures. A persisted retired `q36` or `ds4-qwen35` checkout must be left
-untouched and never receive ds4 Agent recovery; clean native sources remain
+fixtures. A persisted checkout whose `.dstudio-source.json` receipt names an
+engine DStudio does not run (or no engine) must be left untouched, never
+receive ds4 Agent recovery and be refused with `unsupported_engine` when chosen
+explicitly; clean native sources remain
 usable and missing/legacy-modified native sources keep their errors and backups. This gate is model-free and included in `check-fast`
 on the current POSIX host, not a Windows or inference qualification.
 
@@ -2240,3 +2242,27 @@ the entry says otherwise.
   turn blocked the next case; the test now stops a timed-out turn and starts
   the runtime again. The second sample (`run-d1MriS`) was interrupted on
   request and is not graded. Five cases remain not run.
+
+## Test cleanup (October 25, 2026)
+
+Tests that existed but no target ran are now wired, each verified on this Mac:
+
+- `make test-design-quality-gates` (in `test-design-runtime`): the creativity
+  and rendered font-diversity graders used by `real_design_quality_test.mjs`,
+  on authored positive/negative pages. Font diversity needs headless Chrome.
+- `make test-pdf-benchmark-tools` (in `check-fast`): the PDF benchmark HTTP
+  client, report builder and published Matplotlib charts; no model or network.
+- `make test-ui-insecure-origin` (in `test-ui-browser`): the UI opened from a
+  LAN device over plain http, without `crypto.randomUUID` or
+  `navigator.clipboard`, in WebKit and Chromium; generation is simulated.
+- `make test-gsa-cloud-live`: the real GSA loop against the DeepSeek API through
+  a running launcher. Explicit and billed, needs `DEEPSEEK_API_KEY`, not part
+  of `check-real`. It moved from `tests/unit/` to `tests/live/`.
+
+Removed: a shell wrapper that duplicated `make test-design-build-freshness`; a
+roadmap-audit stress script that sent its own copy of the auditor prompt to the
+engine instead of exercising the production roadmap flow; an image-edit gate
+and prompt fixture that nothing referenced; and the name-specific checks for the
+retired `q36` and `ds4-qwen35` engines, replaced by receipt-based cases in
+`test-launch-preflight` and `test-engine-startup` (see
+[BUNDLED_ENGINES](../docs/BUNDLED_ENGINES.md#retired-qwen-side-engines)).

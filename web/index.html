@@ -30651,12 +30651,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/laguna/setup returned HTTP ${r.status}`;
         return data;
       }
-      async function setupQwen35() {
-        const r = await apiFetch('/api/qwen35/setup', { method: 'POST', headers: H });
-        const data = await r.json();
-        if (!r.ok) return { ...data, ok: false, error: data.error || `Qwen3.6 setup HTTP ${r.status}` };
-        return data;
-      }
       async function setupContent() {   // verify bundled originals, no download
         const r = await apiFetch('/api/setup/content', { method: 'POST', headers: H });
         const data = await r.json().catch(() => ({ ok: false, error: `/api/setup/content returned HTTP ${r.status} with invalid JSON` }));
@@ -30921,7 +30915,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupQwen35, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */

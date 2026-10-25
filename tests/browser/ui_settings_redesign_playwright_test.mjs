@@ -28,7 +28,6 @@ let statusDelay = null;
 let catalogDelay = null;
 let checkoutDelay = null;
 let checkoutError = '';
-let qwen35Setups = 0;
 const modelDownloads = [];
 let downloadStatus = {};
 const harnessInstalls = [];
@@ -183,11 +182,6 @@ const server = http.createServer(async (req, res) => {
       { name: 'ds4', branch: 'main', dir: '/tmp/dstudio-settings' },
     ];
     json(res, { ok: true, checkouts: checkouts.map(c => ({ ...c, hasServer: true, active: activeEngine === c.dir })) });
-    return;
-  }
-  if (url.pathname === '/api/qwen35/setup' && req.method === 'POST') {
-    qwen35Setups++;
-    json(res, { ok: true, downloaded: true, built: true, capability: 'chat-native' });
     return;
   }
   if (url.pathname === '/api/model/download' && req.method === 'POST') {
@@ -672,7 +666,6 @@ try {
   await downloader.getByRole('button', { name: 'Download', exact: true }).click();
   await switchPage.locator('#confirm-go').click();
   await waitUntil(() => modelDownloads.length === 1, 'Qwen3.6 download should start');
-  assert.equal(qwen35Setups, 0, 'the retired Qwen3.6 engine is never installed');
   assert.deepEqual(modelDownloads[0], { target: 'qwen36-q6' });
   assert.equal(activeEngine, '/tmp/dstudio-settings', 'the main installation is selected');
   assert.equal(startBodies.length, 6, 'downloading must not start inference');
