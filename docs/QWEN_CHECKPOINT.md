@@ -4,10 +4,13 @@ Updated October 3, 2026. The full campaign remains incomplete and paused.
 
 On October 3 the Qwen3.6 and Qwen3.8-27B engines changed: the vagrillo/ds4
 fork (`ds4-qwen35`) and Ninnix/q36 were retired, and both models now run on the
-bundled llama.cpp `b11371` (`99b9548`). Results below that name `q36` or
+bundled llama.cpp, now `b11836` (`f5027fb`, since October 23; `b11371` before).
+Results below that name `q36` or
 `qwen35` were measured on those retired engines and are history, not llama.cpp
-results. The llama.cpp path has passed only the 10-check development gate
-(`make test-llama-resident-live`) on each model.
+results. The llama.cpp path has passed only the development gate
+(`make test-llama-resident-live`): 10/10 on each model on `b11371`, and the
+current six cases on Qwen3.6 on `b11836`. Qwen3.8-27B has not been rerun on
+`b11836`.
 The owner reserves the complete quality-suite rerun. This checkpoint removes
 completed implementation tasks from the active backlog while retaining their
 missing full-model acceptance checks.
@@ -22,8 +25,8 @@ For the complete scope use [PLAN.MD](../PLAN.MD); for source/binary admission us
 
 | Model / recorded engine | Implementation still missing | Verification still missing |
 | --- | --- | --- |
-| Qwen3.8-27B / llama.cpp 99b9548 | Design on llama.cpp; persistent KV/session reuse across engine restarts. | Common-100 on llama.cpp, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. Chat/Agent/Cowork and one image case pass the development gate. |
-| Qwen3.6-35B-A3B / llama.cpp 99b9548 | Design on llama.cpp; persistent KV/session reuse across engine restarts; the planned MLX alternative. | Common-100 on llama.cpp, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. Chat/Agent/Cowork pass the development gate. |
+| Qwen3.8-27B / llama.cpp f5027fb | Design qualification (implemented; one development case); persistent KV/session reuse across engine restarts. | Common-100 on llama.cpp, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. Chat/Agent/Cowork and one image case pass the development gate. |
+| Qwen3.6-35B-A3B / llama.cpp f5027fb | Design qualification (implemented on llama.cpp and MLX; development cases only); persistent KV/session reuse across engine restarts; MLX qualification (implemented October 3). | Common-100 on llama.cpp, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. Chat/Agent/Cowork pass the development gate. |
 | Qwen3.8-Flash-Next / main 0aaea5a | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
 
 Complete Agent/Cowork build signatures, crash-safe pair publication and legacy
@@ -40,7 +43,7 @@ of automatic application work cutoffs remain implemented.
 
 The remaining acceptance work is:
 
-1. Verify the complete 27B and 3.6 models on llama.cpp `99b9548` using
+1. Verify the complete 27B and 3.6 models on llama.cpp `f5027fb` using
    compatible model/quant references and the original long requests. Preserve
    the original frozen evaluation requirements and deadlines.
 2. Run any invalidated complete corpus under the owner's supervision. Retain

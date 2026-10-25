@@ -334,7 +334,7 @@ for(const id of engines){
         const probe=spawnSync(path.join(target,exe),[id==='llama'?'--version':'--help'],{cwd:target,timeout:15000,encoding:'utf8',maxBuffer:1024*1024});
         assert.equal(probe.status,0,`${exe} must exit successfully`);
         const help=(probe.stdout||'')+(probe.stderr||'');
-        if(id==='llama')assert.match(help,/build 11371, commit 99b9548/,'the pinned llama.cpp build');
+        if(id==='llama')assert.match(help,/build 11836, commit f5027fb/,'the pinned llama.cpp build');
         assert.ok(help.length>20,`${exe} must actually execute`);
         const evidence=path.join(run,`${id}-${exe}-help.txt`);
         fs.writeFileSync(evidence,help,{flag:'wx'});
@@ -342,7 +342,7 @@ for(const id of engines){
           helpFile:path.basename(evidence),helpSHA256:hashFile(evidence)});
         save();
       }
-      if(id==='llama')assert.equal(entry.installation.receipt.commit,'99b95488cac0f00ce3f05af113a8c1e287753f87','the pinned llama.cpp build');
+      if(id==='llama')assert.equal(entry.installation.receipt.commit,'f5027fb21307eb264aed483242603d68c87b0fe3','the pinned llama.cpp build');
       else if(id!=='main')assert.equal(fs.realpathSync(path.join(target,'gguf')),fs.realpathSync(path.join(installedRoot,'ds4/gguf')));
       console.log(`${id}: network download, build and executable startup passed`);
     }

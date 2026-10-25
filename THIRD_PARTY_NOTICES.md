@@ -30,8 +30,8 @@ on demand and are not committed. See [bundled source provenance and limits](docs
 
 ## llama.cpp (bundled engine for the local Qwen models)
 
-- Source: https://github.com/ggml-org/llama.cpp, tag `b11371`
-- Pinned commit: `99b95488cac0f00ce3f05af113a8c1e287753f87`
+- Source: https://github.com/ggml-org/llama.cpp, tag `b11836`
+- Pinned commit: `f5027fb21307eb264aed483242603d68c87b0fe3`
 - Source license: [MIT](src/engines/llama.cpp/LICENSE), Copyright 2023–2026 The ggml authors.
 - Distributed sources: [`src/engines/llama.cpp/`](src/engines/llama.cpp/). DStudio builds only
   `llama-server` from them ([installer](scripts/install-llama.py)); the snapshot is unmodified.

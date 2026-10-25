@@ -33,7 +33,7 @@
 #include <sys/prctl.h>
 #endif
 #define RESIDENT_LEASE ".dstudio-llama-install.lock"
-#define RESIDENT_BUILD_INFO "b11371-99b9548" /* scripts/install-llama.py BUILD_NUMBER + PIN[:7] */
+#define RESIDENT_BUILD_INFO "b11836-f5027fb" /* scripts/install-llama.py BUILD_NUMBER + PIN[:7] */
 #define RESIDENT_PROBE_MAX (256 * 1024)
 /* The same owner serves two backends. MLX (macOS on Apple Silicon): the
  * bundled mlx-lm server in <root>/mlx (scripts/install-mlx.py), run by its

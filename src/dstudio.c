@@ -374,9 +374,9 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define Q36_DIR_NAME "q36"
 #define MODEL_QWEN35 "gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
 #define MODEL_QWEN35_BYTES 31843777504LL
-/* Bundled ggml-org/llama.cpp (tag b11371): DStudio builds llama-server from
+/* Bundled ggml-org/llama.cpp (tag b11836): DStudio builds llama-server from
  * src/engines/llama.cpp to serve the local Qwen checkpoints. */
-#define LLAMA_UPSTREAM_COMMIT "99b95488cac0f00ce3f05af113a8c1e287753f87"
+#define LLAMA_UPSTREAM_COMMIT "f5027fb21307eb264aed483242603d68c87b0fe3"
 #define LLAMA_ARCHIVE_URL "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/" LLAMA_UPSTREAM_COMMIT
 #define LLAMA_DIR_NAME "llama.cpp"
 #define MODEL_QWEN27 "gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf"

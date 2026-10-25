@@ -1193,7 +1193,7 @@ regressions; run the separate real Qwen tools gate below to assess that workflow
 
 ### Qwen3.6 and Qwen3.8-27B on llama.cpp
 
-Both models run on DStudio's bundled llama.cpp `b11371` (`99b9548`), built
+Both models run on DStudio's bundled llama.cpp `b11836` (`f5027fb`), built
 offline from `src/engines/llama.cpp` on first use. Agent and Cowork use the
 pinned main `ds4` tool runtimes in remote mode against the owned resident
 `llama-server`; Chat uses the same process through the `/v1` proxy. Design
@@ -1232,6 +1232,11 @@ ignored `tests/.artifacts/llama-resident-live/`. The first Qwen3.6 attempt
 thinking on and a thinking-off reply without reasoning; both models then pass
 10/10 (`run-NFwKHF`). These are development regressions on Apple Metal, not
 held-out quality, numerical parity or CUDA/ROCm/Vulkan qualification.
+
+Those 10/10 runs used `b11371`. On `b11836` (October 23) Qwen3.6 passed the
+current six cases (`run-7Ad19x`); the first attempt (`run-RpFauU`) failed on a
+stale `agentDiskCheckpointsSupported` assertion written before transcript
+restoration and is retained. Qwen3.8-27B has not been rerun on `b11836`.
 
 `make test-llama-install-profile` (in `check-fast`) executes the installer's
 production build recipes, receipts and leases with simulated toolchains

@@ -4,7 +4,7 @@ This directory contains DStudio's explicit adaptations for managed runtimes
 and separately identified engine candidates.
 
 The Qwen3.6 and Qwen3.8-27B engines are the bundled, unmodified llama.cpp
-`b11371` (`99b9548`); DStudio applies no patch to it. The earlier q27, q36 and
+`b11836` (`f5027fb`); DStudio applies no patch to it. The earlier q27, q36 and
 vagrillo/ds4 Qwen3.6 patch sets (`q27-metal-delta`, `q36-*`, `ds4-qwen35-*`)
 were retired with those engines on October 3, 2026. Git history and
 `docs/history/` retain them; no current installer or test applies them.

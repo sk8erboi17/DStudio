@@ -247,12 +247,12 @@ try {
     assert(installed?.built && !installed.reused, JSON.stringify(output));
     const tree = path.join(data,'llama.cpp');
     const receipt = JSON.parse(fs.readFileSync(path.join(tree,'.dstudio-llama.json'),'utf8'));
-    assert.equal(receipt.commit,'99b95488cac0f00ce3f05af113a8c1e287753f87');
+    assert.equal(receipt.commit,'f5027fb21307eb264aed483242603d68c87b0fe3');
     assert.equal(receipt.bundledSources.source,'bundled');
     assert.equal(receipt.modelLoaded,false);
     assert.equal(sha(path.join(tree,'bin/llama-server')), receipt.binarySHA256);
     const version = spawnSync(path.join(tree,'bin/llama-server'), ['--version'], {cwd: tree, encoding: 'utf8', timeout: 20000});
-    assert.equal(version.status, 0); assert.match(version.stdout + version.stderr, /build 11371, commit 99b9548/);
+    assert.equal(version.status, 0); assert.match(version.stdout + version.stderr, /build 11836, commit f5027fb/);
     assert.deepEqual(fs.readdirSync(path.join(data,'ds4/gguf')),[]);
     return {seconds:(performance.now()-started)/1000, receipt, binary: receipt.binarySHA256};
   });

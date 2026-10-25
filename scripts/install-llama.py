@@ -39,8 +39,8 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bundled_engine_sources as bundled  # noqa: E402
 
-PIN = '99b95488cac0f00ce3f05af113a8c1e287753f87'
-BUILD_NUMBER = '11371'  # upstream tag b11371 at PIN
+PIN = 'f5027fb21307eb264aed483242603d68c87b0fe3'
+BUILD_NUMBER = '11836'  # upstream tag b11836 at PIN
 ENGINE, DIRECTORY = 'llama', 'llama.cpp'
 ASSETS = Path(__file__).resolve().parent.parent
 RECEIPT = '.dstudio-llama.json'

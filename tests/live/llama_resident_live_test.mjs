@@ -1,4 +1,4 @@
-// REAL inference: DStudio's own llama.cpp engine (bundled b11371, built by
+// REAL inference: DStudio's own llama.cpp engine (bundled b11836, built by
 // scripts/install-llama.py) serving the pinned local Qwen checkpoints through
 // the production host: launch preparation, the guard-owned llama-server, the
 // /props readiness check, the Agent tools frontend over model RPC, and Chat
@@ -149,7 +149,9 @@ for (const key of receipt.blocked ? [] : wanted) {
     assert.equal(startup.mode, 'agent');
     assert.ok(startup.residentPid > 0, 'the llama.cpp server is owned by the host');
     assert.equal(startup.modelFile, spec.file);
-    assert.equal(startup.agentDiskCheckpointsSupported, false, 'no engine session to checkpoint over RPC');
+    // No KV snapshot over RPC, but the native Agent saves its transcript and the
+    // model server prefills it again after a restore.
+    assert.equal(startup.agentDiskCheckpointsSupported, true, 'the native Agent restores sessions from its transcript');
     // Identity reported by the actual server, not by DStudio's own status.
     let modelPath;
     if (spec.mlx) {
@@ -165,7 +167,7 @@ for (const key of receipt.blocked ? [] : wanted) {
       row.engine = { build: props.build_info, alias: props.model_alias, model: props.model_path, ctx: props.default_generation_settings?.n_ctx,
         slots: props.total_slots, vision: props.modalities?.vision };
       writeArtifact(dir, 'props.json', row.engine);
-      assert.equal(props.build_info, 'b11371-99b9548');
+      assert.equal(props.build_info, 'b11836-f5027fb');
       assert.equal(props.model_alias, spec.id);
       assert.equal(path.basename(props.model_path), path.basename(spec.file));
       assert.equal(props.modalities?.vision, spec.vision);

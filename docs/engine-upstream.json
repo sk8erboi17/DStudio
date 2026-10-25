@@ -6,7 +6,7 @@
   "limitations": [
     "This is the initial declared engine/backend/checkpoint matrix; the full test census and final source/build freeze remain separate acceptance requirements.",
     "Each row has one explicit operating system. Since September 29, 2026 the campaign admits macOS on Apple Silicon only: Linux/Windows CPU, CUDA, ROCm and Vulkan rows and the CUDA-only q27 track were removed as out of scope, not qualified. Scalar CPU reference tests on the Mac remain part of Metal numerical verification. Of the DeepSeek V4 Flash checkpoints only the Vision-Exp row remains; the four non-Vision rows were removed on the same date as out of scope.",
-    "Qwen3.6-35B-A3B and Qwen3.8-27B run on the bundled llama.cpp (b11371) through the DStudio host; Chat, Agent and Cowork passed real inference on macOS Metal on October 3, 2026 (tests/live/llama_resident_live_test.mjs). Design on llama.cpp models is not implemented. Linux and Windows llama.cpp builds are not qualified.",
+    "Qwen3.6-35B-A3B and Qwen3.8-27B run on the bundled llama.cpp (b11836 since October 23, 2026; b11371 before) through the DStudio host; Chat, Agent and Cowork passed real inference on macOS Metal on October 3, 2026 on b11371, and Qwen3.6 passed again on b11836 on October 23 (tests/live/llama_resident_live_test.mjs). Design on llama.cpp models is not implemented. Linux and Windows llama.cpp builds are not qualified.",
     "The former Qwen side engines (vagrillo/ds4 qwen35moe-support, Ninnix/q36) were retired on October 3, 2026; their tracks, patch sets and targets were removed.",
     "The main track includes the complete f4d03f6..bd66c40 campaign delta and all 79 subsequent commits through 0aaea5a, including Qwen Next. Managed upgrades have scoped receipts; full mode, numerical and earlier cross-fork qualification remains open.",
     "A recorded tip only freezes the observed revision. The per-target source review must classify every commit; empty arrays are not equivalence claims.",
@@ -35,8 +35,8 @@
       "id": "llama",
       "repository": "https://github.com/ggml-org/llama.cpp",
       "ref": "refs/heads/master",
-      "base": "99b95488cac0f00ce3f05af113a8c1e287753f87",
-      "recordedTip": "99b95488cac0f00ce3f05af113a8c1e287753f87"
+      "base": "f5027fb21307eb264aed483242603d68c87b0fe3",
+      "recordedTip": "f5027fb21307eb264aed483242603d68c87b0fe3"
     }
   ],
   "patchSets": {
@@ -629,7 +629,7 @@
       "id": "llama/macos/metal/qwen36",
       "sourceTrack": "llama",
       "installerId": "llama",
-      "revision": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+      "revision": "f5027fb21307eb264aed483242603d68c87b0fe3",
       "backend": "metal",
       "checkpoint": "qwen36",
       "tracks": [
@@ -654,7 +654,7 @@
       "id": "llama/macos/metal/qwen38-27b-gguf",
       "sourceTrack": "llama",
       "installerId": "llama",
-      "revision": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+      "revision": "f5027fb21307eb264aed483242603d68c87b0fe3",
       "backend": "metal",
       "checkpoint": "qwen38-27b-gguf",
       "tracks": [

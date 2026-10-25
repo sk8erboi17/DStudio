@@ -15,7 +15,7 @@ runtime checkouts, user changes, settings and model paths are preserved.
 | --- | --- | --- |
 | Main: DeepSeek, GLM and current Qwen Next | [ds4](../src/engines/ds4/) | `0aaea5a238fb41a35106a551e73c8409dfb751ac` |
 | Laguna S 2.1 | [ds4-laguna-s21](../src/engines/ds4-laguna-s21/) | `448d5695d1c86401a4e9447c440feb983b73e6de` |
-| Qwen3.6-35B-A3B and Qwen3.8-27B (llama-server) | [llama.cpp](../src/engines/llama.cpp/) | `99b95488cac0f00ce3f05af113a8c1e287753f87` (tag `b11371`) |
+| Qwen3.6-35B-A3B and Qwen3.8-27B (llama-server) | [llama.cpp](../src/engines/llama.cpp/) | `f5027fb21307eb264aed483242603d68c87b0fe3` (tag `b11836`) |
 | Qwen3.6-35B-A3B MXFP8 on Apple Silicon (MLX server) | [mlx wheels](../src/engines/mlx/) | mlx 0.32.4 (`36969c0`), mlx-lm 0.32.2 (`93e6d4a`); [see below](#mlx-runtime-apple-silicon) |
 
 Only active engines are distributed. Qwen Next uses main; its retired separate
@@ -27,8 +27,8 @@ llama.cpp; see [their retirement](#retired-qwen-side-engines).
 
 ## Source identity and installation
 
-The three distributed snapshots contain 4290 files (main 457, Laguna 194,
-llama.cpp 3639) matching their pinned archives byte for byte. Their upstream
+The three distributed snapshots contain 4510 files (main 457, Laguna 194,
+llama.cpp 3859) matching their pinned archives byte for byte. Their upstream
 formatting is retained. The original five-snapshot import was independently repeated; its staged scan recorded
 2902 inherited findings across 35 unchanged upstream files; authored changes
 pass the whitespace check. No engine source was rewritten to conceal those
@@ -201,6 +201,12 @@ answers from a workspace file, Cowork document creation, Chat through `/v1` with
 thinking on and off (and an image for the 27B), mode switches reusing the loaded
 server, and no llama-server left after the host is killed. One earlier run is
 retained as a failure: with thinking off, Qwen3.6 multiplied two numbers wrongly.
+
+On October 23, 2026 the bundled llama.cpp moved from `b11371` (`99b9548`)
+to `b11836` (`f5027fb`). On `b11836` Qwen3.6 passed the same six production-host
+checks again (`run-7Ad19x`); an earlier attempt (`run-RpFauU`) stopped on a
+stale test assertion that predated transcript restoration and is retained.
+Qwen3.8-27B has not been rerun on `b11836`; `b11371` results do not transfer.
 
 ## Refreshing reviewed source snapshots
 
