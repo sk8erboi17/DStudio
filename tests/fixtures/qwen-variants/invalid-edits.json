@@ -1,0 +1,212 @@
+{
+ "scope": "Textual edits of scripts/qwen-variants.json that every catalog loader (host C and Python downloader) must reject. Each edit replaces the first occurrence, or every occurrence when all is true.",
+ "cases": [
+  {
+   "name": "unsafe local file name",
+   "edits": [
+    [
+     "\"file\": \"Qwen3.6-35B-A3B-UD-IQ1_M.gguf\"",
+     "\"file\": \"../Qwen3.6-35B-A3B-UD-IQ1_M.gguf\""
+    ]
+   ]
+  },
+  {
+   "name": "remote path traversal",
+   "edits": [
+    [
+     "\"remote\": \"Qwen3.6-35B-A3B-UD-IQ1_M.gguf\"",
+     "\"remote\": \"../Qwen3.6-35B-A3B-UD-IQ1_M.gguf\""
+    ]
+   ]
+  },
+  {
+   "name": "upper-case digest",
+   "edits": [
+    [
+     "0dc2488c89d916c5599f7c03a286cd8f37a6a75a02bc13caf41c6bac26d70c9e",
+     "0DC2488C89D916C5599F7C03A286CD8F37A6A75A02BC13CAF41C6BAC26D70C9E"
+    ]
+   ]
+  },
+  {
+   "name": "short digest",
+   "edits": [
+    [
+     "0dc2488c89d916c5599f7c03a286cd8f37a6a75a02bc13caf41c6bac26d70c9e",
+     "0dc2488c89d916c5599f7c03a286cd8f37a6a75a02bc13caf41c6bac26d70c9"
+    ]
+   ]
+  },
+  {
+   "name": "zero-byte file",
+   "edits": [
+    [
+     "\"bytes\": 10047749088, \"sha256\"",
+     "\"bytes\": 0, \"sha256\""
+    ]
+   ]
+  },
+  {
+   "name": "duplicate variant id",
+   "edits": [
+    [
+     "\"id\": \"qwen36-iq2_xxs\"",
+     "\"id\": \"qwen36-iq1_m\""
+    ]
+   ]
+  },
+  {
+   "name": "total differs from its files",
+   "edits": [
+    [
+     "\"bytes\": 10047749088,\n      \"files\"",
+     "\"bytes\": 10047749089,\n      \"files\""
+    ]
+   ]
+  },
+  {
+   "name": "an original pin changed size",
+   "edits": [
+    [
+     "31843777504",
+     "31843777505"
+    ]
+   ],
+   "all": true
+  },
+  {
+   "name": "unsupported schema version",
+   "edits": [
+    [
+     "\"version\": 1,",
+     "\"version\": 2,"
+    ]
+   ]
+  },
+  {
+   "name": "unknown schema",
+   "edits": [
+    [
+     "\"schema\": \"dstudio.qwen-variants\"",
+     "\"schema\": \"other\""
+    ]
+   ]
+  },
+  {
+   "name": "unexpected field",
+   "edits": [
+    [
+     "\"quant\": \"UD-IQ1_M\",",
+     "\"quant\": \"UD-IQ1_M\", \"extra\": 1,"
+    ]
+   ]
+  },
+  {
+   "name": "modified-weights repository",
+   "edits": [
+    [
+     "\"repository\": \"mlx-community/Qwen3.6-35B-A3B-4bit\"",
+     "\"repository\": \"mlx-community/Qwen3.6-35B-A3B-4bit-abliterated\""
+    ],
+    [
+     "\"path\": \"mlx/Qwen3.6-35B-A3B-4bit\"",
+     "\"path\": \"mlx/Qwen3.6-35B-A3B-4bit-abliterated\""
+    ]
+   ]
+  },
+  {
+   "name": "27B GGUF without its projector",
+   "edits": [
+    [
+     "\"requires\": [\"qwen27-mmproj-f16\"]",
+     "\"requires\": []"
+    ]
+   ]
+  },
+  {
+   "name": "split parts out of order",
+   "edits": [
+    [
+     "\"file\": \"Qwen3.6-35B-A3B-BF16-00002-of-00002.gguf\"",
+     "\"file\": \"Qwen3.6-35B-A3B-BF16-00003-of-00002.gguf\""
+    ]
+   ]
+  },
+  {
+   "name": "MLX folder without config.json",
+   "edits": [
+    [
+     "\"file\": \"config.json\"",
+     "\"file\": \"config2.json\""
+    ]
+   ]
+  },
+  {
+   "name": "duplicate JSON key",
+   "edits": [
+    [
+     "\"engine\": \"llama\",",
+     "\"engine\": \"llama\", \"engine\": \"mlx\","
+    ]
+   ]
+  },
+  {
+   "name": "MLX path outside its folder",
+   "edits": [
+    [
+     "\"path\": \"mlx/Qwen3.6-35B-A3B-4bit\"",
+     "\"path\": \"mlx/../Qwen3.6-35B-A3B-4bit\""
+    ]
+   ]
+  },
+  {
+   "name": "one file in two variants",
+   "edits": [
+    [
+     "\"path\": \"gguf/Qwen3.6-35B-A3B-UD-IQ2_XXS.gguf\"",
+     "\"path\": \"gguf/Qwen3.6-35B-A3B-UD-IQ1_M.gguf\""
+    ],
+    [
+     "\"file\": \"Qwen3.6-35B-A3B-UD-IQ2_XXS.gguf\"",
+     "\"file\": \"Qwen3.6-35B-A3B-UD-IQ1_M.gguf\""
+    ]
+   ]
+  },
+  {
+   "name": "projector role changed",
+   "edits": [
+    [
+     "\"role\": \"projector\"",
+     "\"role\": \"model\""
+    ]
+   ]
+  },
+  {
+   "name": "revision is a branch name",
+   "edits": [
+    [
+     "\"revision\": \"a483e9e6cbd595906af30beda3187c2663a1118c\"",
+     "\"revision\": \"main\""
+    ]
+   ]
+  },
+  {
+   "name": "unknown engine",
+   "edits": [
+    [
+     "\"engine\": \"mlx\",",
+     "\"engine\": \"vllm\","
+    ]
+   ]
+  },
+  {
+   "name": "truncated document",
+   "edits": [
+    [
+     "\"variants\": [",
+     "\"variants\": [["
+    ]
+   ]
+  }
+ ]
+}

@@ -22,17 +22,48 @@ complete quality rerun.
 
 | Area | Work still required |
 | --- | --- |
-| 27B / 3.6 | Common-100 and the original long-context checks on llama.cpp (and on MLX if admitted), with model/quant-specific numerical references. The published 61/100 and 63/100 and the online-attention/batched-prefill overlays belonged to the retired engines; reruns remain owner-controlled. |
+| 27B / 3.6 | Common-100 and the original long-context checks on llama.cpp and on MLX, with model/quant-specific numerical references. The published 61/100 and 63/100 and the online-attention/batched-prefill overlays belonged to the retired engines; reruns remain owner-controlled. |
 | Qwen Next | Complete Learn/Tutor, PDF/vision and native-desktop qualification; qualify Q2 independently. Recheck the retained Learn incident with the intended effective reasoning request. The Q4 100-case and eight long-context cases are already recorded in the current-main baseline. |
 | Agent / Goals / Cowork | Real selected-model long tasks, steering, pause/resume, durable recovery, exactly-once effects and independently reopened exports across all selections. Revalidate the retained 3.6 timeout/partial-summary failure on current code. Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS: resume profile 2/2. Long profile 10/11 so far: `ambiguous-edit` failed in a reasoning loop; a second sample was stopped. Five long cases have not run. Rerun them on runtime v106, which no longer declares the refused shell tools; a reasoning-budget pause is [proposal 3](../PLAN.MD#proposals). |
 | PDFs / vision | At least thirty PDFs and twenty images per vision checkpoint, independently graded answers, actual pixel paths and negative text-model/history/cache tests in all four modes. |
-| Desktop | Nine selections × Chat/Agent/Learn/Cowork: at least thirty-six complete native-model workflows, plus Design, switching, errors, cancellation and final-build regressions. |
+| Desktop | Ten selections × Chat/Agent/Learn/Cowork: at least forty complete native-model workflows, plus Design, switching, errors, cancellation and final-build regressions. |
 | Design projects | Generate and independently audit all eighteen frozen projects for the original nine systems in Chromium/WebKit, both themes, four widths, 200% text, offline exports and the opaque preview. Preserve and regenerate failed model outputs through the runtime. |
 | Install / upgrade | Extend verified bundled/offline installation (main, Laguna, llama.cpp builds; MLX from its bundled wheels) to full current engine/mode/failure/recovery coverage and the final bundle. The retired q36 upgrade evidence does not carry over. |
-| Engine admission | Complete applicable source reviews and bind exact qualifying receipts. The nine-target matrix currently has 107 required gate slots (117 before the Qwen targets moved to llama.cpp) and zero linked receipts; these are unfilled evidence requirements, not 107 failed tests. MLX has no target yet. |
+| Engine admission | Complete applicable source reviews and bind exact qualifying receipts. The nine-target matrix currently has 107 required gate slots (117 before the Qwen targets moved to llama.cpp) and zero linked receipts; these are unfilled evidence requirements, not 107 failed tests. MLX, the tenth selection, has no target yet. |
 | Search / Research | Held-out source-grounded answer evaluation beyond development questions, actual vision-model webpage checks and real validation of the retained writer incident after the software corrections. |
 | V4.1 / GLM | Not in the maintainer's execution plan: on the maintainer's M2 Max (96 GB) they run only with SSD streaming and only limited runs exist. Kept in scope as BLOCKED; a contributor with suitable hardware can take them on ([how](../PLAN.MD#contributors)). Since October 22 the Q2 selection is the official 1017 checkpoint with its own vision sidecar; the original Q2's retained format failure stays FAIL for that file and does not transfer. Complete 1017 Q2 and Q4 mode/quality/vision/SSD-Engram qualification; GLM's matching 100 continuations, vision and complete product qualification. |
 | Comparisons / profiling / release | Six agents/two lanes, at least seventy cases and three repetitions; correct matched baselines, phase profiling, final build admission and reviewed Matplotlib publication. |
+
+### Pinned Qwen variants: five representative checks (NOT RUN)
+
+Since October 25 every standard published quantization of Qwen3.6-35B-A3B and
+Qwen3.8-27B is downloadable: 63 variants on llama.cpp and MLX, pinned in
+[scripts/qwen-variants.json](../scripts/qwen-variants.json)
+([details](../PLAN.MD#qwen-variants)). Q6_K_XL and MXFP8 stay the campaign's
+qualification selections. The other variants share the engine, tokenizer, chat
+template and tool format of a checked variant but use other quantization
+kernels (and the split BF16 another loading path and about 69 GB of memory), so
+they are downloadable but not individually verified. Their fixture-based checks
+(`make test-qwen-variants`) cover download, recognition, routing and refusals,
+not inference.
+
+The verification plan is five real-weight checks with the production-host
+development gate (`make test-llama-resident-live DSTUDIO_LLAMA_MODELS=<id>`),
+run one at a time, about 98 GB of downloads in total instead of one check per
+other variant (60 checks, about 1.4 TB). All five are required:
+
+| # | Variant (id) | Download | Represents | Status |
+| --- | --- | ---: | --- | --- |
+| 1 | Qwen3.6-35B-A3B UD-Q4_K_M GGUF (`qwen36-q4_k_m`), downloaded through the new generic downloader | 22.1 GB | K-quant kernels on the new download path | NOT RUN |
+| 2 | Qwen3.6-35B-A3B UD-IQ4_XS GGUF (`qwen36-iq4_xs`) | 17.7 GB | i-quant kernels | NOT RUN |
+| 3 | Qwen3.6-35B-A3B MXFP4_MOE GGUF (`qwen36-mxfp4_moe`) | 21.7 GB | MXFP4 MoE kernels | NOT RUN |
+| 4 | Qwen3.6-35B-A3B MLX nvfp4 (`qwen36-mlx-nvfp4`) | 20.4 GB | MLX nvfp4 mode | NOT RUN |
+| 5 | Qwen3.8-27B MLX 4bit (`qwen27-mlx-4bit`) | 16.1 GB | the new 27B-on-MLX combination (affine mode, text only); the gate also checks that an image request is refused | NOT RUN |
+
+They are NOT RUN. Disk space no longer blocks them (about 586 GiB free on
+October 25), but no weights have been downloaded for them yet. No variant other
+than the defaults has run on real weights; none of these results exists yet,
+and a pass will cover only its own variant.
 
 One earlier WebKit Design gallery-filter clearing failure is unresolved: it did
 not reproduce in unchanged focused or later complete simulated matrices, so
@@ -85,12 +116,12 @@ the owner's decision. What exists today and what is missing for each is in
 
 ## Scope and separate product roadmap
 
-The nine included macOS Metal selections and exact acceptance criteria are in
+The ten included macOS Metal selections and exact acceptance criteria are in
 [PLAN.MD](../PLAN.MD). Only Vision-Exp remains among the old DeepSeek V4 Flash
 variants. V4.1 Q2/Q4 and GLM are left to contributors: they are not in the maintainer's
 execution plan and stay in every denominator as BLOCKED.
-The MLX Qwen3.6 MXFP8 path is not counted among the nine selections until the
-owner admits it; its results do not qualify the GGUF, nor the reverse.
+Since October 25 the MLX Qwen3.6 MXFP8 path is the tenth selection; its results
+do not qualify the GGUF, nor the reverse.
 Non-macOS hardware/backends are excluded, not blockers or inferred passes.
 
 Outside this campaign, [two-photo MiniMax H3](../README.md#local-video-generation-minimax-h3)

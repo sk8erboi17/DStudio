@@ -1320,6 +1320,70 @@ the llama.cpp Qwen3.6 or a numerical-parity claim for MXFP8.
 `scripts/download-mlx-qwen36.py --verify-only --directory <folder>` checked an
 existing local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
 
+### Every pinned Qwen3.6 and Qwen3.8-27B variant
+
+`scripts/qwen-variants.json` pins 63 variants: 24 GGUF and 8 MLX for
+Qwen3.6-35B-A3B, 25 GGUF and 6 MLX for Qwen3.8-27B (every 27B GGUF with the
+pinned F16 projector; both BF16 GGUFs split in two files). `make
+test-qwen-variants` (in `check-fast`) runs everything below without network,
+engines or weights; model files are tiny or sparse fixtures. These checks prove
+download, recognition, routing and refusal behavior, not inference: only the
+default selections (Q6_K_XL, MXFP8) have run on real weights.
+
+- `tests/integration/qwen_variant_download_test.py` executes the generic
+  downloader `scripts/download-qwen-variant.py` and its real curl transfers
+  against a loopback HTTP fixture with a test catalog: a single-file GGUF, a
+  27B GGUF with its projector fetched from its own pin, a split BF16 variant
+  landing in `gguf/` under its own names, and an MLX folder that publishes
+  `config.json` last, with D/V progress phases. A size or digest mismatch is
+  refused without publication (the partial stays resumable), a replaced store
+  is never written, `--verify-only` never downloads, a non-loopback base URL is
+  refused, and read-only commands touch neither disk nor network. The shipped
+  catalog validates, has the expected counts and keeps the original pins
+  exactly as their original downloaders print them (`--manifest` of
+  `download-qwen35.py`, `download-qwen27.py`, `download-mlx-qwen36.py`). The
+  same file runs the repository `download-model.sh` with stub `make`/`dstudio`:
+  new targets install their engine (llama.cpp or MLX) and land in `ds4/gguf/` or
+  `ds4/mlx/<folder>/`, an unknown target stops before building, the original
+  targets keep their original downloaders, and `--list-qwen` lists the catalog.
+- `tests/unit/qwen_variants_unit.c` executes the host's catalog loader and its
+  consumers on fixture trees: the compiled original pins equal their catalog
+  entries; the 22 textual edits in
+  `tests/fixtures/qwen-variants/invalid-edits.json` (also applied to the Python
+  loader) are each rejected as a whole, leaving only the original pins; the
+  catalog endpoint serves the file byte for byte, or the original pins when it
+  is missing; recognition of non-default quantizations on both engines,
+  hidden second split parts, refused unpublished and modified names; labels
+  with the quantization; preflight for a missing split part or projector,
+  power, context and SSD streaming; the launch spec (27B MLX has no projector,
+  27B GGUF has one), its dependencies (split part, catalog file) and the real
+  llama.cpp/MLX argument lists; listings; download sizes, byte progress and
+  paused-download detection after a restart; refused partial cleanup.
+- `tests/integration/qwen_variant_download_host_test.mjs` drives the real host
+  over HTTP with simulated installers and a simulated generic downloader: a
+  non-default GGUF and a 27B MLX folder each install their engine first,
+  receive `--variant`, their store and its identity, report bounded progress
+  against the pinned size and complete only on the downloader's exit (off
+  Apple Silicon the MLX target is refused instead); a failed MLX verification
+  stays resumable; unpinned targets are refused; a support
+  directory without the catalog serves the original pins, which the production
+  UI functions offer.
+- `tests/unit/qwen_variants_ui_test.mjs` and the extended
+  `tests/unit/qwen27_model_test.mjs` execute the production UI functions on the
+  served document: offers, labels and grouping per family and engine, MLX on a
+  Mac only, offers disappearing when every file is present, split and projector
+  rules, quantization labels in the picker, and image attachments kept but
+  refused on 27B MLX. `tests/browser/ui_model_picker_playwright_test.mjs`
+  (Chromium and WebKit) now shows pinned non-default quantizations with their
+  labels and still hides an unpublished `Qwen3.8-27B-Q4_K_M.gguf`.
+- `make test-macos-bundle` checks that the bundled host serves the materialized
+  catalog byte for byte and that the materialized generic downloader validates
+  and lists it.
+
+Real-weight verification of the variants is planned as five checks with the
+production-host gate and has NOT RUN (no weights downloaded yet); see
+[docs/WORK_IN_PROGRESS.md](../docs/WORK_IN_PROGRESS.md).
+
 ### Streaming and live tool previews
 
 `make test-streaming-live` (explicit, real weights) samples `/api/agent/poll`,

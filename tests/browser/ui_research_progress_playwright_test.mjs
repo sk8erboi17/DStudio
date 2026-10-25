@@ -67,6 +67,8 @@ const server = http.createServer(async (req, res) => {
         variant: 'flash', variants: { flash: true }, nativeVisionActive: false,
         config: { ctx: 65536, power: 90, ssdStreaming: 'off', think: 'high' } }); return;
     }
+    // The host serves the shipped Qwen variant catalog byte for byte.
+    if (url.pathname === '/api/model/qwen-variants') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(fs.readFileSync('scripts/qwen-variants.json')); return; }
     if (url.pathname === '/api/ggufs') {
       json(res, { ok: true, ggufs: [{ file: path.basename(file), path: file, size: 87e9, engineDir: dir, branch: 'main' }] }); return;
     }

@@ -177,6 +177,12 @@ const server = http.createServer(async (req, res) => {
     json(res, { ok: true, ggufs });
     return;
   }
+  // The host serves the shipped Qwen variant catalog byte for byte.
+  if (url.pathname === '/api/model/qwen-variants') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(fs.readFileSync(path.join(repoRoot, 'scripts/qwen-variants.json')));
+    return;
+  }
   if (url.pathname === '/api/engine/checkouts') {
     const checkouts = [
       { name: 'ds4', branch: 'main', dir: '/tmp/dstudio-settings' },

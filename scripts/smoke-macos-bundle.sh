@@ -109,6 +109,23 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert result["ok"] and result["bundled"] and result["contentOk"]
 PY
 python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
+# Every pinned Qwen variant ships with the bundle: the materialized catalog is
+# what the bundled host serves, byte for byte, and what the materialized
+# generic downloader validates (including the original pins) and lists. No
+# network, writes outside TMP_ROOT or weights.
+curl -fsS "http://127.0.0.1:$PORT/api/model/qwen-variants" -o "$TMP_ROOT/qwen-variants.json"
+cmp "$TMP_ROOT/qwen-variants.json" "$TMP_ROOT/support/scripts/qwen-variants.json"
+python3 - "$TMP_ROOT/support/scripts" <<'PY'
+import json, subprocess, sys
+scripts = sys.argv[1]
+catalog = json.load(open(f'{scripts}/qwen-variants.json', encoding='utf-8'))
+listed = subprocess.check_output([sys.executable, f'{scripts}/download-qwen-variant.py', '--list'], text=True, timeout=30)
+assert [line.split()[0] for line in listed.splitlines()] == [v['id'] for v in catalog['variants']]
+assert {'qwen36-q6', 'qwen27-q6', 'qwen36-mlx', 'qwen36-q4_k_m', 'qwen27-mlx-4bit'} <= {v['id'] for v in catalog['variants']}
+manifest = json.loads(subprocess.check_output([sys.executable, f'{scripts}/download-qwen-variant.py', '--variant',
+                                               'qwen27-mlx-4bit', '--manifest'], text=True, timeout=30))
+assert manifest['path'] == 'mlx/Qwen3.8-27B-4bit' and manifest['files']
+PY
 # Exercise the materialized llama.cpp installer without building or loading
 # weights. Packaging admission is distinct from model/inference qualification.
 python3 "$TMP_ROOT/support/scripts/install-llama.py" --root "$TMP_ROOT" --revision unused --manifest >/dev/null

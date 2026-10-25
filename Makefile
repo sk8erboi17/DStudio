@@ -698,6 +698,24 @@ test-qwen27-download-settings-live: $(TEST_SERVER)
 
 check-fast: test-qwen27-download test-qwen27-download-host
 
+# Every pinned Qwen3.6/27B variant (scripts/qwen-variants.json): the generic
+# downloader and download-model.sh against a loopback fixture, the host's
+# catalog loader and its consumers on fixture files, downloads through the
+# real host with simulated installers, and the UI catalog functions. Model
+# files are tiny or sparse; no network, engine or weights. The original pins
+# are compared with their original downloaders.
+.PHONY: test-qwen-variants
+$(TEST_BUILD)/qwen_variants_unit: tests/unit/qwen_variants_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/qwen_variants_unit.c -o $@
+test-qwen-variants: $(TEST_SERVER) $(TEST_BUILD)/qwen_variants_unit test-qwen27-model-ui
+	@python3 tests/integration/qwen_variant_download_test.py
+	@$(TEST_BUILD)/qwen_variants_unit
+	@node tests/integration/qwen_variant_download_host_test.mjs "$(TEST_SERVER)"
+	@node tests/unit/qwen_variants_ui_test.mjs
+
+check-fast: test-qwen-variants
+
 .PHONY: test-engine-sources
 test-engine-sources:
 	@python3 tests/integration/bundled_engine_sources_test.py

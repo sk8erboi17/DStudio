@@ -131,6 +131,13 @@ resumable per-file verification as the 27B download). That folder may be a link
 to an existing copy; DStudio admits it by its target's identity and never
 copies or moves the weights.
 
+The other standard quantizations of Qwen3.6-35B-A3B and Qwen3.8-27B, GGUF and
+MLX alike, are pinned in [`scripts/qwen-variants.json`](../scripts/qwen-variants.json)
+and fetched by [`scripts/download-qwen-variant.py`](../scripts/download-qwen-variant.py)
+with the same per-file machinery; each MLX variant has its own folder
+`ds4/mlx/<repository name>`. The bundled mlx-lm loads Qwen3.8-27B
+(`model_type` `qwen3_5`) without its vision tower, so 27B on MLX is text only.
+
 Setup requires Python 3 and the existing native build tools; on macOS that means
 Apple Command Line Tools, Make and Git for local patch application. The
 llama.cpp engine also needs CMake (found on `PATH`, in Homebrew's locations,

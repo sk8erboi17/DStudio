@@ -101,6 +101,8 @@ const server = http.createServer(async (req, res) => {
     res.end();
     return;
   }
+  // The host serves the shipped Qwen variant catalog byte for byte.
+  if (url.pathname === '/api/model/qwen-variants') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(fs.readFileSync('scripts/qwen-variants.json')); return; }
   if (url.pathname === '/api/ggufs') {
     json(res, 200, { ok: true, files: [] });
     return;

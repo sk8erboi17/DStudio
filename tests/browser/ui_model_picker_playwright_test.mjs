@@ -27,11 +27,17 @@ const files = [
   ['Qwen3.8-Flash-Next-PLE-Q4_1.gguf', 32000157440, main, 'main'], // Preserved legacy component, never a chat model.
   [qwen27File, 25299061664, main, 'main'],
   ['Qwen3.8-27B-mmproj-F16.gguf', 927607488, main, 'main'],
-  ['Qwen3.8-27B-Q4_K_M.gguf', 16e9, main, 'main'], // Not a qualified quantization.
+  // Pinned non-default quantizations: 27B with its shared projector, 3.6 on
+  // MLX, and a split BF16 GGUF whose second part is never a model of its own.
+  ['Qwen3.8-27B-UD-Q4_K_M.gguf', 16464440224, main, 'main'],
+  ['Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 49913715424, main, 'main'],
+  ['Qwen3.6-35B-A3B-BF16-00002-of-00002.gguf', 19462922752, main, 'main'],
+  ['Qwen3.8-27B-Q4_K_M.gguf', 16e9, main, 'main'], // Not a published (pinned) file: never shown.
   ['DeepSeek-V4-Flash-DSpark-support-0731.gguf', 6e9, main, 'main'],
   ['GLM-5.3-Flash-Vision-Encoder.gguf', 1.1e9, main, 'main'],
 ];
 let catalog = files.map(([file, size, engineDir, branch]) => ({ file, path: `gguf/${file}`, size, engineDir, branch }));
+catalog.push({ file: 'Qwen3.6-35B-A3B-nvfp4', path: 'mlx/Qwen3.6-35B-A3B-nvfp4', size: 20409600000, format: 'mlx', engineDir: main, branch: 'main' });
 let current = catalog[0];
 let engineDir = main;
 let ready = true;
@@ -76,6 +82,12 @@ const server = http.createServer(async (req, res) => {
     if (catalogHold) await catalogHold;
     json(res, catalogFailure ? { ok: false, error: 'Catalog unavailable' } : { ok: true, ggufs: catalog }, catalogFailure ? 503 : 200); return;
   }
+  // The host serves the shipped Qwen variant catalog byte for byte.
+  if (url.pathname === '/api/model/qwen-variants') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(fs.readFileSync(path.resolve('scripts/qwen-variants.json')));
+    return;
+  }
   if (url.pathname === '/api/engine/checkouts') {
     json(res, { ok: true, checkouts: [[main, 'ds4', 'main']]
       .map(([dir, name, branch]) => ({ dir, name, branch, hasServer: true, active: engineDir === dir })) }); return;
@@ -116,13 +128,21 @@ try {
     await search.fill('qwen');
     assert.equal(await search.evaluate(node => node === document.activeElement), true);
   } finally { releaseCatalog(); catalogHold = null; }
-  await rows.filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor();
-  assert.equal(await rows.count(), 3);
+  await rows.filter({ hasText: qwenFile }).waitFor();
+  assert.equal(await rows.count(), 6, 'Q6_K_XL, 27B Q6_K_XL and UD-Q4_K_M, split BF16 once, MLX NVFP4 and Next');
   assert.equal(await search.inputValue(), 'qwen', 'catalog arrival must not erase a typed search');
   assert.equal(await search.evaluate(node => node === document.activeElement), true);
   await search.fill('');
-  assert.equal(await rows.count(), 8, 'seven usable chat models plus H3, with no checkout, encoder or unqualified quantization entries');
-  assert.doesNotMatch(await menu.innerText(), /Engine branch|qwen3\.8-flash-next|DSpark-support|Vision-Encoder|PLE-Q4|mmproj|27B-Q4_K_M/);
+  assert.equal(await rows.count(), 11, 'ten usable chat models plus H3, with no checkout, encoder, split-part or unpinned entries');
+  assert.doesNotMatch(await menu.innerText(), /Engine branch|qwen3\.8-flash-next|DSpark-support|Vision-Encoder|PLE-Q4|mmproj|27B-Q4_K_M|00002-of-00002/);
+  // Pinned non-default quantizations appear with their quantization.
+  for (const [query, expected] of [['q4_k_m', /Qwen3\.8-27B[\s\S]*Q4_K_M[\s\S]*Qwen3\.8-27B-UD-Q4_K_M\.gguf/],
+    ['nvfp4', /Qwen3\.6-35B-A3B[\s\S]*text · MLX[\s\S]*NVFP4/], ['bf16', /Qwen3\.6-35B-A3B[\s\S]*BF16[\s\S]*00001-of-00002/]]) {
+    await search.fill(query);
+    assert.equal(await rows.count(), 1, query);
+    assert.match(await rows.first().innerText(), expected);
+  }
+  await search.fill('');
   const loaded = menu.getByRole('region', { name: 'Loaded' }).locator('.cbar-model-item');
   assert.equal(await loaded.count(), 1);
   assert.match(await loaded.innerText(), /GLM 5\.3 Flash.*Q2/s);
@@ -132,7 +152,7 @@ try {
   assert.deepEqual(writes, [], 'selecting the model already running must not restart it');
 
   await trigger.click();
-  await rows.filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor();
+  await rows.filter({ hasText: qwenFile }).waitFor();
   await search.fill('q6_k_xl');
   assert.equal(await rows.count(), 2);
   assert.match(await rows.first().innerText(), /Qwen3\.6-35B-A3B/);
@@ -220,7 +240,7 @@ try {
   // A multiline draft exposes the old, detached composer-card anchor.
   await page.locator('#composer-input').fill('Compare the attached sources.\nKeep the original quotations.\nExplain the differences clearly.');
   await trigger.click();
-  await rows.filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor();
+  await rows.filter({ hasText: qwenFile }).waitFor();
   await assertWithinViewport();
   await page.screenshot({ path: path.join(artifacts, 'dark-desktop.png') });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -233,7 +253,7 @@ try {
   await assertWithinViewport();
   await search.fill('qwen');
   await assertWithinViewport();
-  assert.equal(await rows.count(), 3);
+  assert.equal(await rows.count(), 6);
   await search.press('Escape');
   await page.setViewportSize({ width: 1440, height: 1000 });
 
@@ -289,8 +309,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await trigger.click();
   await search.fill('27b');
-  assert.equal(await rows.count(), 1);
-  await rows.first().click();
+  assert.equal(await rows.count(), 2, 'Q6_K_XL and the pinned UD-Q4_K_M');
+  await rows.filter({ hasText: qwen27File }).click();
   await page.locator('#loading-overlay').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#loading-pct').textContent === '42');
   assert.deepEqual(writes.slice(-1).map(w => [w.url, w.body.gguf]), [['/api/start', `gguf/${qwen27File}`]]);

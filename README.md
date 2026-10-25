@@ -23,6 +23,7 @@
 - [Supported models and limitations](#supported-models-and-limitations)
   - [Qwen3.6 and Qwen3.8-27B on llama.cpp](#qwen36-and-qwen38-27b-on-llamacpp)
   - [Qwen3.6 on MLX (Apple Silicon)](#qwen36-on-mlx-apple-silicon)
+  - [Every Qwen3.6 and Qwen3.8-27B quantization](#every-qwen36-and-qwen38-27b-quantization)
   - [Downloading models](#downloading-models)
 - [Harnesses: every engine with every agent loop](#harnesses-every-engine-with-every-agent-loop)
 - [What DStudio can do](#what-dstudio-can-do)
@@ -215,9 +216,10 @@ There is no engine or branch selector.
 | GLM 5.3 Flash | ds4 main | All four; images with its encoder | ~96.5 GB Q2. Full-model QA of the M2 optimization remains open. |
 | Laguna S 2.1 | ds4 `laguna-s2.1` | All four, text only | Experimental, macOS Metal; needs resident weights (no forced SSD streaming). |
 | Qwen3.8-Flash-Next | ds4 main | Experimental Chat, Agent, Cowork | Single-file Q2 (147.2 GB) or Q4 (177.3 GB); old base + PLE files are incompatible. Design and vision unqualified. |
-| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). |
-| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). |
-| Qwen3.8-27B | llama.cpp | All four; images in Chat, Agent and Cowork | 25.3 GB Q6_K_XL + 0.93 GB projector. Real workflows pass; Design is slow (37 min on an M2 Max with thinking on). Learn and PDF workflows unqualified. |
+| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). The other 23 published GGUF quantizations (10.0–69.4 GB) are downloadable but [not individually verified](#every-qwen36-and-qwen38-27b-quantization). |
+| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). 4/5/6/8-bit, BF16, MXFP4 and NVFP4 folders are downloadable but not individually verified. |
+| Qwen3.8-27B | llama.cpp | All four; images in Chat, Agent and Cowork | 25.3 GB Q6_K_XL + 0.93 GB projector. Real workflows pass; Design is slow (37 min on an M2 Max with thinking on). Learn and PDF workflows unqualified. The other 24 published GGUF quantizations (7.1–55.6 GB with the projector) are downloadable but not individually verified. |
+| Qwen3.8-27B (MLX) | MLX | All four, text only (images refused) | New engine combination: 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 folders (15.2–54.7 GB); Apple Silicon with macOS 26. Not yet run on real weights. |
 
 Separate media workers provide **Ideogram 4** image generation,
 **HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat
@@ -302,6 +304,43 @@ their fixes (a folder not recognized as a model, an HTTP/1.0 readiness reply,
 and a 512-token default reply limit plus a renamed reasoning field) in
 [tests/README.md](tests/README.md#qwen36-on-mlx-apple-silicon).
 
+### Every Qwen3.6 and Qwen3.8-27B quantization
+
+Besides the defaults above, every standard quantization the publishers released
+can be downloaded from **Settings → Models** or with `./download-model.sh`:
+all 24 unsloth GGUFs of Qwen3.6-35B-A3B and all 25 of Qwen3.8-27B on llama.cpp
+(UD-IQ1 … UD-Q8_K_XL, Q4_0/Q4_1/Q8_0, MXFP4_MOE for 3.6, and BF16), and the
+standard mlx-community MLX folders: 4-bit, 5-bit, 6-bit, 8-bit, BF16, MXFP4,
+MXFP8 and NVFP4 for Qwen3.6, and 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 for
+Qwen3.8-27B. Modified repositories (abliterated, uncensored, fine-tunes,
+pruned/REAP, MTP or other draft builds, DWQ, OptiQ and similar) are not offered.
+
+- **Pinned like the defaults.** One catalog,
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json), records each
+  variant's repository revision and every file's size and SHA-256 (63 variants,
+  about 1.4 TB in total). It ships with DStudio and is never fetched; a
+  maintainer regenerates it with `scripts/update-qwen-variants.py`, which reads
+  only Hugging Face metadata at explicit revisions. Each file is resumable and
+  verified before it is published; nothing existing is overwritten.
+- **What each variant needs.** Every 27B GGUF downloads with the same pinned F16
+  projector, which images on llama.cpp require. The split BF16 GGUFs are two
+  files in `ds4/gguf/`; only the first appears in the model picker, and both
+  must be present. MLX folders live in `ds4/mlx/` and are Apple Silicon only.
+- **27B on MLX is text only.** MLX loads its language model without the vision
+  tower; DStudio refuses image attachments with that model rather than dropping
+  them.
+- **Verification.** Q6_K_XL (both models) and MXFP8 (Qwen3.6 on MLX) remain the
+  qualified selections. The other variants share the engine, tokenizer, chat
+  template and tool format of a checked variant but use other quantization
+  kernels (and the split BF16 another loading path and about 69 GB of memory):
+  they are downloadable but not individually verified. Five representative
+  real-weight checks are planned (UD-Q4_K_M, UD-IQ4_XS and MXFP4_MOE GGUFs of
+  Qwen3.6, Qwen3.6 MLX NVFP4 and Qwen3.8-27B MLX 4-bit); they have **not run**
+  yet; see [the remaining work](docs/WORK_IN_PROGRESS.md).
+
+The existing ids (`qwen36-q6`, `qwen27-q6`, `qwen36-mlx`), file names and
+partial downloads are unchanged.
+
 ### Qwen3.8-Flash-Next on ds4 main
 
 Flash Next shares ds4 main (pinned at
@@ -356,6 +395,9 @@ From the project root:
 ./download-model.sh qwen36-q6      # Qwen3.6 Q6_K_XL, 31.8 GB, llama.cpp
 ./download-model.sh qwen27-q6      # Qwen3.8-27B + projector, 26.2 GB, llama.cpp
 ./download-model.sh qwen36-mlx     # Qwen3.6 MXFP8 folder, 36.7 GB, MLX
+./download-model.sh qwen36-q4_k_m  # any other pinned Qwen quantization, e.g. UD-Q4_K_M
+./download-model.sh qwen27-mlx-4bit # Qwen3.8-27B 4-bit MLX folder (text only)
+./download-model.sh --list-qwen    # every pinned Qwen variant, engine and size
 ```
 
 DeepSeek V4, GLM and Laguna show a visible `<model>.gguf.part` while a transfer
@@ -1445,6 +1487,11 @@ every model or a release. Exact acceptance criteria and retained failures are in
   real engine on published headers (no weights read, no inference).
 - [x] Offer only the publishers' official weights; modified derivatives are
   refused and left untouched on disk.
+- [x] Offer every published standard quantization of Qwen3.6-35B-A3B and
+  Qwen3.8-27B on llama.cpp and MLX (63 variants) from one pinned catalog, with
+  per-file size/SHA-256 verification; 27B on MLX is text only. Fixture-based
+  checks only (`make test-qwen-variants`); no variant other than the defaults
+  has run on real weights.
 - [x] Update the bundled MLX to mlx 0.32.4 and mlx-lm 0.32.2: real offline
   install reaching Metal, and real Qwen3.6 MXFP8 tool-call streaming in Agent,
   Cowork and Design. Two earlier Design attempts failed on the test client's
@@ -1471,6 +1518,11 @@ every model or a release. Exact acceptance criteria and retained failures are in
   DeepSeek V4 Flash Vision-Exp. [Results](extension/prompt-lookup/bench/README.md#follow-up-the-lost-final-newline-3-october-2026).
 - [x] Cowork from a LAN browser through an explicitly shared, paired session.
   `make test-http-lan`, `tests/browser/ui_lan_cowork_playwright_test.mjs`.
+- [ ] Run the five representative real-weight checks of the newly downloadable
+  Qwen variants (Qwen3.6 UD-Q4_K_M, UD-IQ4_XS and MXFP4_MOE GGUFs, Qwen3.6 MLX
+  NVFP4, Qwen3.8-27B MLX 4-bit; about 98 GB) with the production-host gate,
+  one at a time. **NOT RUN** yet (no weights downloaded for them).
+  [Plan](docs/WORK_IN_PROGRESS.md).
 - [ ] Rerun the 100-task corpus and the long requests on llama.cpp and MLX
   (published Qwen scores come from retired engines); qualify Next Q2
   independently.

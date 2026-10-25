@@ -26,6 +26,7 @@ in this campaign.
 | Laguna S 2.1 Q4_K_M | laguna 448d569 | First group |
 | Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.8-27B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
+| Qwen3.6-35B-A3B MXFP8 | MLX: mlx 0.32.4 36969c0, mlx-lm 0.32.2 93e6d4a | First group (added October 25) |
 | Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
 | DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
@@ -78,13 +79,49 @@ reviewed aggregates and provenance hashes. Results from another machine
 qualify that machine's configuration, not the maintainer's Mac. DStudio has
 not established a minimum memory size for these models.
 
-Qwen3.6-35B-A3B MXFP8 also runs on bundled MLX (mlx 0.32.4 `36969c0`, mlx-lm
-0.32.2 `93e6d4a`; Apple Silicon, macOS 26) since October 3. It is a different
-engine and quantization: its results do not qualify the GGUF row, nor the
-reverse, and no quality comparison between them exists. It has no target in
-the admission matrix and is not counted in the nine selections or their
-denominators until the owner admits it; its current results are development
-checks only.
+Since October 25 the MLX Qwen3.6-35B-A3B MXFP8 path (Apple Silicon, macOS 26,
+text only) is the tenth selection and part of the maintainer's execution plan.
+It is a different engine and quantization from the GGUF row: neither one's
+results qualify the other, and no quality comparison between them exists yet.
+Its current results are development checks only (six production-host checks,
+pi/OpenCode tasks and tool-call streaming). The admission matrix has no MLX
+target yet; adding it with its required gates is part of P2.
+
+<a id="qwen-variants"></a>
+**Pinned Qwen variants (added October 25).** Every standard published
+quantization of Qwen3.6-35B-A3B and Qwen3.8-27B is now downloadable and
+selectable: 24 + 25 unsloth GGUFs on llama.cpp (every 27B GGUF with the pinned
+F16 projector; both BF16 GGUFs split in two files) and 8 + 6 mlx-community
+folders on MLX, 63 variants pinned by revision, size and SHA-256 in
+[scripts/qwen-variants.json](scripts/qwen-variants.json). Qwen3.8-27B on MLX is
+a new engine combination and text only (images are refused). Q6_K_XL (both
+models on llama.cpp) and MXFP8 (Qwen3.6 on MLX) stay the campaign's
+qualification selections; the other variants are not selections and do not
+enter the selection denominators. They share the engine, tokenizer, chat
+template and tool format of a checked variant but use other quantization
+kernels (and the split BF16 another loading path and about 69 GB of memory), so
+they are downloadable but not individually verified. Their fixture-based checks
+(`make test-qwen-variants`) cover download, recognition, routing and refusals,
+not inference.
+
+Instead of one check per other variant (60 checks, about 1.4 TB of downloads), the
+verification plan is five representative real-weight checks with the
+production-host development gate (`make test-llama-resident-live
+DSTUDIO_LLAMA_MODELS=<id>`: its six checks, plus the refused image request on
+27B MLX), run one at a time, about 98 GB of downloads in total. All five are
+required and **NOT RUN**: disk space no longer blocks them (about 586 GiB free
+on October 25), but no weights have been downloaded for them yet:
+
+| # | Variant (id) | Download | What it represents |
+| --- | --- | ---: | --- |
+| 1 | Qwen3.6-35B-A3B UD-Q4_K_M GGUF (`qwen36-q4_k_m`), through the new generic downloader | 22.1 GB | K-quant kernels on the new download path |
+| 2 | Qwen3.6-35B-A3B UD-IQ4_XS GGUF (`qwen36-iq4_xs`) | 17.7 GB | i-quant kernels |
+| 3 | Qwen3.6-35B-A3B MXFP4_MOE GGUF (`qwen36-mxfp4_moe`) | 21.7 GB | MXFP4 MoE kernels |
+| 4 | Qwen3.6-35B-A3B MLX nvfp4 (`qwen36-mlx-nvfp4`) | 20.4 GB | MLX nvfp4 mode |
+| 5 | Qwen3.8-27B MLX 4bit (`qwen27-mlx-4bit`) | 16.1 GB | the new 27B-on-MLX combination (affine mode, text only) |
+
+A passing check covers its own variant on the maintainer's Mac; it does not
+qualify the other variants, and none of the five qualifies a selection.
 
 Out of scope: non-macOS platforms/backends, multi-GPU/distributed execution,
 q27's removed Linux/CUDA admission target, Pro/GLM5.2, other
@@ -207,7 +244,8 @@ patch migrations and retired-Next removal are implemented.
    [the matrix](docs/engine-upstream.json). On October 25 it declares nine macOS
    targets with 107 required gate slots and zero linked receipts (117 before
    the Qwen targets moved to llama.cpp). This is incomplete qualification, not
-   107 failed tests. MLX has no target yet. Link existing evidence only when
+   107 failed tests. MLX, now the tenth selection, has no target yet: add it
+   with its required gates. Link existing evidence only when
    its exact engine/patch/model/binary identities and scope match.
 3. Complete Agent/Cowork dependency signatures, coordinated crash-safe
    publication of the runtime pair and verified recovery of legacy patched
@@ -263,7 +301,7 @@ models and the MLX Qwen3.6, with development checks only.
 6. Complete native vision adapters/components where the checkpoint requires
    them, particularly the unqualified Qwen3.6/Next paths, through P4.
    Qualify Next Q2 independently of Q4.
-7. For all nine selections verify tool call/result identity, parsing, reasoning,
+7. For all ten selections verify tool call/result identity, parsing, reasoning,
    streamed events, cancel/reset/continuation, Goals/live input and reopened
    Cowork exports. Keep the existing DStudio tool loops and workspace confinement.
    A resident server has separate PID/lease/cancellation ownership from its
@@ -357,7 +395,7 @@ have not run the corpus. All failures are retained; details and receipt
 identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
 
 1. Run the common 100 cases and the original long-context requests for
-   Qwen3.6 and Qwen3.8-27B on llama.cpp, and for Qwen3.6 on MLX if admitted,
+   Qwen3.6 and Qwen3.8-27B on llama.cpp, and for Qwen3.6 on MLX,
    with compatible model/quant-specific numerical references. The 27B
    online-softmax and 3.6 batched-prefill overlays retired with their engines;
    their operator checks do not carry over. These corpus reruns remain
@@ -415,7 +453,7 @@ The frozen minimum text distribution remains:
 | Insufficient information | 5 | Verified absence |
 | **Total per selection** | **100** | |
 
-Nine selections require a minimum 900 text-case executions on their applicable
+Ten selections require a minimum 1,000 text-case executions on their applicable
 paths across the complete campaign, plus product, numerical and vision cases.
 Preserve denominators, original deadlines and grader semantics. Correct a grader
 only with evidence, a behavioral regression and the same correction for all
@@ -430,7 +468,7 @@ are complementary evidence, not full native-model desktop acceptance.
 1. Use the actual foreground DStudio.app, launcher and real weights in an
    isolated profile with owned ports. Record procedures, actual mouse/keyboard
    or accessibility actions, screenshots, logs and independently verified files.
-2. Complete all nine selections × four modes: **at least 36 workflows**.
+2. Complete all ten selections × four modes: **at least 40 workflows**.
    Chat includes stream/copy/Stop/next question; Agent read/edit/test and confined
    effects; Learn curriculum/lesson/exercise/correction/progress/reopened Tutor;
    Cowork document/table changes, export and independently reopened files.

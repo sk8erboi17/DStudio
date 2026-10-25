@@ -2293,51 +2293,11 @@ static void model_download_progress_tick(void) {
 #endif
 }
 
-/* Two fixed pinned components, not an unbounded directory scan. This is byte
- * progress only: a final-looking name or a full partial is NOT verification. */
-static long long qwen27_download_bytes(const char *checkout, int *has_partial) {
-    const char *files[] = {MODEL_QWEN27, MODEL_QWEN27_VISION};
-    const long long limits[] = {MODEL_QWEN27_BYTES, MODEL_QWEN27_VISION_BYTES};
-    long long total = 0;
-    if (has_partial) *has_partial = 0;
-    for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
-        char file[DSTUDIO_PATH_MAX + 1024]; struct stat st;
-        snprintf(file, sizeof file, "%s/%s", checkout, files[i]);
-        long long complete = lstat(file, &st) == 0 && S_ISREG(st.st_mode) ? st.st_size : 0;
-        const char *name = strrchr(files[i], '/'); name = name ? name + 1 : files[i];
-        snprintf(file, sizeof file, "%s/gguf/.dstudio-qwen27-downloads/%s/data.part", checkout, name);
-        long long part = lstat(file, &st) == 0 && S_ISREG(st.st_mode) ? st.st_size : 0;
-        if (part > 0 && has_partial) *has_partial = 1;
-        long long have = complete > part ? complete : part;
-        total += have < limits[i] ? have : limits[i];
-    }
-    return total;
-}
-/* Byte progress for the MLX folder: at most 64 published names plus at most
- * 64 private per-file stages, never file contents. Not verification. */
-static long long mlx_download_bytes(const char *checkout, int *has_partial) {
-    char folder[DSTUDIO_PATH_MAX + 64], stages[DSTUDIO_PATH_MAX + 96];
-    long long total = 0;
-    if (has_partial) *has_partial = 0;
-    snprintf(folder, sizeof folder, "%s/%s", checkout, MODEL_QWEN36_MLX);
-    snprintf(stages, sizeof stages, "%s/.dstudio-qwen27-downloads", folder);
-    const char *dirs[] = {folder, stages};
-    for (int pass = 0; pass < 2; pass++) {
-        DIR *d = opendir(dirs[pass]);
-        if (!d) continue;
-        struct dirent *de; int seen = 0;
-        while ((de = readdir(d)) && seen++ < 64) {
-            if (de->d_name[0] == '.') continue;
-            char path[DSTUDIO_PATH_MAX + 512]; struct stat st;
-            snprintf(path, sizeof path, pass ? "%s/%s/data.part" : "%s/%s", dirs[pass], de->d_name);
-            if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
-            total += st.st_size;
-            if (pass && st.st_size > 0 && has_partial) *has_partial = 1;
-        }
-        closedir(d);
-    }
-    return total < MODEL_QWEN36_MLX_BYTES ? total : MODEL_QWEN36_MLX_BYTES;
-}
+#include "dstudio_qwen_variants.c"
+/* The Qwen variant a running or last staged download admitted, copied so a
+ * later catalog reload cannot change what its progress measures. */
+static qwen_variant g_dl_qwen;
+static int g_dl_qwen_valid = 0;
 static char  g_model_override[1024] = ""; /* explicit GGUF the user picked (rel to ds4 dir); "" = use the variant */
 static char  g_skill[64] = "";            /* active user-authored skill id; "" = none */
 static char  g_design_system[64] = "";    /* active design-system id (design only); "" = none */
@@ -2399,12 +2359,11 @@ static void model_download_details(const char *target, char *rel, size_t relsz,
         file = MODEL_QWEN; bytes = MODEL_QWEN_BYTES;
     } else if (!strcmp(target, "qwen38-q2")) {
         file = MODEL_QWEN_Q2; bytes = MODEL_QWEN_Q2_BYTES;
-    } else if (!strcmp(target, "qwen36-q6")) {
-        file = MODEL_QWEN35; bytes = MODEL_QWEN35_BYTES;
-    } else if (!strcmp(target, "qwen27-q6")) {
-        file = MODEL_QWEN27; bytes = MODEL_QWEN27_BYTES + MODEL_QWEN27_VISION_BYTES;
-    } else if (!strcmp(target, "qwen36-mlx")) {
-        file = MODEL_QWEN36_MLX; bytes = MODEL_QWEN36_MLX_BYTES;
+    } else if (qwen_variant_by_id(target)) {
+        /* Pinned Qwen variants: the selectable path and every required byte
+         * (all GGUF parts plus the 27B projector, or the whole MLX folder). */
+        const qwen_variant *v = qwen_variant_by_id(target);
+        file = v->path; bytes = v->bytes;
     }
     cstr_copy(rel, relsz, file);
     if (expected_bytes) *expected_bytes = bytes;
@@ -2499,8 +2458,8 @@ static long long ds41_download_bytes(const char *checkout, const char *target,
 static long long model_download_bytes_present(void) {
     if (!g_dl_rel[0]) return 0;
     const char *checkout = g_dl_directory[0] ? g_dl_directory : g_ds4_dir;
-    if (!strcmp(g_dl_variant, "qwen27-q6")) return qwen27_download_bytes(checkout, NULL);
-    if (!strcmp(g_dl_variant, "qwen36-mlx")) return mlx_download_bytes(checkout, NULL);
+    if (g_dl_qwen_valid && !strcmp(g_dl_variant, g_dl_qwen.id) && qwen_variant_staged(&g_dl_qwen))
+        return qwen_download_bytes(checkout, &g_dl_qwen, NULL);
     if (model_download_uses_hf_artifacts(g_dl_variant)) return ds41_download_bytes(checkout, g_dl_variant, NULL);
     char full[2048], part[2060];
     snprintf(full, sizeof full, "%s/%s", checkout, g_dl_rel);
@@ -2553,23 +2512,15 @@ static long long hf_partial_bytes_in_checkout(const char *checkout) {
 static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
-    int q27_partial = 0;
-    const char *checkout = !strcmp(g_dl_variant, "qwen27-q6") && g_dl_directory[0]
+    /* Staged Qwen downloads stay bound to the store of the last download. */
+    const char *checkout = qwen_variant_staged(qwen_variant_by_id(g_dl_variant)) && g_dl_directory[0]
         ? g_dl_directory : g_ds4_dir;
-    long long q27_bytes = qwen27_download_bytes(checkout, &q27_partial);
-    if (q27_partial) {
-        cstr_copy(target, targetsz, "qwen27-q6");
-        if (bytes) *bytes = q27_bytes;
-        if (expected) *expected = MODEL_QWEN27_BYTES + MODEL_QWEN27_VISION_BYTES;
-        return 1;
-    }
-    int mlx_partial = 0;
-    checkout = !strcmp(g_dl_variant, "qwen36-mlx") && g_dl_directory[0] ? g_dl_directory : g_ds4_dir;
-    long long mlx_bytes = mlx_download_bytes(checkout, &mlx_partial);
-    if (mlx_partial) {
-        cstr_copy(target, targetsz, "qwen36-mlx");
-        if (bytes) *bytes = mlx_bytes;
-        if (expected) *expected = MODEL_QWEN36_MLX_BYTES;
+    long long qwen_bytes = 0;
+    const qwen_variant *qwen_paused = qwen_paused_download(checkout, g_dl_variant, &qwen_bytes);
+    if (qwen_paused) {
+        cstr_copy(target, targetsz, qwen_paused->id);
+        if (bytes) *bytes = qwen_bytes;
+        if (expected) *expected = qwen_paused->bytes;
         return 1;
     }
 
@@ -2899,15 +2850,13 @@ static int model_file_is_auxiliary(const char *name) {
            mem_contains_ci(name, len, "glm-5.3-flash-vision-encoder") ||
            mem_contains_ci(name, len, "deepseek-v4.1-flash-vision") ||
            mem_contains_ci(name, len, "deepseek-v4.1-flash-1017-vision") ||
-           mem_contains_ci(name, len, "deepseek-v4-flash-vision-encoder");
+           mem_contains_ci(name, len, "deepseek-v4-flash-vision-encoder") ||
+           qwen_gguf_component_name(name); /* another part of a split Qwen GGUF */
 }
-static int ascii_equal_ci(const char *a, const char *b) {
-    for (; *a && *b; a++, b++)
-        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
-    return *a == *b;
-}
+/* An MLX model is one of the pinned folders in scripts/qwen-variants.json. */
 static int model_file_is_mlx(const char *rel) {
-    return rel && !strncmp(rel, "mlx/", 4) && ascii_equal_ci(rel + 4, &MODEL_QWEN36_MLX[4]);
+    const qwen_variant *v = qwen_variant_for_rel(rel);
+    return v && v->engine == QWEN_ENGINE_MLX;
 }
 /* Only the publishers' own weights are offered. Abliterated or otherwise
  * safety-removed derivatives are refused even when a file is already on disk;
@@ -2919,9 +2868,10 @@ static int model_file_is_modified_weights(const char *name) {
 }
 static int model_file_is_supported(const char *name) {
     if (!name) return 0;
+    if (model_file_is_modified_weights(name)) return 0;
     if (!strncmp(name, "mlx/", 4)) return model_file_is_mlx(name);
     size_t len = strlen(name);
-    if (model_file_is_auxiliary(name) || model_file_is_modified_weights(name)) return 0;
+    if (model_file_is_auxiliary(name)) return 0;
     if (model_file_is_deepseek41(name)) {
 #ifndef __APPLE__
         return 0; /* Upstream V4.1 currently implements Metal only. */
@@ -2933,14 +2883,11 @@ static int model_file_is_supported(const char *name) {
 #endif
     }
     /* The Qwen checkpoints run on DStudio's llama.cpp engine; only the
-     * pinned representations are admitted. */
-    if (mem_contains_ci(name, len, "qwen3.8-27b")) {
-        const char *base = strrchr(name, '/');
-        return !strcmp(base ? base + 1 : name, &MODEL_QWEN27[5]);
-    }
-    if (mem_contains_ci(name, len, "qwen3.6") || mem_contains_ci(name, len, "qwen3.5")) {
-        const char *base = strrchr(name, '/');
-        return !strcmp(base ? base + 1 : name, &MODEL_QWEN35[5]);
+     * pinned files of scripts/qwen-variants.json are admitted. */
+    if (mem_contains_ci(name, len, "qwen3.8-27b") || mem_contains_ci(name, len, "qwen3.6") ||
+        mem_contains_ci(name, len, "qwen3.5")) {
+        const qwen_variant *v = qwen_variant_for_rel(name);
+        return v && v->engine == QWEN_ENGINE_LLAMA;
     }
     if (!mem_contains_ci(name, len, "glm")) return 1;
     return mem_contains_ci(name, len, "glm-5.3");
@@ -2965,10 +2912,13 @@ static int model_file_is_legacy_qwen38(const char *rel) {
     const char *name = strrchr(rel, '/');
     return !strcmp(name ? name + 1 : rel, &MODEL_LEGACY_QWEN[5]);
 }
-static int model_file_is_qwen27(const char *rel) {
-    if (!rel) return 0;
-    const char *base = strrchr(rel, '/');
-    return !strcmp(base ? base + 1 : rel, &MODEL_QWEN27[5]);
+/* gguf/<projector> of a pinned 27B GGUF variant; MLX 27B is text only. */
+static const char *qwen_projector_rel(const char *rel) {
+    static char projector[112];
+    const qwen_variant *v = qwen_variant_for_rel(rel);
+    if (!v || v->engine != QWEN_ENGINE_LLAMA || !v->projector) return NULL;
+    snprintf(projector, sizeof projector, "gguf/%s", v->files[v->parts].name);
+    return projector;
 }
 /* DStudio's engines are ds4 main, Laguna, llama.cpp and MLX; only main and
  * Laguna are ds4-family checkouts. Every checkout DStudio installed carries
@@ -3006,17 +2956,19 @@ static const char *resident_memory_note(const char *rel) {
     return model_file_is_mlx(rel) ? RESIDENT_MLX_MEMORY_NOTE : RESIDENT_MEMORY_NOTE;
 }
 static int model_file_is_resident(const char *rel) {
-    if (!rel) return 0;
-    if (model_file_is_mlx(rel)) return 1;
-    const char *base = strrchr(rel, '/');
-    const char *name = base ? base + 1 : rel;
-    return !strcmp(name, &MODEL_QWEN27[5]) || !strcmp(name, &MODEL_QWEN35[5]);
+    return !model_file_is_modified_weights(rel ? rel : "") && qwen_variant_for_rel(rel) != NULL;
 }
+/* The alias a resident server reports names the family and engine: every
+ * quantization of one family shares its chat template and tool format. The
+ * admitted path, not the alias, identifies the quantization at readiness. */
 static const char *resident_model_id(const char *rel) {
-    return model_file_is_mlx(rel) ? "qwen3.6-35b-a3b-mlx" : model_file_is_qwen27(rel) ? "qwen3.8-27b" : "qwen3.6-35b-a3b";
+    const qwen_variant *v = qwen_variant_for_rel(rel);
+    if (v && v->family == QWEN_FAMILY_27) return v->engine == QWEN_ENGINE_MLX ? "qwen3.8-27b-mlx" : "qwen3.8-27b";
+    return v && v->engine == QWEN_ENGINE_MLX ? "qwen3.6-35b-a3b-mlx" : "qwen3.6-35b-a3b";
 }
 static const char *resident_model_label(const char *rel) {
-    return model_file_is_mlx(rel) ? "Qwen3.6-35B-A3B (MLX)" : model_file_is_qwen27(rel) ? "Qwen3.8-27B" : "Qwen3.6-35B-A3B";
+    const qwen_variant *v = qwen_variant_for_rel(rel);
+    return v ? qwen_variant_label(v) : "Qwen3.6-35B-A3B";
 }
 /* Qwen models the ds4 engine itself runs; the llama.cpp ones are separate. */
 static int model_is_qwen(void) { return model_is_qwen38(); }
@@ -3120,7 +3072,7 @@ static const char *native_vision_encoder_rel_for_model(const char *model_rel) {
 #ifdef _WIN32
     (void)model_rel;
 #else
-    if (model_file_is_qwen27(model_rel)) return MODEL_QWEN27_VISION;
+    if (qwen_projector_rel(model_rel)) return qwen_projector_rel(model_rel);
 #ifdef __APPLE__
     if (model_file_is_deepseek41(model_rel)) {
         /* Each checkpoint only pairs with its own sidecar. */
@@ -3519,7 +3471,7 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
              * but has not been executed on real hardware. MLX is Apple-only. */
 #if !defined(__APPLE__) || !defined(__aarch64__)
             if (model_file_is_mlx(model_rel)) {
-                snprintf(err, errsz, "%s needs macOS on Apple Silicon; use the llama.cpp Qwen3.6 model here", label);
+                snprintf(err, errsz, "%s needs macOS on Apple Silicon; use a llama.cpp (GGUF) variant of this model here", label);
                 return "unsupported_backend";
             }
 #endif
@@ -3532,8 +3484,22 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
                          model_file_is_mlx(model_rel) ? "MLX" : "llama.cpp");
                 return "unsupported_power";
             }
-            if (model_file_is_qwen27(model_rel) && !file_present(MODEL_QWEN27_VISION)) {
-                snprintf(err, errsz, "Qwen3.8-27B needs its F16 projector; download both files in Settings > Models or run download-model.sh qwen27-q6");
+            /* llama.cpp opens the first part and finds the others beside it;
+             * 27B is served with its projector. Presence only: the engine
+             * still validates the files. */
+            const qwen_variant *variant = qwen_variant_for_rel(model_rel);
+            for (int part = 1; variant && part < variant->parts; part++) {
+                char rel[128];
+                snprintf(rel, sizeof rel, "gguf/%s", variant->files[part].name);
+                if (!file_present(rel)) {
+                    snprintf(err, errsz, "%s is split into %d files and %s is missing; download it in Settings > Models or run download-model.sh %s",
+                             label, variant->parts, variant->files[part].name, variant->id);
+                    return "model_component_missing";
+                }
+            }
+            if (variant && variant->projector && !file_present(qwen_projector_rel(model_rel))) {
+                snprintf(err, errsz, "%s needs its F16 projector; download both files in Settings > Models or run download-model.sh %s",
+                         label, variant->id);
                 return "model_component_missing";
             }
         }
@@ -6851,9 +6817,14 @@ static void api_model_download(int fd, const char *body) {
         "ds4f-vision-encoder", "ds4f-vision-dspark",
         "pro-q2-imatrix", "pro-q4-layers00-30", "pro-q4-layers31-output", "pro-q4-split",
         "glm53-q2", "glm53-vision",
-        "laguna-q4", "qwen38-q2", "qwen38-q4k", "qwen36-q6", "qwen27-q6", "qwen36-mlx",
+        "laguna-q4", "qwen38-q2", "qwen38-q4k",
     };
-    int valid = 0;
+    /* Pinned Qwen variants (scripts/qwen-variants.json), copied for this
+     * download: a later catalog reload cannot change what it fetches. */
+    const qwen_variant *catalog_variant = qwen_variant_by_id(target);
+    qwen_variant variant = {0};
+    if (catalog_variant) variant = *catalog_variant;
+    int valid = catalog_variant != NULL;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
         if (!strcmp(target, TARGETS[i])) valid = 1;
     if (!valid) {
@@ -6878,7 +6849,7 @@ static void api_model_download(int fd, const char *body) {
         send_json(fd, "500 Internal Server Error", out);
         return;
     }
-    const int mlx = !strcmp(target, "qwen36-mlx");
+    const int mlx = catalog_variant && variant.engine == QWEN_ENGINE_MLX;
 #if !(defined(__APPLE__) && defined(__aarch64__))
     if (mlx) {
         task_mark_failed(task_id, "MLX needs Apple Silicon", target);
@@ -6886,9 +6857,10 @@ static void api_model_download(int fd, const char *body) {
         return;
     }
 #endif
-    /* Both pinned per-file downloads share one isolated path: managed root,
-     * admitted store identity, private log, phase pipe and engine install. */
-    const int q27 = !strcmp(target, "qwen27-q6") || mlx;
+    /* Every staged Qwen download (all but qwen36-q6, which keeps its original
+     * downloader) shares one isolated path: managed root, admitted store
+     * identity, private log, phase pipe and engine install. */
+    const int q27 = catalog_variant && qwen_variant_staged(&variant);
     char install_root[DSTUDIO_PATH_MAX] = "";
     char store_identity[64] = "", log_path[128] = "/tmp/ds4-model-dl.log";
     int owned_log = -1;
@@ -6914,7 +6886,7 @@ static void api_model_download(int fd, const char *body) {
              * existing copy, admitted by the identity of its target. */
             snprintf(store, sizeof store, "%s/mlx", ds4_abs);
             if (mkdir(store, 0755) != 0 && errno != EEXIST) store[0] = '\0';
-            snprintf(store, sizeof store, "%s/%s", ds4_abs, MODEL_QWEN36_MLX);
+            snprintf(store, sizeof store, "%s/%s", ds4_abs, variant.path);
             if (mkdir(store, 0755) != 0 && errno != EEXIST) store[0] = '\0';
         }
         if (stat(store, &st) != 0 || !S_ISDIR(st.st_mode)) {
@@ -6997,13 +6969,20 @@ static void api_model_download(int fd, const char *body) {
                                       &downloaded, error, sizeof error)) {
                 fprintf(stderr, "%s\n", error); _exit(1);
             }
-            char helper[DSTUDIO_PATH_MAX + 64], store[DSTUDIO_PATH_MAX + 64];
+            char helper[DSTUDIO_PATH_MAX + 64], store[DSTUDIO_PATH_MAX + 160];
+            /* The original pins keep their original downloaders; every other
+             * variant uses the generic one with the same per-file machinery. */
+            const int legacy = !strcmp(variant.id, "qwen27-q6") || !strcmp(variant.id, "qwen36-mlx");
             snprintf(helper, sizeof helper, "%s/scripts/%s", g_web_dir,
-                     mlx ? "download-mlx-qwen36.py" : "download-qwen27.py");
-            snprintf(store, sizeof store, "%s/%s", ds4_abs, mlx ? MODEL_QWEN36_MLX : "gguf");
+                     !legacy ? "download-qwen-variant.py" : mlx ? "download-mlx-qwen36.py" : "download-qwen27.py");
+            snprintf(store, sizeof store, "%s/%s", ds4_abs, mlx ? variant.path : "gguf");
             fcntl(3, F_SETFD, 0); /* explicitly passed to this one downloader */
-            execlp("python3", "python3", helper, "--directory", store,
-                   "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
+            if (legacy)
+                execlp("python3", "python3", helper, "--directory", store,
+                       "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
+            else
+                execlp("python3", "python3", helper, "--variant", variant.id, "--directory", store,
+                       "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
             _exit(127);
         }
         if (!strcmp(target, "qwen36-q6")) {
@@ -7040,6 +7019,7 @@ static void api_model_download(int fd, const char *body) {
     if (t) t->pid = (int)pid;
     task_mark_working(task_id, "model download started");
     cstr_copy(g_dl_variant, sizeof g_dl_variant, target);
+    g_dl_qwen = variant; g_dl_qwen_valid = catalog_variant != NULL;
     model_download_details(target, g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
     printf("model: downloading %s (pid %d) — log %s\n", target, (int)pid, log_path);
     char out[128];
@@ -7110,8 +7090,9 @@ static void api_model_folder_open(int fd, const char *body) {
         return;
     }
     char folder[DSTUDIO_PATH_MAX + 64];
-    const int mlx_folder = !strcmp(download_target, "qwen36-mlx");
-    snprintf(folder, sizeof folder, "%s/%s", checkout, mlx_folder ? MODEL_QWEN36_MLX : "gguf");
+    const qwen_variant *download_variant = qwen_variant_by_id(download_target);
+    const int mlx_folder = download_variant && download_variant->engine == QWEN_ENGINE_MLX;
+    snprintf(folder, sizeof folder, "%s/%s", checkout, mlx_folder ? download_variant->path : "gguf");
     /* The MLX folder exists from its download admission; it is not created here. */
     if (mlx_folder ? stat(folder, &st) != 0 || !S_ISDIR(st.st_mode) : mkdir(folder, 0755) != 0 && errno != EEXIST) {
         send_json(fd, "500 Internal Server Error",
@@ -7157,7 +7138,7 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
         return;
     }
-    if (!strcmp(target, "qwen27-q6") || !strcmp(target, "qwen36-mlx") || model_download_uses_hf_artifacts(target)) {
+    if (qwen_variant_staged(qwen_variant_by_id(target)) || model_download_uses_hf_artifacts(target)) {
         /* Its private, flock-owned staging tree is not the legacy .part
          * layout. Keep it resumable; never delete around its active leader. */
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"Partial files are preserved; this cleanup does not support this model's locked download cache\"}");
@@ -7783,6 +7764,9 @@ static char *gguf_catalog_build_known(void) {
     int rows = 0;
     const char *current = current_model_rel();
     size_t known_n = sizeof known / sizeof known[0];
+    /* Plus every GGUF of the pinned Qwen variants: parts and projectors. */
+    const qwen_catalog *qwen = qwen_catalog_current();
+    size_t qwen_n = (size_t)qwen->count * (QWEN_GGUF_PARTS_MAX + 1);
     for (int ci = 0; ci < ndirs && ok; ci++) {
         const char *engine_name = strrchr(dirs[ci], '/');
         engine_name = engine_name ? engine_name + 1 : dirs[ci];
@@ -7790,12 +7774,26 @@ static char *gguf_catalog_build_known(void) {
         checkout_branch_label(dirs[ci], branch, sizeof branch);
         int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
                             !strcmp(branch, "laguna-s2.1");
-        for (size_t ki = 0; ki <= known_n && ok; ki++) {
-            const char *rel = ki < known_n ? known[ki] : current;
+        for (size_t ki = 0; ki <= known_n + qwen_n && ok; ki++) {
+            char qwen_rel[128] = "";
+            if (ki > known_n) {
+                const qwen_variant *v = &qwen->variants[(ki - known_n - 1) / (QWEN_GGUF_PARTS_MAX + 1)];
+                int f = (int)((ki - known_n - 1) % (QWEN_GGUF_PARTS_MAX + 1));
+                if (v->engine != QWEN_ENGINE_LLAMA || f >= v->parts + v->projector) continue;
+                snprintf(qwen_rel, sizeof qwen_rel, "gguf/%s", v->files[f].name);
+            }
+            const char *rel = ki < known_n ? known[ki] : ki == known_n ? current : qwen_rel;
             if (!rel || !rel[0] || rel[0] == '/') continue;
             int duplicate = 0;
-            for (size_t pi = 0; pi < ki && pi < known_n; pi++)
-                if (!strcmp(rel, known[pi])) { duplicate = 1; break; }
+            for (size_t pi = 0; pi < known_n; pi++)
+                if ((pi < ki || ki > known_n) && !strcmp(rel, known[pi])) { duplicate = 1; break; }
+            if (!duplicate && ki > known_n && !strcmp(rel, current)) duplicate = 1;
+            /* A projector is shared by the 27B variants: list it once. */
+            for (size_t qi = known_n + 1; !duplicate && qi < ki; qi++) {
+                const qwen_variant *v = &qwen->variants[(qi - known_n - 1) / (QWEN_GGUF_PARTS_MAX + 1)];
+                int f = (int)((qi - known_n - 1) % (QWEN_GGUF_PARTS_MAX + 1));
+                if (v->engine == QWEN_ENGINE_LLAMA && f < v->parts + v->projector && !strcmp(rel + 5, v->files[f].name)) duplicate = 1;
+            }
             if (duplicate) continue;
             int laguna_model = !strcmp(rel, MODEL_LAGUNA) ||
                                mem_contains_ci(rel, strlen(rel), "laguna");
@@ -9610,6 +9608,9 @@ static void api_set_webdir(int fd, const char *body) {
         return;
     }
     cstr_copy(g_web_dir, sizeof g_web_dir, abs);
+    /* Its pinned Qwen variants come with this support directory. Launch
+     * preparation is not running (route_post_api refuses this meanwhile). */
+    qwen_catalog_reload();
     char out[80];
     snprintf(out, sizeof out, "{\"ok\":true,\"webdirOk\":%s}", web_dir_valid() ? "true" : "false");
     send_json(fd, "200 OK", out);
@@ -11780,6 +11781,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && path_eq_clean(path, "/api/tasks")) { api_tasks(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/task")) { api_task(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
+    if (is_get && path_eq_clean(path, "/api/model/qwen-variants")) { api_qwen_variants(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/engine/checkouts")) { api_engine_checkouts(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/harness/status")) { api_harness_status(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/skills/search")) { api_skills_search(fd, path); return 200; }
@@ -12295,6 +12297,7 @@ int main(int argc, char **argv)
         port = (int)p;
     }
     resolve_web_dir();   /* same for extension/ scripts (build-design.sh) */
+    qwen_catalog_reload(); /* scripts/qwen-variants.json; the original pins otherwise */
     if (argc > 2) {
         snprintf(g_ds4_dir, sizeof g_ds4_dir, "%s", argv[2]);
         g_ds4_dir_explicit = 1;

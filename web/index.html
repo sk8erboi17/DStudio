@@ -13295,6 +13295,56 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     const isGlm53Gguf = (path) => /glm[-_. ]?5\.3/i.test(String(path || ''));
     const isLagunaGguf = (path) => /laguna[-_. ]?s(?:[-_. ]?2\.1)?/i.test(String(path || ''));
+    // Pinned Qwen3.6-35B-A3B / Qwen3.8-27B variants: scripts/qwen-variants.json
+    // exactly as the host validated and serves it (GET /api/model/qwen-variants),
+    // or the host's original three pins when that file could not be loaded.
+    // Presentation, download offers and component checks only: the host alone
+    // decides what it lists, launches and downloads.
+    let qwenCatalog = null;
+    const QWEN_FAMILIES = { qwen36: 'Qwen3.6-35B-A3B', qwen27: 'Qwen3.8-27B' };
+    function applyQwenCatalog(doc) {
+      if (!doc || doc.schema !== 'dstudio.qwen-variants' || doc.version !== 1 || !Array.isArray(doc.variants)) return false;
+      const components = new Map((Array.isArray(doc.components) ? doc.components : []).map((c) => [c?.id, c]));
+      const variants = [];
+      for (const v of doc.variants) {
+        if (!v || typeof v.id !== 'string' || !QWEN_FAMILIES[v.family] || !['llama', 'mlx'].includes(v.engine) ||
+            typeof v.path !== 'string' || !(Number(v.bytes) > 0) || !Array.isArray(v.files)) continue;
+        const projector = (Array.isArray(v.requires) ? v.requires : [])
+          .map((id) => String(components.get(id)?.files?.[0]?.file || '')).find(Boolean) || '';
+        variants.push({ id: v.id, family: v.family, engine: v.engine, quant: String(v.quant || ''), path: v.path,
+          file: v.path.split('/').pop(), parts: v.engine === 'llama' ? v.files.map((f) => String(f?.file || '')) : [],
+          projector, bytes: Number(v.bytes) });
+      }
+      qwenCatalog = { variants, fallback: doc.fallback === true,
+        gguf: new Map(variants.filter((v) => v.engine === 'llama').map((v) => [v.file, v])),
+        mlx: new Map(variants.filter((v) => v.engine === 'mlx').map((v) => [v.file.toLowerCase(), v])) };
+      return true;
+    }
+    const ggufIsMlxFolder = (g) => g?.format === 'mlx' || /^mlx\//i.test(String(g?.path || ''));
+    function qwenVariantForGguf(g) {
+      const file = String(g?.file || g?.path || '').split(/[\\/]/).pop();
+      return ggufIsMlxFolder(g) ? qwenCatalog?.mlx.get(file.toLowerCase()) || null : qwenCatalog?.gguf.get(file) || null;
+    }
+    // Every file a Qwen GGUF variant needs, in the same engine folder: its
+    // other split parts and, for 27B, the F16 projector. Without the host's
+    // catalog the names give the same rule.
+    function qwenGgufComplete(g, allGgufs) {
+      const file = String(g?.file || g?.path || '').split(/[\\/]/).pop();
+      const variant = qwenVariantForGguf(g);
+      const split = /^(.+)-00001-of-(\d{5})\.gguf$/i.exec(file);
+      const needs = variant ? [...variant.parts.slice(1), ...(variant.projector ? [variant.projector] : [])]
+        : [...(split ? Array.from({ length: Number(split[2]) - 1 }, (_, i) => `${split[1]}-${String(i + 2).padStart(5, '0')}-of-${split[2]}.gguf`) : []),
+          ...(/^qwen3\.8-27b-/i.test(file) ? ['Qwen3.8-27B-mmproj-F16.gguf'] : [])];
+      return !!g?.engineDir && needs.every((name) => (allGgufs || []).some((part) =>
+        String(part?.file || part?.path || '').split(/[\\/]/).pop().toLowerCase() === name.toLowerCase() &&
+        String(part?.engineDir || '') === String(g.engineDir)));
+    }
+    // "UD-Q4_K_M" reads as Q4_K_M, MLX modes as 4-bit / MXFP8.
+    function qwenQuantLabel(quant, engine) {
+      const q = String(quant || '');
+      if (engine === 'mlx') return /^\d+bit$/i.test(q) ? `${q.slice(0, -3)}-bit` : q.toUpperCase();
+      return q.replace(/^UD-/i, '');
+    }
     // Ephemeral selection identity survives object spreads, never JSON/storage.
     // Returning to the same model cannot revive work from its previous turn.
     const CHAT_SELECTION_REVISION = Symbol('chat selection revision');
@@ -13302,6 +13352,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       /qwen3\.6-35b-a3b/i.test(String(settings?.modelGguf || settings?.model || ''));
     const localQwen27Selected = (settings = Store.getSettings()) =>
       /qwen3\.8-27b(?:-|\.|$)/i.test(String(settings?.modelGguf || settings?.model || ''));
+    // The bundled MLX runtime serves a folder; Qwen3.8-27B there is text only.
+    const localMlxSelected = (settings = Store.getSettings()) => /^mlx\//i.test(String(settings?.modelGguf || ''));
     // Qwen checkpoints served by DStudio's llama.cpp engine.
     const localLlamaQwenSelected = (settings = Store.getSettings()) =>
       localQwen35Selected(settings) || localQwen27Selected(settings);
@@ -13381,7 +13433,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         return { kind: 'deepseek41', model: /deepseek-v4\.1-flash-1017-/i.test(model) ? 'DeepSeek V4.1 Flash 1017' : 'DeepSeek V4.1 Flash', encoderSize: '0.97 GB matching V4.1' };
       if (isDeepseekVisionGguf(model))
         return { kind: 'deepseek', model: 'DeepSeek Vision-Exp', encoderSize: '0.93 GB' };
-      if (localQwen27Selected(settings))
+      // Its F16 projector exists for llama.cpp only: images are refused on MLX.
+      if (localQwen27Selected(settings) && !localMlxSelected(settings))
         return { kind: 'qwen27', model: 'Qwen3.8-27B', encoderSize: '0.93 GB' };
       return null;
     }
@@ -13442,13 +13495,17 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     // Derive {model, kind, quant} from a GGUF filename (shared by onboarding + settings).
     function parseGgufName(file) {
       file = String(file || '').split(/[\\/]/).pop();
-      // An MLX model is a folder of safetensors served by the bundled MLX runtime.
-      if (/^Qwen3\.6-35B-A3B-mxfp8$/i.test(file))
-        return { model: 'Qwen3.6-35B-A3B', kind: 'text · MLX', quant: 'MXFP8' };
-      if (/^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i.test(file))
-        return { model: 'Qwen3.8-27B', kind: 'text + images', quant: 'Q6_K_XL' };
-      if (/^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i.test(file))
-        return { model: 'Qwen3.6-35B-A3B', kind: 'text', quant: 'Q6_K_XL' };
+      // Published Qwen quantizations: unsloth GGUFs (split BF16 parts too) and
+      // mlx-community folders of safetensors for the bundled MLX runtime
+      // (text only, also for 27B). Only 27B on llama.cpp reads images.
+      const qwen = /^(Qwen3\.6-35B-A3B|Qwen3\.8-27B)-(.+?)(?:-\d{5}-of-\d{5})?(\.gguf)?$/i.exec(file);
+      if (qwen && (qwen[3] ? /^(?:UD-)?(?:I?Q\d[A-Z0-9_]*|BF16|MXFP4_MOE)$/i.test(qwen[2])
+        : /^(?:\d+bit|bf16|mxfp[48]|nvfp4)$/i.test(qwen[2]))) {
+        const model = /^Qwen3\.8/i.test(qwen[1]) ? 'Qwen3.8-27B' : 'Qwen3.6-35B-A3B', token = qwen[2];
+        // The same reading as qwenQuantLabel(): UD-Q4_K_M as Q4_K_M, 4bit as 4-bit.
+        if (!qwen[3]) return { model, kind: 'text · MLX', quant: /^\d+bit$/i.test(token) ? `${token.slice(0, -3)}-bit` : token.toUpperCase() };
+        return { model, kind: model === 'Qwen3.8-27B' ? 'text + images' : 'text', quant: token.toUpperCase().replace(/^UD-/, '') };
+      }
       if (/qwen3\.8-flash-next-q4kimatrix/i.test(file))
         return { model: 'Qwen3.8-Flash-Next', kind: 'text', quant: 'Q4K / MXFP4' };
       // antirez's 1017 IQ2_XXS/Q2_K mix; the generic quant pattern cannot see an underscored name.
@@ -13514,7 +13571,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function ggufIsEngineComponent(g) {
       const name = String(g?.file || g?.path || '');
       return ggufIsDsparkSupport(g) || ggufIsGlmVisionEncoder(g) || ggufIsDeepseekVisionEncoder(g)
-        || (/qwen3\.8/i.test(name) && /-ple-|-mmproj-|-mtp\.gguf$/i.test(name));
+        || (/qwen3\.8/i.test(name) && /-ple-|-mmproj-|-mtp\.gguf$/i.test(name))
+        // A later part of a split GGUF: llama.cpp reads it beside the first.
+        || /qwen3\.(?:6-35b-a3b|8-27b)-.+-(?!00001)\d{5}-of-\d{5}\.gguf$/i.test(name);
     }
     // Only the publishers' own weights; mirrors the host's model_file_is_supported.
     function ggufIsModifiedWeights(g) {
@@ -13524,10 +13583,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       if (ggufIsEngineComponent(g) || ggufIsModifiedWeights(g)) return false;
       const file = String(g?.file || g?.path || '').split(/[\\/]/).pop();
       if (isDeepseek41Gguf(file)) return /^DeepSeek-V4\.1-Flash-(?:Q[24]|1017-IQ2_XXS-Q2_K-imatrix)\.gguf$/i.test(file);
-      if (/qwen3\.8-27b/i.test(file))
-        return !!g?.engineDir && /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i.test(file) && (allGgufs || []).some(part =>
-          /^Qwen3\.8-27B-mmproj-F16\.gguf$/i.test(String(part?.file || part?.path || '').split(/[\\/]/).pop()) &&
-          String(part?.engineDir || '') === String(g?.engineDir || ''));
+      // Qwen3.6/27B: a pinned variant (the host lists no other) with every
+      // part it needs. MLX folders are listed complete with config + weights.
+      if (/^qwen3\.(?:6-35b-a3b|8-27b)-/i.test(file)) {
+        if (qwenCatalog && !qwenVariantForGguf(g)) return false;
+        return ggufIsMlxFolder(g) || qwenGgufComplete(g, allGgufs);
+      }
       if (!/qwen3\.8-flash-next/i.test(file)) return true;
       // Main validates the embedded BF16 table when loading. Neither a legacy
       // sidecar nor an unrelated projector can make an old checkpoint usable.
@@ -13563,17 +13624,49 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
       { id: 'qwen38-q2', label: 'Qwen3.8-Flash-Next · Q2 — 147.2 GB disk / 41.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q2', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q2\.gguf$/i },
       { id: 'qwen38-q4k', label: 'Qwen3.8-Flash-Next · Q4 — 177.3 GB disk / 69.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q4k', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q4\.gguf$/i },
-      { id: 'qwen36-q6', label: 'Qwen3.6-35B-A3B · Q6_K_XL — 31.8 GB · llama.cpp · Chat, Agent, Cowork', body: { target: 'qwen36-q6', engine: 'main', llama: true }, match: /^Qwen3\.6-35B-A3B-UD-Q6_K_XL\.gguf$/i },
-      { id: 'qwen27-q6', label: 'Qwen3.8-27B · Q6_K_XL + F16 projector — 26.2 GB · llama.cpp · Chat, Agent, Cowork · Experimental, quality checks incomplete', body: { target: 'qwen27-q6', engine: 'main', llama: true }, match: /^Qwen3\.8-27B-UD-Q6_K_XL\.gguf$/i },
-      // A folder of safetensors for the bundled MLX runtime (Apple Silicon only).
-      ...(/Mac/.test(globalThis.navigator?.platform || '') ? [{ id: 'qwen36-mlx', label: 'Qwen3.6-35B-A3B · MLX MXFP8 — 36.7 GB · MLX, Apple Silicon · Chat, Agent, Cowork, Design', body: { target: 'qwen36-mlx', engine: 'main', mlx: true }, match: /^Qwen3\.6-35B-A3B-mxfp8$/i }] : []),
     ];
+    // Download offers for the pinned Qwen variants, from the host's catalog;
+    // MLX folders only on a Mac (the host also refuses them elsewhere).
+    function qwenModelDownloads() {
+      if (!qwenCatalog) return [];
+      if (qwenCatalog.downloads) return qwenCatalog.downloads;
+      const mac = /Mac/.test(globalThis.navigator?.platform || '');
+      return (qwenCatalog.downloads = qwenCatalog.variants.filter((v) => v.engine === 'llama' || mac).map((v) => {
+        const quant = qwenQuantLabel(v.quant, v.engine);
+        const what = v.engine === 'mlx' ? `MLX ${quant}`
+          : `${quant}${v.parts.length > 1 ? ` (${v.parts.length} files)` : ''}${v.projector ? ' + F16 projector' : ''}`;
+        return { id: v.id, qwen: v, group: `${QWEN_FAMILIES[v.family]} · ${v.engine === 'mlx' ? 'MLX' : 'llama.cpp'}`,
+          label: `${QWEN_FAMILIES[v.family]} · ${what} — ${(v.bytes / 1e9).toFixed(1)} GB · ${v.engine === 'mlx'
+            ? 'MLX, Apple Silicon' : 'llama.cpp'} · ${v.family === 'qwen27' && v.engine === 'llama' ? 'text and images' : 'text only'}${
+            // The family's existing status, the same for every quantization:
+            // no variant is labelled differently from another.
+            v.family === 'qwen27' ? ' · Experimental, quality checks incomplete' : ''}`,
+          body: { target: v.id, engine: 'main', ...(v.engine === 'mlx' ? { mlx: true } : { llama: true }) } };
+      }));
+    }
+    // Offered until one engine folder holds every file of the variant.
+    function qwenVariantInstalled(variant, ggufs) {
+      return (ggufs || []).some((g) => qwenVariantForGguf(g) === variant &&
+        (variant.engine === 'mlx' || qwenGgufComplete(g, ggufs)));
+    }
     function availableModelDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
-      return MODEL_DOWNLOADS.filter((d) => !d.role &&
-        (!files.some((file) => d.match.test(file)) ||
-         (d.id === 'qwen27-q6' && !(ggufs || []).some((g) => d.match.test(String(g?.file || '')) &&
-           g.engineDir && (ggufs || []).some((p) => p.engineDir === g.engineDir && /^Qwen3\.8-27B-mmproj-F16\.gguf$/i.test(String(p?.file || '')))))));
+      return MODEL_DOWNLOADS.filter((d) => !d.role && !files.some((file) => d.match.test(file)))
+        .concat(qwenModelDownloads().filter((d) => !qwenVariantInstalled(d.qwen, ggufs)));
+    }
+    function modelDownloadChoice(target) {
+      return MODEL_DOWNLOADS.find((item) => item.body.target === target) ||
+        qwenModelDownloads().find((item) => item.body.target === target) || null;
+    }
+    // Flat offers, grouped per Qwen family and engine when there are many.
+    function appendModelDownloadOptions(sel, choices) {
+      const groups = new Map();
+      choices.forEach((t) => {
+        const option = el('option', { value: t.id, text: modelDownloadOptionLabel(t) });
+        if (!t.group) { sel.append(option); return; }
+        if (!groups.has(t.group)) sel.append(groups.set(t.group, el('optgroup', { label: t.group })).get(t.group));
+        groups.get(t.group).append(option);
+      });
     }
     function availableDsparkDownloads(ggufs) {
       const files = (ggufs || []).map((g) => String(g?.file || ''));
@@ -13626,7 +13719,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
     function appendModelDownloadStatus(host, dl) {
       host.append(el('span', { class: 'onboard__dl-lbl', text: modelDownloadStatusText(dl) }));
-      const choice = MODEL_DOWNLOADS.find((item) => item.body.target === dl.variant);
+      const choice = modelDownloadChoice(dl.variant);
       const appendOpenFolder = () => {
         const open = el('button', { class: 'btn btn--sm', type: 'button', text: 'Open folder' });
         on(open, 'click', async () => {
@@ -13669,7 +13762,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         on(resume, 'click', () => Switcher.downloadModel(choice.body));
         host.append(resume);
       }
-      if (dl.paused && dl.variant !== 'qwen27-q6' && dl.variant !== 'qwen36-mlx') {
+      // Staged Qwen downloads keep a locked, resumable cache the host does not
+      // delete; only qwen36-q6 keeps the older visible .part file.
+      if (dl.paused && !(choice?.qwen && choice.id !== 'qwen36-q6')) {
         const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
         on(remove, 'click', async () => {
           const yes = await askConfirm({
@@ -27258,6 +27353,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           cloud ? Api.getModels() : Engine.ggufs(),
           cloud ? Promise.resolve(null) : Engine.status(),
           loadH3PickerStatus(),
+          cloud ? Promise.resolve(false) : Engine.qwenVariants(), // pinned Qwen variants, concurrently
         ]);
         if (request !== modelListRequest) return;
         modelListLoading = false;
@@ -28433,7 +28529,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.power.disabled = fullPower;
         qs('#set-power-note').textContent = fullPower
           ? (localQwen27Selected(s) || localQwen35Selected(s)
-            ? 'llama.cpp has no power throttling; this model always runs at full power. Your preference for other models is kept.'
+            ? `${localMlxSelected(s) ? 'MLX' : 'llama.cpp'} has no power throttling; this model always runs at full power. Your preference for other models is kept.`
             : 'This Qwen engine uses native full power. Your preference for other models is kept.')
           : 'ds4 --power balances throughput and memory pressure.';
         syncSsdStreamingFields();
@@ -28991,7 +29087,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               const downloadState = modelDownloadStateFromStatus(st);
               if (downloadState) Store.setModelState({ download: downloadState });
             } catch { /* the catalog request below remains authoritative */ }
-            const r = await Engine.ggufs();
+            const [r] = await Promise.all([Engine.ggufs(), Engine.qwenVariants()]);
             if (!r || r.ok === false || !Array.isArray(r.ggufs))
               throw new Error(r?.error || 'The launcher returned an invalid model catalog.');
             ggufCache = r.ggufs;
@@ -29092,7 +29188,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const choices = availableModelDownloads(allGgufs);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-            choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
+            appendModelDownloadOptions(sel, choices);
             if (choices.some((t) => t.id === selectedDownload)) sel.value = selectedDownload;
             const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
             on(btn, 'click', () => {
@@ -30146,7 +30242,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
       let ggufCache = null;
       async function loadGgufs() {
         if (isLanClientMode()) { ggufCache = []; renderModels(); return; }
-        try { const r = await Engine.ggufs(); ggufCache = (r && r.ggufs) || []; }
+        try { const [r] = await Promise.all([Engine.ggufs(), Engine.qwenVariants()]); ggufCache = (r && r.ggufs) || []; }
         catch { ggufCache = ggufCache || []; }
         const ggufs = (ggufCache || []).filter((g) => ggufIsUsableModel(g, ggufCache));
         const settings = Store.getSettings();
@@ -30211,7 +30307,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const choices = availableModelDownloads(ggufCache);
           if (choices.length) {
             const sel = el('select', { class: 'onboard__ctx', 'aria-label': 'Model / quantization to download' });
-            choices.forEach((t) => sel.append(el('option', { value: t.id, text: modelDownloadOptionLabel(t) })));
+            appendModelDownloadOptions(sel, choices);
             const btn = el('button', { class: 'btn btn--sm', type: 'button', text: 'Download' });
             btn.disabled = !lastDs4Ok;
             on(btn, 'click', () => {
@@ -30658,6 +30754,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!r.ok && data && !data.error) data.error = `/api/setup/content returned HTTP ${r.status}`;
         return data;
       }
+      // The pinned Qwen variants are fixed for the host's support directory:
+      // fetched once. A failure is not fatal (the host's own listing admits
+      // only pinned files) and is retried with the next model scan.
+      let qwenCatalogFlight = null;
+      function qwenVariants() {
+        if (qwenCatalog) return Promise.resolve(true);
+        return qwenCatalogFlight ||= (async () => {
+          try {
+            const r = await apiFetch('/api/model/qwen-variants', { signal: AbortSignal.timeout(4000) });
+            return r.ok && applyQwenCatalog(await r.json());
+          } catch { return false; } finally { qwenCatalogFlight = null; }
+        })();
+      }
+      // Model lists fetch it beside /api/ggufs; launch paths that only need
+      // paths never wait for it (a model switch must not gain a round trip).
       async function ggufs() {   // the actual .gguf files in the engine folder
         /* A cold File Provider volume can need a few seconds to materialize
            directory metadata. Stay just above the launcher's bounded scan so
@@ -30915,7 +31026,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return r.json();
       }
 
-      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
+      return { apiUrl, designPreviewUrl, status, doctor, diagnostics, updatesCheck, updatesRun, setIogpuWiredLimit, tasks, task, logs, start, stop, cancelLaunch, agentSend, agentSteer, agentSteerStatus, agentInterrupt, agentPoll, designSession, designEvents, designState, designArtifacts, designClean, designImport, fsList, fsMkdir, setupDs4, setupLaguna, setupContent, setWebDir, webSearch, webRead, httpProbe, ggufs, qwenVariants, stopModelDownload, openModelFolder, deleteModelPartials, engineCheckouts, setEngineCheckout, designSystems, userSkills, userSkillGet, userSkillSave, userSkillDelete, gsaStart, gsaTools, gsaToolsInstall, gsaPhase, rsaStart, rsaPhase, setLan, setHttpPort, remoteStatus, remoteControl, remoteChatGet, remoteChatPut, lanClientChatsGet, lanClientChatsPut, getStore, putStore, wipe };
     })();
 
     /* ==================== Remote LAN chat ==================== */
@@ -37411,7 +37522,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         Store.setModelState({ download: null });
         const id = st.downloadVariant || '';
         if (id && st.downloadPct === 100) {
-          const downloaded = MODEL_DOWNLOADS.find((item) => item.body.target === id);
+          const downloaded = modelDownloadChoice(id);
           toast(downloaded?.role === 'dspark-support'
             ? `${id} downloaded — enable DSpark in Settings → Advanced`
             : downloaded?.role === 'vision-support'
