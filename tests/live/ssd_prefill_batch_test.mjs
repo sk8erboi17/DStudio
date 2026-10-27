@@ -16,7 +16,7 @@ const engine=path.join(root,'engine');
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const receipt={passed:false,scope:'real Metal kernels + real transformer layer 0; NOT full-LLM/PDF E2E',
   context:131072,ssd:true,cacheExperts:256,model,modelBytes:fs.statSync(model).size,encoder,
-  patchSHA256:hash(fs.readFileSync('patch/ds4-glm53-m2max/native-decode.patch')),steps:[],comparisons:[]};
+  patchSHA256:hash(fs.readFileSync('patch/ds4-glm53-m2max/native-decode-main-qwen.patch')),steps:[],comparisons:[]};
 const save=()=>fs.writeFileSync(path.join(root,'result.json'),JSON.stringify(receipt,null,2));
 const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('DS4_')));
 async function run(command,args,{cwd=engine,expected=0,timeout=180000,extra={}}={}) {

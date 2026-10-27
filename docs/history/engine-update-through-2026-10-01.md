@@ -455,7 +455,7 @@ and tensor changes cannot be copied into the other model families wholesale.
 
 The latest Qwen Next review reproduced an upstream allocation-failure defect:
 lazy speculative snapshots published their PLE pointer before all recurrent
-buffers existed. The [versioned fix](../../patch/ds4-qwen38-snapshot/README.md)
+buffers existed. The versioned fix (`patch/ds4-qwen38-snapshot`, removed on October 27, 2026)
 publishes readiness last and cleans up failed candidates. Ten deterministic
 allocation failpoints pass with ASan/UBSan, including retry and preservation of
 the live state. The new main-to-Qwen vision-cache width fix and pre-verify rewind

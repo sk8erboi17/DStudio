@@ -1,6 +1,14 @@
 # Agent/Cowork: reproducible native patches
 
-Version 103 contains eight explicit unified patch variants. The new
+The manifest contains two unified patch variants, one per bundled engine:
+[main-qwen.patch](main-qwen.patch) and [laguna.patch](laguna.patch). The
+variants for earlier main revisions (`main-v41`, `main-current`,
+`main-previous`) and for the retired Qwen Next fork (`qwen38`, `qwen38-next`),
+with their recorded version deltas, were removed on October 27, 2026; Git
+history keeps them, and the version history below describes them as they were.
+An installed checkout at another revision matches no variant and is refused.
+
+Version 103 contained eight explicit unified patch variants. The new
 [main-qwen.patch](main-qwen.patch) targets antirez/ds4
 `0aaea5a238fb41a35106a551e73c8409dfb751ac`, including Qwen Next and DeepSeek V4.1.
 It was rebased on the Qwen merge `9139e2a`; `ds4_agent.c` is identical at both.
@@ -64,7 +72,7 @@ seven-variant migration gate, native main/Laguna/Qwen Next builds, actual tool
 effects with simulated model replies and sanitizer parser checks pass. These
 checks do not qualify new model weights, CUDA, ROCm or M5 performance. The same
 Agent source/hash applies at the current `ff4f0ff`; native builds also require
-the separately tested [snapshot-allocation fix](../ds4-qwen38-snapshot/README.md).
+the separately tested snapshot-allocation fix (`ds4-qwen38-snapshot`, since removed).
 
 Version 98 fixes compaction publication in Laguna (`448d569`) and the older
 Qwen3.6 MoE fork (`60fca11`, same Agent bytes at `73434c4`). The worker keeps
@@ -308,18 +316,7 @@ separate qualification.
 | --- | --- |
 | antirez/ds4 `0aaea5a238fb41a35106a551e73c8409dfb751ac` | [main-qwen.patch](main-qwen.patch), after [prepare-main.patch](../ds4-qwen38-prepare/prepare-main.patch) |
 | antirez/ds4 `9139e2ae58a41503968a500f36f75895c1ba63fc` (identical Agent source) | [main-qwen.patch](main-qwen.patch) |
-| antirez/ds4 `bd66c402070042bf0a79ad6ece8242de4c93680c` | [main-v41.patch](main-v41.patch) |
-| antirez/ds4 `c0a6119f363ef82125877142f13fb3fe491cba14` | [main-current.patch](main-current.patch) |
-| antirez/ds4 `f62ca29a308724cde5bc99134ede19104b2a3260` (identical Agent source) | [main-current.patch](main-current.patch) |
-| antirez/ds4 `f4d03f6cf9f11c1e7b630bcb160853acfba7c52a` | [main-previous.patch](main-previous.patch) |
 | antirez/ds4 Laguna `448d5695d1c86401a4e9447c440feb983b73e6de` | [laguna.patch](laguna.patch) |
-| ivanfioravanti/ds4-metal `2dda88ed7bc596087f5282a6020d7409ca713ff3` | [qwen38-next.patch](qwen38-next.patch), after the matching [empty-candidate core patch](../ds4-qwen38-prepare/README.md) |
-| ivanfioravanti/ds4-metal `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14` (identical Agent source) | [qwen38-next.patch](qwen38-next.patch), with native preparation and snapshot-allocation patches |
-| ivanfioravanti/ds4-metal `b4c355079d375d20821ece732e99195c71b32c06` | [qwen38.patch](qwen38.patch) |
-| ivanfioravanti/ds4-metal `0bb323aa63cf7ed6167ae91a7606e1d875d404a3` (identical Agent source) | [qwen38.patch](qwen38.patch) |
-| ivanfioravanti/ds4-metal `66b0e3fc3bf0f548db1ec0c0dd19f4e43567a7f8` (identical Agent source) | [qwen38.patch](qwen38.patch) |
-| ivanfioravanti/ds4-metal `82d031408c50419957fd44b7e9c2d423890b24bd` (identical Agent source) | [qwen38.patch](qwen38.patch) |
-| ivanfioravanti/ds4-metal `b85a6174da6d0ea3139b48194a2ca108097657b1` (identical Agent source; native parser/tool regression passed, not full model qualification) | [qwen38.patch](qwen38.patch) |
 
 [`bases.json`](bases.json) records source, patch and output hashes. The shared
 first-party remote implementation remains in `remote-agent.cfrag`, included at
@@ -437,23 +434,19 @@ mtime/version freshness is not a complete dependency signature.
   ambiguity, malformed manifests, bounded regular files and private failure.
 - `make test-agent-build`: the production builder with a **simulated compiler**;
   failed/incomplete links, source edits, kill, concurrent builds and old outputs.
-- `make test-agent-patch-migration`: the three historical bases against frozen
-  version-86 native output after reversing the documented renderer fix, plus
-  four newer main/Qwen variants against their recorded derived hashes. All seven use independent
-  Git apply/reversal, including unrelated edits,
-  CRLF, partial/repeated application and drift. Requires the pinned local Git
-  objects or exact files in `DSTUDIO_AGENT_BASE_SOURCES` named after each base.
-  `DSTUDIO_AGENT_QWEN38_DIR` can point to the isolated candidate instead of the
-  older managed Qwen checkout; `DSTUDIO_AGENT_QWEN35_DIR` selects Qwen3.6.
-  It never downloads sources or weights implicitly.
+- `make test-agent-patch-migration`: Laguna against frozen version-86 native
+  output after reversing the documented renderer fix, and main against its
+  recorded derived hash. Both use independent Git apply/reversal, including
+  unrelated edits, CRLF, partial/repeated application and drift. Requires the
+  pinned local Git objects or exact files in `DSTUDIO_AGENT_BASE_SOURCES` named
+  after each base. It never downloads sources or weights implicitly.
 - `make test-agent-native-build`: macOS source-only copies of main and Laguna,
   real compiler/linker, Agent/Cowork and Design tools, upstream Agent unit tests
   and fragmented renderer events with ASan/UBSan on private C objects. Native
   engine/GPU objects are not sanitizer-instrumented. Includes main
   Chat PLD build/CLI and explicit Laguna PLD rejection. Override
-  `AGENT_MAIN_TREE`/`AGENT_LAGUNA_TREE` for other locations; set
-  `AGENT_QWEN38_TREE` to additionally test the Qwen candidate and its explicit
-  Chat PLD rejection. `DSTUDIO_AGENT_BUILD_BACKEND=cpu` selects a fresh CPU build
+  `AGENT_MAIN_TREE`/`AGENT_LAGUNA_TREE` for other locations.
+  `DSTUDIO_AGENT_BUILD_BACKEND=cpu` selects a fresh CPU build
   instead of Metal. Tool responses come
   from real filesystem actions; model responses are deterministic fixtures.
   `DSTUDIO_AGENT_BUILD_HOST` may point to an isolated bundle's `DStudio` binary:

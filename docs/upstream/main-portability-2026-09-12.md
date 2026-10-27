@@ -29,7 +29,7 @@ model/backend. The exact engine tips and tested scope are in the
   or matching text alone do not establish that identity.
 - Qwen Next's Git ancestry includes main's pre-V4.1 changes. Reapplying those
   commits would duplicate or overwrite its native adaptations. Its snapshot
-  allocation correction is a separate [DStudio patch](../../patch/ds4-qwen38-snapshot/README.md),
+  allocation correction is a separate DStudio patch (`patch/ds4-qwen38-snapshot`, removed on October 27, 2026),
   not a transplanted DeepSeek decoder.
 - Laguna and the Qwen3.6 MoE fork were compared at their actual source revisions,
   including `ds4.h`, Agent generation/compaction and server continuations.

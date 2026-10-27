@@ -442,7 +442,7 @@ Focused model-free entry points:
 make test-engine-pins test-engine-setup-unit test-launch-preflight test-qwen27-model-ui
 make test-agent-patch-migration test-runtime-patch-migration
 make test-qwen38-agent test-qwen-session-reset test-qwen38-prepare-patch
-make test-qwen38-snapshot-patch test-main-qwen-download
+make test-main-qwen-download
 node tests/integration/glm53_m2max_patch_test.mjs /path/to/exact-main --unified-qwen
 node tests/integration/agent_native_build_test.mjs /path/to/built-main
 ```
@@ -664,17 +664,10 @@ prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
 
-`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on
-verified [historical input files](fixtures/retired-qwen-next/) expanded into a
-private directory. It does not require the retired installed fork. Set
-`QWEN38_DIR` to explicitly test another complete historical checkout.
-Add `--native ds4/gguf` after a full source directory in the documented Node command in
-[the patch notes](../patch/ds4-qwen38-inspect/README.md) to build the real CLI
-and check its OS prefetch behavior and actual GGUF summaries on macOS. The
-ordinary uninstrumented CLI is checked too. This does not generate tokens.
-
-Historical Qwen Agent and Web patch migration cases use the same offline fixture
-reader, retaining their original revision/hash and independent Git oracles.
+Patch variants, fixtures and tests for the retired Qwen Next fork
+(`test-qwen38-inspect`, `test-qwen38-snapshot-patch` and the compressed fork
+sources they read) and for earlier main revisions were removed on October 27,
+2026: every patch test now covers only the bundled main and Laguna.
 Default backend link tests cover the active main and Laguna trees; Qwen Next
 uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
@@ -732,12 +725,6 @@ turn must still complete. It uses an isolated workspace and simulated runtime
 pipe, without starting or signalling an inference engine.
 
 To rebuild only unified main, run `node tests/integration/agent_native_build_test.mjs ds4`.
-For the historical three-source comparison, supply the archived Qwen fork explicitly:
-
-```sh
-make test-agent-native-build AGENT_MAIN_TREE=ds4 AGENT_LAGUNA_TREE=ds4-laguna-s21 \
-  AGENT_QWEN38_TREE=/path/to/archived-qwen-next
-```
 
 Sources are copied into a new task-owned directory, without weights or reused
 build objects. Agent/Cowork/Design are linked against each selected upstream;
@@ -847,9 +834,8 @@ corrections solely for the historical oracle. Every variant first reverses its
 v100 readiness delta to its frozen v99 hash. Laguna and older MoE reverse their
 v99 continuation deltas, then the v98 publication delta, to recover their exact
 v97 bytes first. The
-newer main/Qwen variants have no fictitious legacy oracle. It requires local source
-objects or exact base files; `DSTUDIO_AGENT_QWEN38_DIR` selects the isolated new
-candidate. It does not perform a network install.
+main variant has no fictitious legacy oracle. It requires local source
+objects or exact base files. It does not perform a network install.
 
 `make test-agent-compaction AGENT_LAGUNA_TREE=ENGINE_LAGUNA
 QWEN35_AGENT_TREE=ENGINE_MOE` requires the already-built native cores.
@@ -1012,8 +998,8 @@ All three runtime types additionally exercise model-wait Stop and next-turn
 tool execution without restarting the process, with model replies simulated.
 It runs upstream Agent unit tests and fragmented rendering both with and without
 a JSONL worker, under ASan/UBSan for private Agent/helper C objects. Core/GPU
-objects remain uninstrumented. Set `AGENT_QWEN38_TREE` to also build the new
-Qwen3.8 source; building a runtime alone does not qualify its application modes.
+objects remain uninstrumented. Building a runtime alone does not qualify its
+application modes.
 On macOS, `DSTUDIO_AGENT_BUILD_BACKEND=cpu make test-agent-native-build` selects
 a fresh real CPU build; it does not qualify Windows or Linux behavior.
 
@@ -2336,3 +2322,13 @@ and prompt fixture that nothing referenced; and the name-specific checks for the
 retired `q36` and `ds4-qwen35` engines, replaced by receipt-based cases in
 `test-launch-preflight` and `test-engine-startup` (see
 [BUNDLED_ENGINES](../docs/BUNDLED_ENGINES.md#retired-qwen-side-engines)).
+
+October 27, 2026: `qwen35_download_test.py` went with the merged Qwen3.6
+downloader (its cases run in `qwen27_download_test.py` on the one downloader,
+plus resuming the old visible `.part`). `qwen38_inspect_patch_test.mjs`,
+`qwen38_snapshot_patch_test.mjs`, their Make targets and the compressed fork
+sources in `tests/fixtures/retired-qwen-next/` went with the retired Qwen Next
+fork's patches. The M2 Max, native round-trip, Agent/runtime migration,
+native build and Chat PLD builder tests now cover only the bundled main and
+Laguna; the M2 Max lifecycle test runs on a copy of `src/engines/ds4` instead of
+reconstructed fragments of three older layouts.

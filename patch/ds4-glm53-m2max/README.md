@@ -6,11 +6,14 @@ does not claim a new inference speedup or a DeepSeek speedup.
 
 ## Delivery and activation
 
-The maintained engine delta is [`native-decode.patch`](native-decode.patch),
-SHA-256 `4e5f9580cbd64293566674219d4a58310d2a0bfb801406696e005fd162fd2767`.
-It includes the small-batch regression correction below. The earlier integration
-used SHA-256 `497f378a4aecb1ccb427358e06eed0eaf0a75ef27fd32b93d482da1f0eef93fa`;
-historical integration/port QA later in this document refers to that version.
+The maintained engine delta is
+[`native-decode-main-qwen.patch`](native-decode-main-qwen.patch) for the bundled
+main (see below). It includes the small-batch regression correction below. The
+original layout-specific `native-decode.patch` (SHA-256
+`4e5f9580cbd64293566674219d4a58310d2a0bfb801406696e005fd162fd2767`, and before
+it `497f378a4aecb1ccb427358e06eed0eaf0a75ef27fd32b93d482da1f0eef93fa`) was
+removed on October 27, 2026 with the other earlier-revision variants; the
+historical integration/port QA later in this document refers to those versions.
 
 ### Correction: shared DeepSeek SSD batch resource limit
 
@@ -55,20 +58,14 @@ its unchanged 256 KiB bound, with full-width priorities and int32 GPU inputs.
 The independent ASan/UBSan layout oracle covers all 40,448 IDs; native Metal
 fixtures pass. This is not a new full-model quality or throughput result.
 
-Earlier main support includes `f62ca29a308724cde5bc99134ede19104b2a3260` and
-`c0a6119f363ef82125877142f13fb3fe491cba14`.
-The hook combines the runtime delta with `build-main-current.patch` on new
-main and retains `build-main.patch` for the September 5 layout. The old
-six-to-eight-expert logging correction is applied only to older layouts;
-current upstream already prints every selected expert. Both generations and
-the legacy layout retain atomic apply/restore and drift rejection.
-The retired standalone Qwen fork retains its native kernels: the presence of rebased GLM code does
-not make this adaptation applicable to their different layer/expert bounds.
-The hook skips a clean standalone Qwen source and rejects one containing an unsupported
-GLM adaptation without modifying it. Unified main instead receives its own
-explicit, jointly tested patch variant. The private `b4c3550` build exposed this
-distinction; increasing the scratch-memory bound was not an accepted fix.
-See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-07.md).
+The hook combines the runtime delta with `build-main-current.patch` and
+`hotlist-main-layout.patch` and applies or restores them as one atomic patch,
+rejecting drift. Support for earlier main layouts (`f62ca29`, `c0a6119`, the
+September 5 build layout and its expert-logging correction) and the skip rule
+for the retired standalone Qwen fork were removed on October 27, 2026. The
+private `b4c3550` fork build had shown that its different layer/expert bounds
+needed their own variant; increasing the scratch-memory bound was not an
+accepted fix. See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-07.md).
 
 The macOS hook `scripts/apply-ds4-glm53-m2max.sh` applies the complete patch
 after the existing GLM runtime patch and restores it before that patch during

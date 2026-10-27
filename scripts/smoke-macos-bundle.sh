@@ -223,6 +223,6 @@ codesign --verify --deep --strict "$TMP_ROOT/DStudio.app"
 # in this lifecycle harness; the native build is a separate gate. An old bundle
 # that omits the current PLD patch must fail before it reaches that compiler.
 node "$ROOT/tests/integration/server_pld_build_test.mjs" \
-  "$TMP_ROOT/DStudio.app/Contents/MacOS/DStudio" --latest --bundle-profile
+  "$TMP_ROOT/DStudio.app/Contents/MacOS/DStudio" --bundle-profile
 
 echo "macOS bundle smoke test: ok"

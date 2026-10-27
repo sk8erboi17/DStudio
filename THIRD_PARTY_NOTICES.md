@@ -76,22 +76,15 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 
 - Source: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14).
 - Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`,
-  retained in Git history, not distributed as an installable source snapshot.
-  Five exact compressed files from this and two earlier revisions are retained
-  solely as [historical patch regression inputs](tests/fixtures/retired-qwen-next/),
-  with [per-file provenance](tests/fixtures/retired-qwen-next/provenance.json) and
-  the upstream [MIT notice](tests/fixtures/retired-qwen-next/LICENSE).
+  retained in Git history only; no file of it or of earlier fork revisions is
+  distributed, as source, fixture or patch.
 - Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
   which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices in
   [the active bundled engine](src/engines/ds4/LICENSE). Historical patches and
   the retired Qwen3.6 tool-parser adaptation retain their upstream attribution.
-- The older metadata-only PLE prefetch correction remains as a historical
-  [regression patch](patch/ds4-qwen38-inspect/README.md), not a main install step.
 - The structured Agent/Cowork adaptation is an explicit
   [patch](patch/ds4-agent-jsonl/README.md), applied to private build sources.
-- Main already performs correct native snapshot-allocation cleanup; the older
-  [correction](patch/ds4-qwen38-snapshot/README.md) is retained for historical tests.
 - Current single-file Q2/Q4 weights, including original BF16 n-grams, come from
   [`antirez/qwen3.8-flash-next-gguf`](https://huggingface.co/antirez/qwen3.8-flash-next-gguf/tree/d600fe1a43d2e1cdcadb85144ce3142f66f9eefe),
   revision `d600fe1a43d2e1cdcadb85144ce3142f66f9eefe`. They retain their own model

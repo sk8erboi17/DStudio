@@ -6,25 +6,19 @@ Current base: antirez/ds4 main
 batch reads, checkpoint frontiers and per-chunk logits while adding control
 only to an unpublished session candidate. Normal live sync keeps the upstream
 path. The managed setup/update apply and restore this patch as part of the
-complete native stack. Main already fixes snapshot allocations, so do not
-apply the historical snapshot patch to it. [Migration and limits](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
+complete native stack. Main already fixes snapshot allocations.
+[Migration and limits](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
-## Historical fork variants and original regression
+## Origin and earlier results
 
-Base: [ivanfioravanti/ds4-metal at b85a617](https://github.com/ivanfioravanti/ds4-metal/commit/b85a6174da6d0ea3139b48194a2ca108097657b1),
-branch `qwen3.8-flash-next`. MIT upstream notices remain applicable.
-The [current variant](prepare-current.patch) rebases the same bounded candidate
-preparation onto `2dda88ed7bc596087f5282a6020d7409ca713ff3` and applies unchanged
-to the historical `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`. It retains upstream's
-new valid-checkpoint vision identity check. The installer selects a complete
-exact-context variant; it never overlays both. New-revision behavioral and
-real-weight qualification is recorded separately from the older results below.
-This patch is under qualification; it is not a claim of model quality,
-speedup, other-backend parity or completion of the Qwen plan.
-Patch lifecycle also passes on the exact b4c3550, 0bb323a, 66b0e3f and 82d0314
-core sources. These are source-application results, not numerical runs on
-every revision. The older bd9cfbc installation is rejected unchanged and needs
-the separately verified engine upgrade; it is not silently modified.
+The candidate preparation was first written for the retired Qwen Next fork
+([ivanfioravanti/ds4-metal](https://github.com/ivanfioravanti/ds4-metal), branch
+`qwen3.8-flash-next`; MIT upstream notices remain applicable). Its fork variants
+(`prepare-empty.patch`, `prepare-current.patch`) were removed on October 27,
+2026; Git history keeps them. Results below that name fork revisions were
+recorded on those variants. This patch is under qualification; it is not a
+claim of model quality, speedup, other-backend parity or completion of the
+Qwen plan.
 
 The real Cowork reset replay `qwen38-host-live/run-8zpOrR` did not become idle
 within the existing 15-second cancellation deadline. Native Qwen sync polls
@@ -47,11 +41,7 @@ rejected without changing them. Display-only `prefill_layer` events count
 completed layers and must not be interpreted as durable token checkpoints.
 
 Apply this native core/header patch before building the matching Agent/Cowork
-adapter. It is separate from metadata-only PLE inspection and vision mapping.
-The complete historical variants are [prepare-empty.patch](prepare-empty.patch)
-and [prepare-current.patch](prepare-current.patch). On those old fork sources only, the separate
-[snapshot-allocation correction](../ds4-qwen38-snapshot/README.md) follows it;
-that fix does not change this candidate API or its inference arithmetic.
+adapter. It is separate from vision mapping.
 
     DS4_DIR=/path/to/ds4 sh scripts/apply-ds4-qwen38-prepare.sh check
     DS4_DIR=/path/to/ds4 sh scripts/apply-ds4-qwen38-prepare.sh apply

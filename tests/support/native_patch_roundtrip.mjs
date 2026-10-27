@@ -8,25 +8,18 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const patches = [
-  'ds4-visible-downloads/visible-partials.patch',
+  'ds4-visible-downloads/main-qwen.patch',
   'ds4-media-memory/residency-lease.patch',
   'ds4-server-metrics/usage-metrics.patch',
-  'ds4-glm53-runtime/streaming-memory.patch',
-  'ds4-glm53-m2max/native-decode.patch',
+  'ds4-glm53-runtime/main-latest.patch',
+  'ds4-glm53-m2max/native-decode-main-qwen.patch',
   'ds4-vision-streaming/vision-map.patch',
   'ds4-v41-vision-pairing/vision-revision.patch',
   'ds4-qwen38-prepare/prepare-main.patch',
 ];
+// The M2 hook composes these with native-decode-main-qwen.patch.
 const m2Variants = [
-  'ds4-glm53-m2max/build-main.patch',
   'ds4-glm53-m2max/build-main-current.patch',
-  'ds4-glm53-m2max/legacy-selected-logging.patch',
-  'ds4-visible-downloads/main-v41.patch',
-  'ds4-glm53-runtime/main-v41.patch',
-  'ds4-glm53-runtime/main-latest.patch',
-  'ds4-glm53-runtime/main-qwen.patch',
-  'ds4-visible-downloads/main-qwen.patch',
-  'ds4-glm53-m2max/native-decode-main-qwen.patch',
   'ds4-glm53-m2max/hotlist-main-layout.patch',
 ];
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -64,11 +57,11 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
     const action = reverse ? 'restore' : 'apply';
     const stage = { file, action }; stages.push(stage);
     // Exercise production selection and integrity checks where available.
-    // In particular M2 chooses different build hunks for older/current main.
-    const script = file === 'ds4-glm53-m2max/native-decode.patch' ? 'glm53-m2max' :
+    // In particular M2 composes its build and hot-list hunks itself.
+    const script = file === 'ds4-glm53-m2max/native-decode-main-qwen.patch' ? 'glm53-m2max' :
       file === 'ds4-server-metrics/usage-metrics.patch' ? 'server-metrics' :
-      file === 'ds4-visible-downloads/visible-partials.patch' ? 'visible-downloads' :
-      file === 'ds4-glm53-runtime/streaming-memory.patch' ? 'glm53-runtime' :
+      file === 'ds4-visible-downloads/main-qwen.patch' ? 'visible-downloads' :
+      file === 'ds4-glm53-runtime/main-latest.patch' ? 'glm53-runtime' :
       file === 'ds4-v41-vision-pairing/vision-revision.patch' ? 'v41-vision-pairing' :
       file === 'ds4-qwen38-prepare/prepare-main.patch' ? 'qwen38-prepare' : null;
     if (script) {
@@ -92,7 +85,7 @@ export function nativePatchRoundtrip({ support, source, scratch, environment = p
     for (const file of files) assert.equal(sha(path.join(source, file)), before[file], 'original checkout changed');
     assert.equal(sha(note), noteHash, 'unrelated scratch data changed');
     return {
-      scope: 'Eight native adaptations, including unified Qwen prepare and production-selected M2 build hunks; no inference or complete Agent/web patch-stack claim',
+      scope: 'Eight native adaptations of the bundled main, including Qwen prepare and the composed M2 port; no inference or complete Agent/web patch-stack claim',
       patches: patchFiles.map(file => ({ file, sha256: sha(path.join(support, 'patch', file)) })),
       scriptSha256: Object.fromEntries(['glm53-m2max', 'server-metrics', 'visible-downloads', 'glm53-runtime', 'v41-vision-pairing', 'qwen38-prepare'].map(name =>
         [name, sha(path.join(support, `scripts/apply-ds4-${name}.sh`))])),

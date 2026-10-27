@@ -5683,7 +5683,6 @@ static int run_build_jsonl_locked(const char *action) {
     if (!cur) return 0;
     int patched = strstr(cur, JSONL_MARK) != NULL;
     int qwen38_native = strstr(cur, "ds4_engine_is_qwen4(") != NULL;
-    int unified_main = strstr(cur, "ds4_engine_is_deepseek41(") != NULL;
     free(cur);
 
     if (patched)
@@ -5697,10 +5696,6 @@ static int run_build_jsonl_locked(const char *action) {
         !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) return 0;
     if (qwen38_native &&
         !run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", "apply")) return 0;
-    /* Main's shared snapshot allocator unwinds partial allocations upstream.
-     * Only the historical fork needs the separately versioned snapshot fix. */
-    if (qwen38_native && !unified_main &&
-        !run_ext_script("scripts/apply-ds4-qwen38-snapshot.sh", "apply")) return 0;
 
     int patch_version = jsonl_patch_version();
     if (patch_version <= 0) return 0;

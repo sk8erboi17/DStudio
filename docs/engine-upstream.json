@@ -43,11 +43,11 @@
     "main": [
       {
         "path": "patch/ds4-agent-jsonl/manifest",
-        "sha256": "e15cf31fb7d08bdd8968db9e1417b90ac13510451d095cb4e95e8579de2ab9dc"
+        "sha256": "a9d7790f94d831d44b37c5636de37f5735d8b304452e8e5bd89d45fd8e51e0d5"
       },
       {
         "path": "patch/ds4-agent-jsonl/bases.json",
-        "sha256": "e1940e750454a3e953da9beeb404d14d34170c8a4f1e1913866c9801d76d67af"
+        "sha256": "32515e9559485d1884676961373a4d01e5e836d803811381017393b2854b9aaa"
       },
       {
         "path": "patch/ds4-agent-jsonl/build.mk",
@@ -99,7 +99,7 @@
       },
       {
         "path": "patch/ds4-web-runtime/bases.json",
-        "sha256": "fd14b92162e37410f58ea748ec1658f79ea28921c8a2f3f8abf23e5e9629cc6e"
+        "sha256": "5de4d687e21c6363cf1a70610af59bd9dbcb70e48aaee51ac18729f82be4f673"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
@@ -135,14 +135,6 @@
         "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
       },
       {
-        "path": "patch/ds4-glm53-m2max/build-main.patch",
-        "sha256": "47a261905470a2d3545c2871fdae96a5aafe05194abf1441a5973202d0364ae0"
-      },
-      {
-        "path": "patch/ds4-glm53-m2max/legacy-selected-logging.patch",
-        "sha256": "b06dd3f60e33e64b3b77234c89a7d8522e6fb4d33b252d1287498a904eb19d94"
-      },
-      {
         "path": "patch/ds4-vision-streaming/vision-map.patch",
         "sha256": "6210182b70f9494e6442aa5663abd1ea45d898b047890cdcfc2e8eec2155a510"
       },
@@ -152,7 +144,7 @@
       },
       {
         "path": "scripts/apply-ds4-glm53-m2max.sh",
-        "sha256": "967e96f5601be29e380a9bd905c32a591b203ff98a529061d36eb62724f4a2d3"
+        "sha256": "0173e6fa956e953d08db573451b1fe8f62212fa1b1939ff1a31e8023a395e04d"
       },
       {
         "path": "scripts/apply-ds4-vision-streaming.sh",
@@ -163,16 +155,12 @@
         "sha256": "0ab97627604cde6f815fdfaf879f4d734787c04e0293c120d6d105576bee0da0"
       },
       {
-        "path": "patch/ds4-server-pld/main-current.patch",
-        "sha256": "8ea89124191f2ee3dcd3193eec326c8fe393e2680abc4e5280954e14bc9c39bf"
-      },
-      {
         "path": "patch/ds4-server-pld/manifest",
-        "sha256": "57fabe927eacca485c54496b8724e5e7c7a576edb97073dc16011e2bd3693f25"
+        "sha256": "93ef6a327e20cf0c7500bcea49d71165f8363f0e82621272ffb89957a59cf602"
       },
       {
         "path": "patch/ds4-server-pld/bases.json",
-        "sha256": "2672db4c37f875d62226bd985bc6f169a3c6330ea79516e386fda3310e8ababa"
+        "sha256": "f4c6e6655537a950d8a6955d2bf8320c320f989724337d173d35a6fa724c1c49"
       },
       {
         "path": "src/harness/design/ds4_design.c",
@@ -187,20 +175,16 @@
         "sha256": "509a6f82157b2386075c7cfb99d47315e77fe22d19ab811eaafb107e9e88df90"
       },
       {
-        "path": "patch/ds4-glm53-runtime/main-qwen.patch",
-        "sha256": "5e3896fff0c424382b6b74f32ba89f8beacccba6723792b763bb9640f6b9c7e0"
-      },
-      {
         "path": "patch/ds4-visible-downloads/main-qwen.patch",
         "sha256": "cd1259e4df1890af927632882d9ccb94c71d3195be54596c6a01ddd8518180a0"
       },
       {
         "path": "scripts/apply-ds4-glm53-runtime.sh",
-        "sha256": "73879a6a6b5bb828751b373398aa1e87d2f584a6d243183a132d3328a97b9d49"
+        "sha256": "a0850403344770dc9fbb47664c3a203eff8373acd6ee7b20e254bc149551ef96"
       },
       {
         "path": "scripts/apply-ds4-visible-downloads.sh",
-        "sha256": "53b51378031937f4ad0d82f08c9527441e324b2f01f14a705c325286f551ff27"
+        "sha256": "d2be04f1229cfc5483dc1b95cf7f7c808d2c7320efb49f437c5c45954e57bf98"
       },
       {
         "path": "patch/ds4-glm53-m2max/hotlist-main-layout.patch",
@@ -212,7 +196,7 @@
       },
       {
         "path": "scripts/apply-ds4-qwen38-prepare.sh",
-        "sha256": "b601ab0758b251d1bf19a5f0c9ded9060954c73d84cfb3f761d59775f7e1dffc"
+        "sha256": "713bb5d5f838aae17e6a7e85413c88aab054cf8bbb00bcd4809bb19f7a9b7551"
       },
       {
         "path": "patch/ds4-media-memory/residency-lease.patch",
@@ -246,11 +230,11 @@
     "laguna": [
       {
         "path": "patch/ds4-agent-jsonl/manifest",
-        "sha256": "e15cf31fb7d08bdd8968db9e1417b90ac13510451d095cb4e95e8579de2ab9dc"
+        "sha256": "a9d7790f94d831d44b37c5636de37f5735d8b304452e8e5bd89d45fd8e51e0d5"
       },
       {
         "path": "patch/ds4-agent-jsonl/bases.json",
-        "sha256": "e1940e750454a3e953da9beeb404d14d34170c8a4f1e1913866c9801d76d67af"
+        "sha256": "32515e9559485d1884676961373a4d01e5e836d803811381017393b2854b9aaa"
       },
       {
         "path": "patch/ds4-agent-jsonl/compaction_text.h",
@@ -306,7 +290,7 @@
       },
       {
         "path": "patch/ds4-web-runtime/bases.json",
-        "sha256": "fd14b92162e37410f58ea748ec1658f79ea28921c8a2f3f8abf23e5e9629cc6e"
+        "sha256": "5de4d687e21c6363cf1a70610af59bd9dbcb70e48aaee51ac18729f82be4f673"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
@@ -330,8 +314,8 @@
         "check": "apply"
       },
       {
-        "path": "patch/ds4-glm53-m2max/native-decode.patch",
-        "sha256": "9c316a62119242a19b4a3ceda8b196ea824b446749584fe871d0d7d539bf7755"
+        "path": "patch/ds4-glm53-m2max/native-decode-main-qwen.patch",
+        "sha256": "331ae370fb39b751a0241cb282ffc93a0a4786965fee80eadfc2e0e528370efe"
       },
       {
         "path": "patch/ds4-glm53-m2max/batch-entry-limit.patch",
@@ -342,12 +326,8 @@
         "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
       },
       {
-        "path": "patch/ds4-glm53-m2max/build-main.patch",
-        "sha256": "47a261905470a2d3545c2871fdae96a5aafe05194abf1441a5973202d0364ae0"
-      },
-      {
-        "path": "patch/ds4-glm53-m2max/legacy-selected-logging.patch",
-        "sha256": "b06dd3f60e33e64b3b77234c89a7d8522e6fb4d33b252d1287498a904eb19d94"
+        "path": "patch/ds4-glm53-m2max/hotlist-main-layout.patch",
+        "sha256": "53f09418b85abfa3e7b8aa5c671c2638a14b7729c033267480911e886a95c03e"
       },
       {
         "path": "patch/ds4-vision-streaming/vision-map.patch",
@@ -359,7 +339,7 @@
       },
       {
         "path": "scripts/apply-ds4-glm53-m2max.sh",
-        "sha256": "967e96f5601be29e380a9bd905c32a591b203ff98a529061d36eb62724f4a2d3"
+        "sha256": "0173e6fa956e953d08db573451b1fe8f62212fa1b1939ff1a31e8023a395e04d"
       },
       {
         "path": "scripts/apply-ds4-vision-streaming.sh",

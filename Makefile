@@ -484,12 +484,11 @@ test-runtime-patch-migration:
 # macOS: source-only snapshots and real compiler/tool execution, no weights.
 AGENT_MAIN_TREE ?= ds4
 AGENT_LAGUNA_TREE ?= ds4-laguna-s21
-AGENT_QWEN38_TREE ?=
 test-agent-native-build: $(TEST_BUILD)/agent-build-probe $(TEST_BUILD)/remote-turn-error-unit
-	@node tests/integration/agent_native_build_test.mjs "$(AGENT_MAIN_TREE)" "$(AGENT_LAGUNA_TREE)" $(if $(AGENT_QWEN38_TREE),"$(AGENT_QWEN38_TREE)")
+	@node tests/integration/agent_native_build_test.mjs "$(AGENT_MAIN_TREE)" "$(AGENT_LAGUNA_TREE)"
 
-# Requires the already built Qwen candidate with the matching native Agent;
-# b4c3550 and 0bb323a have identical Agent source. No automatic download.
+# Requires the already built ds4 main with the matching native Agent.
+# No automatic download.
 QWEN38_AGENT_TREE ?= ds4
 QWEN38_AGENT_FLAGS ?= --sanitize
 
@@ -724,11 +723,6 @@ test-engine-updates: $(TEST_SERVER)
 
 check-fast: test-engine-updates
 
-.PHONY: test-qwen38-inspect
-# Archived patch inputs are shipped as bounded fixtures, not an installed fork.
-test-qwen38-inspect:
-	@node tests/integration/qwen38_inspect_patch_test.mjs $(if $(QWEN38_DIR),"$(QWEN38_DIR)")
-
 .PHONY: test-qwen38-prepare-patch test-qwen38-prepare-live
 test-qwen38-prepare-patch:
 	@node tests/integration/qwen38_prepare_patch_test.mjs "$(QWEN38_AGENT_TREE)"
@@ -747,13 +741,9 @@ test-main-decode-metrics:
 	@node tests/unit/main_decode_metrics_test.mjs
 	@node tests/unit/ds41_benchmark_test.mjs
 
-.PHONY: test-qwen38-snapshot-patch
 .PHONY: test-main-qwen-download
 test-main-qwen-download:
 	@node tests/integration/main_qwen_download_test.mjs "$(QWEN38_AGENT_TREE)"
-
-test-qwen38-snapshot-patch:
-	@node tests/integration/qwen38_snapshot_patch_test.mjs "$(QWEN38_AGENT_TREE)" --upstream-fixed
 
 .PHONY: test-server-metrics-patch test-native-patch-roundtrip
 test-server-metrics-patch:

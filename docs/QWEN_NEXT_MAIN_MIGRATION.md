@@ -91,12 +91,14 @@ The legacy setup endpoint returns 410 with migration guidance; it cannot
 reinstall `ds4-qwen38`. Setup does not delete existing checkout files or weights.
 
 The obsolete development checkout can be removed after preserving local work.
-Default historical Agent, Web and inspection-patch regressions use
-[compressed exact upstream inputs](../tests/fixtures/retired-qwen-next/), with
-revision, size and SHA-256 checks; they do not require that installed fork.
-Native historical inspection or an explicitly requested historical backend
-build still requires a supplied full source tree. Active Qwen Next backend
-routing is covered through the main engine. Model files remain in `ds4/gguf/`.
+Active Qwen Next backend routing is covered through the main engine. Model files
+remain in `ds4/gguf/`.
+
+On October 27, 2026 the fork's remaining patch variants (Agent `qwen38` and
+`qwen38-next`, Web `qwen38`, `ds4-qwen38-inspect`, `ds4-qwen38-snapshot`), the
+compressed fork sources kept as test fixtures and their regression tests were
+removed. Every patch set now targets only the bundled main and Laguna; Git
+history keeps the earlier material.
 
 On October 2, the obsolete development checkout was removed after verifying a
 complete recovery archive of its local changes and Git history. The four affected

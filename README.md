@@ -32,7 +32,7 @@
 - [Requirements](#requirements)
 - [Development and tests](#development-and-tests)
 - [Network access](#network-lan) · [How it works](#how-it-works) · [Security](#security)
-- [WIP checklist](#wip-checklist--october-25-2026)
+- [WIP checklist](#wip-checklist--october-27-2026)
 - [Project layout](docs/PROJECT_LAYOUT.md)
 
 DStudio is one desktop application for local AI. It runs large open-weight
@@ -144,7 +144,7 @@ These are focused development checks, not a quality score or a ranking.
   is started. See [the list](PLAN.MD#proposals).
 - Learn/Tutor, PDF/vision, long tasks, the native desktop matrix, generated
   Design projects and final release admission. See the
-  [WIP checklist](#wip-checklist--october-25-2026),
+  [WIP checklist](#wip-checklist--october-27-2026),
   [remaining work](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
 
 ## Install
@@ -1378,6 +1378,8 @@ host and Cowork runtime and a simulated model.
   SHA-256 manifests, verified before every build. Adaptations to other projects
   are versioned `.patch` files in [`patch/`](patch/README.md), applied with
   `git apply --check` first; a drifted source fails instead of being rewritten.
+  Patches exist only for the bundled engine revisions: an engine checkout at any
+  other revision is refused, not adapted.
 - **The ds4 agent patch.** ds4's agent is a separate, fast-moving codebase.
   DStudio keeps its structured Agent/Cowork adaptations as
   [versioned patches](patch/ds4-agent-jsonl/README.md): verify the pinned
@@ -1439,7 +1441,7 @@ right testers.
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta. Bundled third-party sources
 keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## WIP checklist — October 25, 2026
+## WIP checklist — October 27, 2026
 
 The macOS/Apple Silicon campaign is **incomplete**. Checked items mean the
 stated implementation or scoped verification is complete; they do not qualify
@@ -1496,6 +1498,16 @@ every model or a release. Exact acceptance criteria and retained failures are in
   install reaching Metal, and real Qwen3.6 MXFP8 tool-call streaming in Agent,
   Cowork and Design. Two earlier Design attempts failed on the test client's
   start limit; their receipts are kept.
+- [x] Download every Qwen variant, the three original ones included, through
+  one verified downloader (`scripts/download-qwen-variant.py`); a download left
+  half-finished by the old Qwen3.6 downloader resumes from its bytes. Remove
+  host routes and UI code that nothing called.
+- [x] Keep patches only for the bundled engine revisions (ds4 main `0aaea5a`,
+  Laguna `448d569`): the variants for earlier main revisions and the retired
+  Qwen Next fork, with its fixtures and tests, are deleted (about 19,000 lines).
+  An installed engine at another revision is refused; reinstall the bundled
+  one. The patch stack applies and restores byte for byte on the bundled
+  sources. [Patch notes](patch/README.md).
 
 ### Still required
 

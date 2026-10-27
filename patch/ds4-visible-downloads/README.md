@@ -1,11 +1,10 @@
 # Visible downloads, with native V4.1 and Qwen verification retained
 
 [`main-qwen.patch`](main-qwen.patch) targets MIT-licensed `antirez/ds4` at
-`0aaea5a238fb41a35106a551e73c8409dfb751ac`. The preceding
-[`main-v41.patch`](main-v41.patch) covers `bd66c402070042bf0a79ad6ece8242de4c93680c`; the legacy
-[`visible-partials.patch`](visible-partials.patch) remains for older supported
-main sources. `scripts/apply-ds4-visible-downloads.sh` selects one complete
-delta by exact forward/reverse applicability and rejects drift/partial edits.
+`0aaea5a238fb41a35106a551e73c8409dfb751ac`, the only supported main revision
+(the deltas for earlier revisions were removed on October 27, 2026).
+`scripts/apply-ds4-visible-downloads.sh` applies the complete delta by exact
+forward/reverse applicability and rejects drift/partial edits.
 
 Legacy DeepSeek V4/GLM downloads retain visible `.gguf.part` files. V4.1 keeps
 the official Hugging Face/Xet downloader, native size/SHA-256 checks and split
