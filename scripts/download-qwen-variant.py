@@ -53,9 +53,8 @@ ORIGINALS = {
     'qwen36-mlx': ('mlx/Qwen3.6-35B-A3B-mxfp8',
                    '9d3780cfc940ce7628bd06732f4e18fde59ff1bcfd674b65be1fdeae8cf664a7'),
 }
-# The private per-file stage inside each store. The name predates the shared
-# catalog and is kept so that interrupted downloads still resume.
-STAGE = '.dstudio-qwen27-downloads'
+# The private per-file stage inside each store.
+STAGE = '.dstudio-qwen-downloads'
 CHUNK = 1024 * 1024
 MAX_SECONDS = 6 * 60 * 60
 MODIFIED = re.compile(r'abliterat|uncensor|jailbreak|heretic', re.I)
@@ -398,7 +397,6 @@ def download(directory, token='', *, name, size, expected, url, progress=None, e
                 raise RuntimeError('Model identity changed; not accepted')
             return destination / name
 
-        adopt_visible_partial(root, stage, name, size)
         partial = regular(stage, 'data.part', os.O_RDWR | os.O_CREAT)
         handles.callback(os.close, partial)
         info = os.fstat(partial)
@@ -424,34 +422,6 @@ def download(directory, token='', *, name, size, expected, url, progress=None, e
         os.unlink('data.part', dir_fd=stage)
         os.fsync(stage)
         return destination / name
-
-
-def adopt_visible_partial(root, stage, name, size):
-    """Resume a transfer left by the earlier single-file layout, a visible
-    <name>.part beside the model. It moves into the stage only while the stage
-    holds no bytes; a linked, oversized or non-regular file stays untouched."""
-    visible = name + '.part'
-    try:
-        fd = regular(root, visible)
-    except (OSError, RuntimeError):
-        return
-    try:
-        info = os.fstat(fd)
-        if info.st_nlink != 1 or not 0 < info.st_size <= size:
-            return
-        try:
-            if os.stat('data.part', dir_fd=stage, follow_symlinks=False).st_size:
-                return
-        except FileNotFoundError:
-            pass
-        current = os.stat(visible, dir_fd=root, follow_symlinks=False)
-        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
-            return
-        os.rename(visible, 'data.part', src_dir_fd=root, dst_dir_fd=stage)
-        os.fsync(stage)
-        os.fsync(root)
-    finally:
-        os.close(fd)
 
 
 def stop_download(_signal, _frame):

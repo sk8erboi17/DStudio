@@ -44,36 +44,21 @@ try {
   pass('restore'); assert.deepEqual(snapshot(),initial);
   assert.ok(!fs.existsSync(path.join(root,'.git/index')), 'parent Git index untouched');
 
-  // Install the previously shipped release using its reversible migration
-  // delta. Exercise the actual hook; compare every output file, not anchors.
-  const installLegacy = () => {
-    pass('apply');
-    const r = spawnSync('git', ['-C', checkout, 'apply', '--reverse',
-      path.resolve('patch/ds4-glm53-m2max/batch-entry-limit.patch')], {
-      encoding:'utf8', env:{...process.env, GIT_CEILING_DIRECTORIES:root}
-    });
-    assert.equal(r.status,0,r.stderr+r.stdout);
-  };
-  installLegacy(); const legacy = snapshot();
-  assert.notDeepEqual(legacy,applied);
-  assert.match(pass('check').stdout,/upgrade available/); assert.deepEqual(snapshot(),legacy);
-  assert.match(pass('apply').stdout,/upgraded batch resource limit/);
-  assert.deepEqual(snapshot(),applied);
-  pass('apply'); assert.deepEqual(snapshot(),applied);
-  installLegacy(); pass('restore'); assert.deepEqual(snapshot(),initial);
-  installLegacy();
-  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),before.get('ds4_bench.c'));
-  const partialLegacy=snapshot();
-  for (const action of ['check','apply','restore']) {
-    assert.equal(run(action).status,1); assert.deepEqual(snapshot(),partialLegacy);
-  }
-  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),applied.get('ds4_bench.c'));
-  const legacyCore=path.join(checkout,'ds4.c');
-  fs.writeFileSync(legacyCore,Buffer.concat([Buffer.from('// preserved user edit\n'),legacy.get('ds4.c')]));
+  // The previously shipped port (wrong batch-resource bound) is not upgraded:
+  // it is drift, refused for every action without touching a file.
   pass('apply');
-  assert.deepEqual(fs.readFileSync(legacyCore),Buffer.concat([Buffer.from('// preserved user edit\n'),applied.get('ds4.c')]));
-  pass('restore'); fs.writeFileSync(legacyCore,before.get('ds4.c'));
-  assert.deepEqual(snapshot(),initial);
+  const metalFile = path.join(checkout,'ds4_metal.m');
+  const current = applied.get('ds4_metal.m').toString();
+  const bound = '        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||\n';
+  assert.equal(current.split(bound).length, 2, 'port carries the corrected bound once');
+  fs.writeFileSync(metalFile, current.replace(bound, '        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||\n'));
+  const oldPort = snapshot();
+  for (const action of ['check','apply','restore']) {
+    const r = run(action); assert.equal(r.status,1,r.stdout); assert.match(r.stderr,/source drift or partial patch/);
+    assert.deepEqual(snapshot(),oldPort);
+  }
+  fs.writeFileSync(metalFile, applied.get('ds4_metal.m'));
+  pass('restore'); assert.deepEqual(snapshot(),initial);
 
   // Fail before applying any other hunk when the final file has drifted.
   const metal = path.join(checkout,'metal/moe.metal');
@@ -100,7 +85,7 @@ try {
   assert.deepEqual(snapshot(),saved);
   fs.writeFileSync(core,'// non-GLM engine\n'); saved=snapshot();
   assert.match(pass('apply').stdout,/non-GLM checkout skipped/); assert.deepEqual(snapshot(),saved);
-  console.log('GLM M2 Max patch (bundled main): lifecycle, legacy migration/restore, idempotence, drift, partial state, preserved edits and platform gates PASS');
+  console.log('GLM M2 Max patch (bundled main): lifecycle, old-port refusal, idempotence, drift, partial state, preserved edits and platform gates PASS');
 } finally {
   fs.rmSync(root,{recursive:true,force:true});
 }

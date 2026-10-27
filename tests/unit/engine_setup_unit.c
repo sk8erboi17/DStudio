@@ -85,8 +85,6 @@ int main(void) {
     assert(model_file_is_supported(MODEL_QWEN));
     assert(model_file_is_supported(MODEL_QWEN_Q2));
     assert(setup_engine_source("main") && !setup_engine_source("qwen"));
-    assert(model_file_is_legacy_qwen38(MODEL_LEGACY_QWEN));
-    assert(!model_file_is_legacy_qwen38(MODEL_QWEN));
     /* The dense checkpoint has its own route; the projector is never a Chat
      * model. Other quantizations still require their own qualification. */
     assert(model_file_is_auxiliary("Qwen3.8-27B-mmproj-F16.gguf"));
@@ -202,15 +200,19 @@ int main(void) {
     char primary[512], shared[512], side[512], link[512], other[512], marker[512];
     snprintf(primary, sizeof primary, "%s/ds4", temp);
     snprintf(shared, sizeof shared, "%s/ds4/gguf", temp);
-    snprintf(side, sizeof side, "%s/ds4-qwen38", temp);
-    snprintf(link, sizeof link, "%s/ds4-qwen38/gguf", temp);
+    snprintf(side, sizeof side, "%s/other-engine", temp);
+    snprintf(link, sizeof link, "%s/other-engine/gguf", temp);
     snprintf(other, sizeof other, "%s/other-model-store", temp);
     snprintf(marker, sizeof marker, "%s/ds4/user-data.txt", temp);
     assert(mkdir(primary, 0755) == 0);
     assert(mkdir(side, 0755) == 0);
     assert(mkdir(other, 0755) == 0);
+    /* A checkout whose DStudio receipt names another engine is never used. */
+    char side_receipt[600];
+    snprintf(side_receipt, sizeof side_receipt, "%s/.dstudio-source.json", side);
+    assert(jsonl_write_file(side_receipt, "{\"engine\":\"qwen38\"}\n", 20));
     cstr_copy(g_ds4_dir, sizeof g_ds4_dir, side);
-    assert(selected_checkout_is_qwen());
+    assert(checkout_engine_unsupported(g_ds4_dir));
     assert(!spawn_server(&cfg, err, sizeof err)); /* Required PLE is absent. */
     assert(!spawn_agent(&cfg, temp, 0, err, sizeof err));
     assert(!spawn_agent(&cfg, temp, 1, err, sizeof err));
@@ -274,7 +276,7 @@ int main(void) {
     assert(!setup_link_shared_gguf(side, err, sizeof err));
     assert(lstat(link, &a) == 0 && S_ISLNK(a.st_mode));
     assert(unlink(link) == 0);
-    assert(unlink(marker) == 0);
+    assert(unlink(marker) == 0 && unlink(side_receipt) == 0);
     assert(rmdir(shared) == 0 && rmdir(primary) == 0 && rmdir(side) == 0 && rmdir(other) == 0);
     assert(rmdir(temp) == 0);
 #endif

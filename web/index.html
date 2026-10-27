@@ -13514,11 +13514,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         return ggufIsMlxFolder(g) || qwenGgufComplete(g, allGgufs);
       }
       if (!/qwen3\.8-flash-next/i.test(file)) return true;
-      // Main validates the embedded BF16 table when loading. Neither a legacy
-      // sidecar nor an unrelated projector can make an old checkpoint usable.
-      return /^Qwen3\.8-Flash-Next-Q[24]\.gguf$/i.test(file) &&
-        !/(?:^|[/\\])ds4-qwen38(?:[/\\]|$)/i.test(String(g?.engineDir || '')) &&
-        String(g?.branch || '') !== 'qwen3.8-flash-next';
+      // Main validates the embedded BF16 table when loading; only the
+      // single-file Q2/Q4 checkpoints are models.
+      return /^Qwen3\.8-Flash-Next-Q[24]\.gguf$/i.test(file);
     }
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');

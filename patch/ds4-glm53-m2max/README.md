@@ -24,10 +24,9 @@ batch selected 30 experts and was rejected before the down-path GPU dispatch.
 The correct resource bound is `DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT` (384).
 The independent `args->nei0` per-token limit stays at 8; DeepSeek stays top-6.
 
-[`batch-entry-limit.patch`](batch-entry-limit.patch) upgrades a complete installed
-legacy port. The hook recognizes the entire old patch before changing any file;
-check mode is read-only, restore supports either release, and drift/partial
-states still fail without mutation. Native Chat, derived Chat, Agent and Cowork
+An installed port with the old bound is not upgraded: since October 27, 2026
+it is drift and fails without mutation (the former `batch-entry-limit.patch`
+upgrade is removed); reinstall the bundled engine. Native Chat, derived Chat, Agent and Cowork
 now invalidate builds when `ds4_metal.m` is newer, including subsecond mtimes.
 Design already uses a full source-diff build signature. No context/SSD change is
 required. Generic prefill errors no longer claim that Metal ran out of memory.

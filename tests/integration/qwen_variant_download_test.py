@@ -206,7 +206,7 @@ class DownloaderTests(unittest.TestCase):
         target = self.gguf / 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
         self.assertEqual(target.read_bytes(), payload('Qwen3.6-35B-A3B-UD-Q4_K_M.gguf', 70001))
         self.assertEqual(REQUESTS, [f'/{Q36}/resolve/{R36}/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'])
-        self.assertFalse((self.gguf / '.dstudio-qwen27-downloads/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf/data.part').exists())
+        self.assertFalse((self.gguf / '.dstudio-qwen-downloads/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf/data.part').exists())
         self.assertEqual(json.loads(result.stdout.splitlines()[-1])['verifiedFiles'][0]['bytes'], 70001)
         again = self.fetch('qwen36-q4_k_m', '--root', str(self.ds4))
         self.assertEqual(again.returncode, 0, again.stderr)
@@ -248,7 +248,7 @@ class DownloaderTests(unittest.TestCase):
         result = self.fetch('qwen36-q8_0', '--directory', str(self.gguf))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.gguf / 'Qwen3.6-35B-A3B-Q8_0.gguf').exists())
-        partial = self.gguf / '.dstudio-qwen27-downloads/Qwen3.6-35B-A3B-Q8_0.gguf/data.part'
+        partial = self.gguf / '.dstudio-qwen-downloads/Qwen3.6-35B-A3B-Q8_0.gguf/data.part'
         self.assertLessEqual(partial.stat().st_size, 20011)
 
     def test_digest_mismatch_is_refused_and_the_partial_kept(self):
@@ -256,7 +256,7 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('Checksum mismatch', result.stderr)
         self.assertFalse((self.gguf / 'Qwen3.6-35B-A3B-MXFP4_MOE.gguf').exists())
-        partial = self.gguf / '.dstudio-qwen27-downloads/Qwen3.6-35B-A3B-MXFP4_MOE.gguf/data.part'
+        partial = self.gguf / '.dstudio-qwen-downloads/Qwen3.6-35B-A3B-MXFP4_MOE.gguf/data.part'
         self.assertEqual(partial.read_bytes(), payload('Qwen3.6-35B-A3B-MXFP4_MOE.gguf', 10007))
 
     def test_replaced_store_is_never_written(self):

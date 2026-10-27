@@ -30,7 +30,7 @@ enum { QWEN_ENGINE_LLAMA = 1, QWEN_ENGINE_MLX = 2 };
 #define QWEN_FILE_BYTES_MAX (1024LL * 1024 * 1024 * 1024)
 /* The private per-file stage of scripts/download-qwen-variant.py, shared by
  * every Qwen download (gguf/ and each MLX folder have their own). */
-#define QWEN_STAGE_DIR ".dstudio-qwen27-downloads"
+#define QWEN_STAGE_DIR ".dstudio-qwen-downloads"
 
 typedef struct { char name[104]; long long bytes; } qwen_file;
 typedef struct {

@@ -80,7 +80,7 @@ class DownloadTests(unittest.TestCase):
         self.root.mkdir()
         self.name = 'fixture.gguf'
         self.target = self.root / self.name
-        self.stage = self.root / '.dstudio-qwen27-downloads' / self.name
+        self.stage = self.root / '.dstudio-qwen-downloads' / self.name
         self.stage.mkdir(parents=True, mode=0o700)
         self.stage.parent.chmod(0o700)
         self.partial = self.stage / 'data.part'
@@ -104,39 +104,6 @@ class DownloadTests(unittest.TestCase):
         self.partial.write_bytes(PAYLOAD[:137])
         self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
         self.assertEqual(REQUESTS[0][1], 'bytes=137-')
-
-    def test_visible_partial_of_the_earlier_layout_resumes(self):
-        # The earlier Qwen3.6 downloader kept <name>.part beside the model.
-        visible = self.root / (self.name + '.part')
-        visible.write_bytes(PAYLOAD[:137])
-        self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
-        self.assertEqual(REQUESTS[0][1], 'bytes=137-')
-        self.assertFalse(visible.exists())
-
-    def test_visible_partial_stays_when_linked_oversized_or_superseded(self):
-        visible = self.root / (self.name + '.part')
-        other = self.root / 'user file'
-        other.write_bytes(PAYLOAD[:50])
-
-        def already_resumed():
-            visible.write_bytes(PAYLOAD[:50])
-            self.partial.write_bytes(PAYLOAD[:200])
-        for label, prepare in (('hard link', lambda: os.link(other, visible)),
-                               ('symlink', lambda: visible.symlink_to(other)),
-                               ('oversized', lambda: visible.write_bytes(PAYLOAD + b'extra')),
-                               ('stage already resumed', already_resumed)):
-            with self.subTest(label):
-                REQUESTS.clear()
-                prepare()
-                state = lambda: os.readlink(visible) if visible.is_symlink() else visible.read_bytes()
-                kept = state()
-                self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
-                self.assertEqual(state(), kept)
-                self.assertEqual(other.read_bytes(), PAYLOAD[:50])
-                if label == 'stage already resumed':
-                    self.assertEqual(REQUESTS[0][1], 'bytes=200-')
-                visible.unlink()
-                self.target.unlink()
 
     def test_shared_store_alias_returns_same_verified_file(self):
         alias = self.root.with_name('model store link')

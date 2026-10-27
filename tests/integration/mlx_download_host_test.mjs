@@ -45,7 +45,7 @@ directory = Path(sys.argv[sys.argv.index('--directory') + 1]).resolve()
 control = Path(${JSON.stringify(root)})
 (control / 'download-entered').write_text(json.dumps(sys.argv[1:]))
 progress = int(sys.argv[sys.argv.index('--progress-fd') + 1])
-stage = directory / '.dstudio-qwen27-downloads' / 'model-00001-of-00008.safetensors'
+stage = directory / '.dstudio-qwen-downloads' / 'model-00001-of-00008.safetensors'
 stage.mkdir(parents=True, exist_ok=True)
 (directory / 'config.json').write_bytes(b'{}' * 512)
 (stage / 'data.part').write_bytes(b'x' * 4096)
@@ -138,7 +138,7 @@ try {
     row.failed = await phase('failed'); assert.notEqual(row.failed.downloadPct, 100);
     row.failed = await until(async () => {const s = await state(); return s.pausedDownloadVariant ? s : false;}, 'paused state');
     assert.equal(row.failed.pausedDownloadVariant, 'qwen36-mlx');
-    const part = path.join(folder, '.dstudio-qwen27-downloads/model-00001-of-00008.safetensors/data.part');
+    const part = path.join(folder, '.dstudio-qwen-downloads/model-00001-of-00008.safetensors/data.part');
     assert.equal(fs.statSync(part).size, 4096);
     assert.equal((await request('/api/model/partials/delete', {target: 'qwen36-mlx', confirm: true})).status, 409);
     assert.equal(fs.statSync(part).size, 4096);

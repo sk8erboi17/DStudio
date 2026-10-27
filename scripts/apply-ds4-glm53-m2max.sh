@@ -32,10 +32,8 @@ command -v git >/dev/null 2>&1 || {
 # the runtime delta, replace its build hunks, add the hot-list layout, and
 # check/apply everything as a single atomic git patch.
 main_patch=
-legacy_patch=
 cleanup() {
     [ -z "$main_patch" ] || rm -f "$main_patch"
-    [ -z "$legacy_patch" ] || rm -f "$legacy_patch"
 }
 trap cleanup EXIT HUP INT TERM
 main_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-main.XXXXXX")
@@ -70,22 +68,6 @@ elif apply_patch --check --whitespace=error >/dev/null 2>&1; then
            echo "DStudio M2 Max patch: applied" ;;
     esac
 else
-    # Recognize the COMPLETE previously shipped port before upgrading its one
-    # wrong batch-resource bound. Never partially repair a drifted port. Derive
-    # the old patch mechanically to avoid shipping a duplicate eight-file delta.
-    legacy_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-legacy.XXXXXX")
-    sed 's/^+        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||$/+        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||/' \
-        "$patch_file" > "$legacy_patch"
-    if apply_file "$legacy_patch" --reverse --check >/dev/null 2>&1; then
-        case "$action" in
-            check) echo "DStudio M2 Max patch: batch-limit upgrade available (no changes)" ;;
-            restore) apply_file "$legacy_patch" --reverse
-                     echo "DStudio M2 Max patch: legacy port restored" ;;
-            *) apply_file "$script_dir/../patch/ds4-glm53-m2max/batch-entry-limit.patch" --whitespace=error
-               echo "DStudio M2 Max patch: upgraded batch resource limit" ;;
-        esac
-        exit 0
-    fi
     echo "DStudio M2 Max patch: source drift or partial patch; no files changed" >&2
     echo "Restore/rebase the complete managed patch before rebuilding. Local edits were preserved." >&2
     exit 1

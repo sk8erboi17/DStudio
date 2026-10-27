@@ -358,12 +358,10 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define DS4_LAGUNA_DIR_NAME "ds4-laguna-s21"
 /* Qwen Next is now upstream main. The old directory/files are migration
  * identities only: never reinstall the retired fork or delete its user data. */
-#define DS4_LEGACY_QWEN_DIR_NAME "ds4-qwen38"
 #define MODEL_QWEN "gguf/Qwen3.8-Flash-Next-Q4.gguf"
 #define MODEL_QWEN_BYTES 177280286720LL
 #define MODEL_QWEN_Q2 "gguf/Qwen3.8-Flash-Next-Q2.gguf"
 #define MODEL_QWEN_Q2_BYTES 147207127040LL
-#define MODEL_LEGACY_QWEN "gguf/Qwen3.8-Flash-Next-Q4KImatrixExperts-MXFP4Down-BF16Emb-BF16Control-Q8GDN-Q8QSA-Q8Shared-Q8Out.gguf"
 /* The local Qwen checkpoints run on the bundled llama.cpp engine. Keep the
  * tested quants explicit. */
 #define MODEL_QWEN35 "gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
@@ -2781,11 +2779,6 @@ static int model_file_is_qwen38(const char *rel) {
 static int model_is_qwen38(void) {
     return model_file_is_qwen38(current_model_rel());
 }
-static int model_file_is_legacy_qwen38(const char *rel) {
-    if (!rel) return 0;
-    const char *name = strrchr(rel, '/');
-    return !strcmp(name ? name + 1 : rel, &MODEL_LEGACY_QWEN[5]);
-}
 /* gguf/<projector> of a pinned 27B GGUF variant; MLX 27B is text only. */
 static const char *qwen_projector_rel(const char *rel) {
     static char projector[112];
@@ -2846,15 +2839,6 @@ static const char *resident_model_label(const char *rel) {
 }
 /* Qwen models the ds4 engine itself runs; the llama.cpp ones are separate. */
 static int model_is_qwen(void) { return model_is_qwen38(); }
-static int checkout_is_legacy_qwen(const char *dir) {
-    const char *base = strrchr(dir, '/');
-    if (!strcmp(base ? base + 1 : dir, DS4_LEGACY_QWEN_DIR_NAME)) return 1;
-    char branch[128]; git_branch_of(dir, branch, sizeof branch);
-    return !strcmp(branch, "qwen3.8-flash-next");
-}
-static int selected_checkout_is_qwen(void) {
-    return checkout_engine_unsupported(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir);
-}
 static int checkout_is_laguna(const char *dir) {
     const char *base = strrchr(dir, '/');
     if (!strcmp(base ? base + 1 : dir, DS4_LAGUNA_DIR_NAME)) return 1;
@@ -2874,7 +2858,7 @@ static int native_launch_mode_supported(int mode, const char *model_rel,
     if (model_file_is_resident(model_rel)) return 1;
     if (model_file_is_qwen38(model_rel) && (mode == ENGINE_AGENT || mode == ENGINE_COWORK)) return 1;
     if (!model_file_is_qwen35(model_rel) && !model_file_is_qwen38(model_rel) &&
-        !selected_checkout_is_qwen()) return 1;
+        !checkout_engine_unsupported(g_ds4_dir)) return 1;
     snprintf(err, errsz,
              "The selected Qwen model's structured %s adapter is not implemented",
              mode == ENGINE_DESIGN ? "Design" : "Agent/Cowork");
@@ -3331,8 +3315,7 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
         if (model_file_is_resident(model_rel)) {
             const char *label = resident_model_label(model_rel);
             /* gguf/ and the tools frontend come from the main installation. */
-            if (checkout_engine_unsupported(g_ds4_dir) || checkout_is_legacy_qwen(g_ds4_dir) ||
-                checkout_is_laguna(g_ds4_dir)) {
+            if (checkout_engine_unsupported(g_ds4_dir) || checkout_is_laguna(g_ds4_dir)) {
                 snprintf(err, errsz, "%s now runs on DStudio's llama.cpp engine from the main installation; choose it from the model menu", label);
                 return "engine_model_mismatch";
             }
@@ -3384,7 +3367,7 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
             return "unsupported_backend";
         }
 #endif
-        if (checkout_is_legacy_qwen(g_ds4_dir) || checkout_engine_unsupported(g_ds4_dir)) {
+        if (checkout_engine_unsupported(g_ds4_dir)) {
             snprintf(err, errsz, "This engine checkout is not one of DStudio's engines; choose the model from the model menu to use the main installation.");
             return "engine_model_mismatch";
         }
@@ -3395,10 +3378,6 @@ static const char *native_launch_preflight(const engine_cfg *cfg, int mode,
                 !strcmp(branch, "laguna-s2.1")) {
                 snprintf(err, errsz, "Qwen Next requires ds4 main, not Laguna; choose it from the model menu.");
                 return "engine_model_mismatch";
-            }
-            if (model_file_is_legacy_qwen38(model_rel)) {
-                snprintf(err, errsz, "This older Qwen base + PLE format cannot run on ds4 main. Download Qwen Next Q2 or Q4 with original BF16 n-grams in Settings > Models. Your old files are preserved.");
-                return "unsupported_model_format";
             }
             /* ds4_engine_open() rejects throttling for Qwen3.8; reject it
              * here, before a working model is stopped. */
@@ -7419,7 +7398,7 @@ static int collect_engine_checkouts(
     if (active_out && active_outsz) cstr_copy(active_out, active_outsz, active);
 
     int ndirs = 0;
-    if (cap > 0 && ds4_dir_valid_path(active) && !checkout_is_legacy_qwen(active))
+    if (cap > 0 && ds4_dir_valid_path(active))
         cstr_copy(dirs[ndirs++], DSTUDIO_PATH_MAX, active);
 
     char parent[DSTUDIO_PATH_MAX];
@@ -7472,9 +7451,7 @@ static DIR *opendir_bounded(const char *path) { return opendir(path); }
 #endif
 
 /* GET /api/ggufs — list .gguf files across every managed engine checkout.
- * GLM 5.3 is owned by primary main; Laguna and Qwen use side checkouts.
- * A once-persisted ds4-glm5.3 path may remain on disk, but is deliberately not
- * emitted so the UI repairs its saved modelEngineDir to ./ds4/main. */
+ * GLM 5.3 and Qwen Next are owned by primary main; Laguna uses its own. */
 static char *gguf_catalog_build(void) {
     char dirs[ENGINE_CHECKOUT_CAP][DSTUDIO_PATH_MAX];
     char active[DSTUDIO_PATH_MAX];
@@ -7491,12 +7468,8 @@ static char *gguf_catalog_build(void) {
         engine_name = engine_name ? engine_name + 1 : dirs[ci];
         char branch[128];
         checkout_branch_label(dirs[ci], branch, sizeof branch);
-        int legacy_glm_engine = !strcmp(engine_name, "ds4-glm5.3") ||
-                                !strcmp(branch, "glm-5.3-flash");
         int laguna_engine = !strcmp(engine_name, DS4_LAGUNA_DIR_NAME) ||
                             !strcmp(branch, "laguna-s2.1");
-        if (legacy_glm_engine) continue;
-        if (checkout_is_legacy_qwen(dirs[ci])) continue;
         if (checkout_engine_unsupported(dirs[ci])) continue;
         for (int di = 0; di < 2 && ok; di++) {
             char dir[DSTUDIO_PATH_MAX + 16];
@@ -7600,7 +7573,7 @@ static char *gguf_catalog_build_known(void) {
         MODEL_DSPARK_UPSTREAM,
         MODEL_DSVISION_DSPARK,
         MODEL_LAGUNA,
-        MODEL_QWEN, MODEL_QWEN_Q2, MODEL_LEGACY_QWEN,
+        MODEL_QWEN, MODEL_QWEN_Q2,
         MODEL_QWEN35,
         MODEL_QWEN27, MODEL_QWEN27_VISION,
     };
@@ -7650,7 +7623,6 @@ static char *gguf_catalog_build_known(void) {
             if (duplicate) continue;
             int laguna_model = !strcmp(rel, MODEL_LAGUNA) ||
                                mem_contains_ci(rel, strlen(rel), "laguna");
-            if (checkout_is_legacy_qwen(dirs[ci])) continue;
             if (checkout_engine_unsupported(dirs[ci])) continue;
             if (laguna_model != laguna_engine) continue;
             char full[DSTUDIO_PATH_MAX + 512];
@@ -7912,10 +7884,6 @@ static void api_engine_checkout_set(int fd, const char *body) {
     char abs[DSTUDIO_PATH_MAX];
     if (!realpath(dir, abs) || !ds4_dir_valid_path(abs)) {
         send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"not a ds4 checkout\"}");
-        return;
-    }
-    if (checkout_is_legacy_qwen(abs)) {
-        send_json(fd, "410 Gone", "{\"ok\":false,\"error\":\"The separate Qwen Next engine was retired. Select Qwen Next from ds4 main; old files are preserved.\"}");
         return;
     }
     if (checkout_engine_unsupported(abs)) {

@@ -19,13 +19,9 @@ private build snapshot and verifies the complete forward or reverse delta using
 Git. It neither edits nor restores the original checkout. Existing setup/server
 patch application remains a separate path.
 
-`legacy-labels.patch` records a historical DStudio adaptation observed on
-`laguna-s21/ds4` at base `448d5695d1c86401a4e9447c440feb983b73e6de`:
-four log strings said “Qwen” and a header comment used the old description.
-There is no numerical or lifecycle change. Only a complete exact match is
-normalized, in the private snapshot; the complete residency patch must then pass
-reverse verification. Partial legacy text, an incomplete implementation or
-unrelated source drift does not become accepted merely because a marker exists.
+An installation carrying an older or edited residency delta is refused as
+drift; the former `legacy-labels.patch` normalization of an older Laguna
+installation was removed on October 27, 2026.
 
 The builder regressions preserve caller-owned already-applied patches and
 unrelated edits. Real native build/tool gates are separate from simulated

@@ -12,9 +12,9 @@ const functions = ['localSsdStreaming', 'launchBase', 'selectSavedModelCheckout'
 const policy = source.slice(source.indexOf('    const localQwen35Selected ='), source.indexOf('    function chatSelectionKey'));
 const api = source.slice(source.indexOf('    const Api = (() => {'), source.indexOf('    /* ==================== UI: messages'));
 const qwen = {model: 'qwen3.8-flash-next', modelGguf: 'gguf/Qwen3.8-Flash-Next.gguf',
-  modelEngineDir: '/old location/ds4-qwen38', modelVariant: 'flash', baseUrl: '',
+  modelEngineDir: '/old location/ds4', modelVariant: 'flash', baseUrl: '',
   chatBackend: 'local', ctxSize: 65536, thinkLevel: 'high', temperature: .35};
-const moved = '/new location/ds4-qwen38';
+const moved = '/new location/ds4';
 const defer = () => {let resolve; const promise = new Promise(r => {resolve = r;}); return {promise, resolve};};
 const run = artifactRunDir('chat-checkout-readiness');
 const receipt = {started: new Date().toISOString(), scope: 'Production resolver/readiness/API, simulated engine; no inference', cases: []};

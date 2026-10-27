@@ -127,10 +127,6 @@
         "sha256": "331ae370fb39b751a0241cb282ffc93a0a4786965fee80eadfc2e0e528370efe"
       },
       {
-        "path": "patch/ds4-glm53-m2max/batch-entry-limit.patch",
-        "sha256": "24ee698f9c20d0cc8f9511bf5a0d27b84299f0a00dde5913ace175d8e0803c92"
-      },
-      {
         "path": "patch/ds4-glm53-m2max/build-main-current.patch",
         "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
       },
@@ -144,7 +140,7 @@
       },
       {
         "path": "scripts/apply-ds4-glm53-m2max.sh",
-        "sha256": "0173e6fa956e953d08db573451b1fe8f62212fa1b1939ff1a31e8023a395e04d"
+        "sha256": "68c4997892c54f2d3cae9989a9206f14de494e48e8f4de14a6b60fce319e4649"
       },
       {
         "path": "scripts/apply-ds4-vision-streaming.sh",
@@ -168,7 +164,7 @@
       },
       {
         "path": "src/harness/design/build-design.sh",
-        "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
+        "sha256": "57c3887d12f72db5245d25e021170f7361edc998c38da616819d0d4fca3b852a"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",
@@ -318,10 +314,6 @@
         "sha256": "331ae370fb39b751a0241cb282ffc93a0a4786965fee80eadfc2e0e528370efe"
       },
       {
-        "path": "patch/ds4-glm53-m2max/batch-entry-limit.patch",
-        "sha256": "24ee698f9c20d0cc8f9511bf5a0d27b84299f0a00dde5913ace175d8e0803c92"
-      },
-      {
         "path": "patch/ds4-glm53-m2max/build-main-current.patch",
         "sha256": "a2bebd6d74b3f59c5e88e2b2a4c4ec8dc28628023b2bc7eaad793647296bbade"
       },
@@ -339,7 +331,7 @@
       },
       {
         "path": "scripts/apply-ds4-glm53-m2max.sh",
-        "sha256": "0173e6fa956e953d08db573451b1fe8f62212fa1b1939ff1a31e8023a395e04d"
+        "sha256": "68c4997892c54f2d3cae9989a9206f14de494e48e8f4de14a6b60fce319e4649"
       },
       {
         "path": "scripts/apply-ds4-vision-streaming.sh",
@@ -355,7 +347,7 @@
       },
       {
         "path": "src/harness/design/build-design.sh",
-        "sha256": "25deb793596032740c797da8259eaf89055364a12b2f13146e69d939cf149dd9"
+        "sha256": "57c3887d12f72db5245d25e021170f7361edc998c38da616819d0d4fca3b852a"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_agent_compaction.h",

@@ -454,7 +454,7 @@ download test uses tiny real SHA-checked files and simulated transport. The
 int32 oracle under ASan/UBSan and the unchanged 256 KiB scratch bound.
 `make test-first-launch-e2e` instead builds the bundled engine sources from an
 empty profile through headless WebKit, with external network denied; it refuses weights before transfer and
-checks Qwen Q2/Q4 reuse main plus the retired Qwen Next endpoint's 410 response.
+checks Qwen Q2/Q4 reuse main and that the retired Qwen Next setup route is gone (404).
 
 ## Host relay and model RPC
 
@@ -1335,9 +1335,7 @@ default selections (Q6_K_XL, MXFP8) have run on real weights.
   `--list-qwen` lists the catalog.
 - `tests/integration/qwen27_download_test.py` exercises the downloader's
   per-file machinery (resume, linked or oversized partials, concurrent leaders,
-  SIGTERM, replaced stores, credentials). A visible `<file>.part` left by the
-  earlier single-file Qwen3.6 downloader resumes from its bytes; a linked,
-  oversized or superseded one is left untouched.
+  SIGTERM, replaced stores, credentials).
 - `tests/unit/qwen_variants_unit.c` executes the host's catalog loader and its
   consumers on fixture trees: the compiled original pins equal their catalog
   entries; the 22 textual edits in
@@ -2324,11 +2322,15 @@ retired `q36` and `ds4-qwen35` engines, replaced by receipt-based cases in
 [BUNDLED_ENGINES](../docs/BUNDLED_ENGINES.md#retired-qwen-side-engines)).
 
 October 27, 2026: `qwen35_download_test.py` went with the merged Qwen3.6
-downloader (its cases run in `qwen27_download_test.py` on the one downloader,
-plus resuming the old visible `.part`). `qwen38_inspect_patch_test.mjs`,
+downloader (its cases run in `qwen27_download_test.py` on the one
+downloader). `qwen38_inspect_patch_test.mjs`,
 `qwen38_snapshot_patch_test.mjs`, their Make targets and the compressed fork
 sources in `tests/fixtures/retired-qwen-next/` went with the retired Qwen Next
 fork's patches. The M2 Max, native round-trip, Agent/runtime migration,
 native build and Chat PLD builder tests now cover only the bundled main and
 Laguna; the M2 Max lifecycle test runs on a copy of `src/engines/ds4` instead of
-reconstructed fragments of three older layouts.
+reconstructed fragments of three older layouts. No backward compatibility is
+kept: the M2 Max test checks that the previously shipped port is refused as
+drift, the Design builder test that an edited residency delta is refused, and
+the preflight/setup units that a leftover checkout is refused only by its
+receipt (the name-based `ds4-qwen38` and old Qwen Next format cases are gone).

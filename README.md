@@ -348,7 +348,7 @@ Flash Next shares ds4 main (pinned at
 there is no separate engine to install. Download the single-file **Q2
 (147.2 GB)** or **Q4 (177.3 GB)**: each includes the original BF16 n-grams read
 from SSD, with the backbone resident in Metal memory. The older base + PLE
-files stay on disk but are not compatible and are not converted. It exposes
+files are not supported, recognized or converted. It exposes
 experimental Chat, Agent and Cowork with its native tool format; Design and
 vision remain unavailable. The Q4 baseline answered 75/100 corpus questions and
 8/8 long-context cases; wrong answers stay in the denominator. See the
@@ -1499,15 +1499,22 @@ every model or a release. Exact acceptance criteria and retained failures are in
   Cowork and Design. Two earlier Design attempts failed on the test client's
   start limit; their receipts are kept.
 - [x] Download every Qwen variant, the three original ones included, through
-  one verified downloader (`scripts/download-qwen-variant.py`); a download left
-  half-finished by the old Qwen3.6 downloader resumes from its bytes. Remove
-  host routes and UI code that nothing called.
+  one verified downloader (`scripts/download-qwen-variant.py`). Remove host
+  routes and UI code that nothing called.
 - [x] Keep patches only for the bundled engine revisions (ds4 main `0aaea5a`,
   Laguna `448d569`): the variants for earlier main revisions and the retired
   Qwen Next fork, with its fixtures and tests, are deleted (about 19,000 lines).
-  An installed engine at another revision is refused; reinstall the bundled
-  one. The patch stack applies and restores byte for byte on the bundled
-  sources. [Patch notes](patch/README.md).
+  The patch stack applies and restores byte for byte on the bundled sources.
+  [Patch notes](patch/README.md).
+- [x] **Breaking (October 27, 2026):** no backward compatibility with older
+  installations. An engine at another revision, an older DStudio patch state
+  (the former M2 Max batch-limit upgrade and Design label normalization), a
+  leftover `ds4-qwen38`/`ds4-glm5.3` folder without a DStudio receipt or the old
+  Qwen Next base + PLE files get no special handling or upgrade: they fail as
+  drift or are treated like any other folder or file. Half-finished Qwen
+  downloads from before this change do not resume (their staging folder is now
+  `.dstudio-qwen-downloads`); partial files are left on disk. Reinstall the
+  bundled engines and restart those downloads.
 
 ### Still required
 

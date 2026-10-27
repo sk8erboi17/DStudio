@@ -84,11 +84,11 @@ build uses [`main-latest.patch`](../patch/ds4-server-pld/main-latest.patch) for
 remains family-gated; merging Qwen into main does not enable unsupported PLD.
 
 Upstream already includes correct Qwen snapshot-allocation cleanup and browser
-target recovery. The separate snapshot/inspection patches and older Agent/Web
-variants remain as historical regression assets, not new engine installs.
-The obsolete `scripts/download-qwen38.py` sidecar downloader is removed.
-The legacy setup endpoint returns 410 with migration guidance; it cannot
-reinstall `ds4-qwen38`. Setup does not delete existing checkout files or weights.
+target recovery. The obsolete `scripts/download-qwen38.py` sidecar downloader is
+removed. Since October 27, 2026 nothing in DStudio refers to `ds4-qwen38` or the
+old base + PLE files: the setup endpoint, the folder and branch checks and the
+old-format error are gone (an unknown route is a 404). Setup does not delete
+existing checkout files or weights.
 
 The obsolete development checkout can be removed after preserving local work.
 Active Qwen Next backend routing is covered through the main engine. Model files
