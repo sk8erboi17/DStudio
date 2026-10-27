@@ -28,8 +28,8 @@ enum { QWEN_ENGINE_LLAMA = 1, QWEN_ENGINE_MLX = 2 };
 #define QWEN_GGUF_PARTS_MAX 3
 #define QWEN_MLX_FILES_MAX 64
 #define QWEN_FILE_BYTES_MAX (1024LL * 1024 * 1024 * 1024)
-/* The private per-file stage of scripts/download-qwen27.py, shared by every
- * staged Qwen download (gguf/ and each MLX folder have their own). */
+/* The private per-file stage of scripts/download-qwen-variant.py, shared by
+ * every Qwen download (gguf/ and each MLX folder have their own). */
 #define QWEN_STAGE_DIR ".dstudio-qwen27-downloads"
 
 typedef struct { char name[104]; long long bytes; } qwen_file;
@@ -131,12 +131,6 @@ static int qwen_gguf_component_name(const char *name) {
             if (!strcmp(base, v->files[f].name)) return 1;
     }
     return 0;
-}
-
-/* Every catalog download except qwen36-q6 uses the per-file locked stage.
- * qwen36-q6 keeps scripts/download-qwen35.py and its visible <file>.part. */
-static int qwen_variant_staged(const qwen_variant *v) {
-    return v && strcmp(v->id, "qwen36-q6") != 0;
 }
 
 /* The display name of a quantization: MLX folder modes read as 4-bit/MXFP8. */
@@ -605,7 +599,7 @@ static const qwen_variant *qwen_paused_download(const char *checkout, const char
     const qwen_catalog *c = qwen_catalog_current();
     const qwen_variant *v = qwen_variant_by_id(last);
     int partial = 0;
-    if (qwen_variant_staged(v)) {
+    if (v) {
         long long have = qwen_download_bytes(checkout, v, &partial);
         if (partial) { *bytes = have; return v; }
     }
@@ -622,7 +616,7 @@ static const qwen_variant *qwen_paused_download(const char *checkout, const char
         if (qwen_regular_size(part) <= 0) continue;
         for (int i = 0; i < c->count && !found; i++) {
             const qwen_variant *candidate = &c->variants[i];
-            if (candidate->engine != QWEN_ENGINE_LLAMA || !qwen_variant_staged(candidate)) continue;
+            if (candidate->engine != QWEN_ENGINE_LLAMA) continue;
             for (int f = 0; f < candidate->parts && !found; f++)
                 if (!strcmp(candidate->files[f].name, de->d_name)) found = candidate;
             if (candidate->projector && !strcmp(candidate->files[candidate->parts].name, de->d_name)) projector_only = 1;

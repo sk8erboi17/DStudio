@@ -3923,58 +3923,6 @@
     .cbar-pop-wd .wd-path {
       font-family: var(--font-mono); font-size: 11.5px; direction: rtl; text-align: left;
     }
-    .gsa-tools {
-      display: grid;
-      gap: 6px;
-      padding: 7px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface);
-    }
-    .gsa-tools__head,
-    .gsa-tools__actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-width: 0;
-    }
-    .gsa-tools__actions > span:last-child {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      flex: 0 0 auto;
-    }
-    .gsa-tools__title {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-2);
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-    .gsa-tools__sub {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 10.5px;
-      color: var(--faint);
-      font-family: var(--font-mono);
-    }
-    .gsa-tools__btn {
-      height: 28px;
-      padding: 0 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border-2);
-      background: var(--surface-2);
-      color: var(--text-2);
-      font: inherit;
-      font-size: 11px;
-      cursor: pointer;
-    }
-    .gsa-tools__btn:hover { border-color: var(--accent); color: var(--text); }
-    .gsa-tools__btn--open { min-width: 88px; }
-
     #design-gallery-dialog.settings-dialog {
       width: min(96vw, 76rem);
       max-height: min(90vh, 54rem);
@@ -4915,30 +4863,6 @@
       line-height: 1.15;
       text-align: center;
     }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-menu-badge { border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); background: var(--accent-soft); color: var(--accent-2); }
-    .cbar-switch {
-      position: relative;
-      width: 32px;
-      height: 19px;
-      flex: 0 0 auto;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--text) 16%, transparent);
-      transition: background .16s;
-    }
-    .cbar-switch::after {
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      width: 15px;
-      height: 15px;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 1px 3px rgb(0 0 0 / .28);
-      content: '';
-      transition: transform .16s;
-    }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-switch { background: var(--accent); }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-switch::after { transform: translateX(13px); }
     .cbar-plan { display: grid; gap: 8px; padding: 9px 8px 8px; }
     .cbar-plan__head { display: flex; align-items: center; gap: 11px; }
     .cbar-plan__choices {
@@ -13762,9 +13686,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         on(resume, 'click', () => Switcher.downloadModel(choice.body));
         host.append(resume);
       }
-      // Staged Qwen downloads keep a locked, resumable cache the host does not
-      // delete; only qwen36-q6 keeps the older visible .part file.
-      if (dl.paused && !(choice?.qwen && choice.id !== 'qwen36-q6')) {
+      // Qwen downloads keep a locked, resumable cache the host does not delete.
+      if (dl.paused && !choice?.qwen) {
         const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
         on(remove, 'click', async () => {
           const yes = await askConfirm({
@@ -26531,41 +26454,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
       }
 
-      function renderGsaToolsPanel() {
-        if (gsaToolCache === null && !gsaToolLoading) loadGsaTools();
-        const box = el('div', { class: 'gsa-tools' });
-        const tools = gsaToolList();
-        const found = tools.filter((t) => gsaToolIsEnabled(t) && t.found);
-        const enabled = tools.filter((t) => gsaToolIsEnabled(t));
-        const missing = enabled.filter((t) => !t.found);
-        const blocked = missing.filter((t) => t.installable === false);
-        const installing = gsaToolInstallBusy();
-        box.append(el('div', { class: 'gsa-tools__head' }, [
-          el('span', { class: 'gsa-tools__title', text: 'Analysis automation' }),
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking…' : (installing ? 'installing tools…' : `${found.length}/${enabled.length || 0} active ready · ${securityProfileValue()}`) }),
-        ]));
-        const open = el('button', { class: 'gsa-tools__btn gsa-tools__btn--open', type: 'button', text: 'Open tools' });
-        on(open, 'click', (e) => { e.stopPropagation(); openGsaToolsDialog(); });
-        box.append(el('div', { class: 'gsa-tools__actions' }, [
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking' : (installing ? 'running in background' : (blocked.length ? `${blocked.length} need installers` : (missing.length ? `${missing.length} missing, optional` : 'All detected tools ready'))) }),
-          el('span', {}, [open]),
-        ]));
-        if (isBlackHatSecurityProfile()) {
-          box.append(el('div', {
-            class: 'gsa-tools__sub',
-            text: 'Black-hat full-surface mode: Scope and Safety gate are disabled.',
-          }));
-        } else if (isRedSecurityProfile()) {
-          box.append(el('div', {
-            class: 'gsa-tools__sub',
-            text: securityAuthorizedValue()
-              ? 'Warning: operational validation is armed for the authorized scope only.'
-              : 'Red authorized selected: it will downgrade until Scope is marked authorized.',
-          }));
-        }
-        return box;
-      }
-
       const GSA_TOOL_GROUP_ORDER = [
         ['recon', 'Recon & scanning'],
         ['web', 'Web & browser'],
@@ -27024,29 +26912,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           extra || el('span', { class: 'cbar-menu-chevron', text: '›', 'aria-hidden': 'true' }),
         ].filter(Boolean));
         if (onClick) on(row, 'click', (e) => { e.stopPropagation(); onClick(); });
-        return row;
-      }
-
-      function composerToggleRow({ badge, title, subtitle, pressed, onToggle }) {
-        const row = el('button', {
-          class: 'cbar-menu-row cbar-menu-toggle',
-          type: 'button',
-          role: 'switch',
-          'aria-checked': pressed ? 'true' : 'false',
-          'aria-pressed': pressed ? 'true' : 'false',
-        }, [
-          el('span', { class: 'cbar-menu-badge', text: badge }),
-          el('span', { class: 'cbar-menu-copy' }, [
-            el('span', { class: 'cbar-menu-title', text: title }),
-            el('span', { class: 'cbar-menu-sub', text: subtitle }),
-          ]),
-          el('span', { class: 'cbar-switch', 'aria-hidden': 'true' }),
-        ]);
-        on(row, 'click', (e) => {
-          e.stopPropagation();
-          onToggle(!pressed);
-          requestAnimationFrame(rebuildGearIfOpen);
-        });
         return row;
       }
 
@@ -34316,10 +34181,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           parameters: compactShellText(rawParameters) || 'none',
           command: command.trim(),
         };
-      }
-
-      function semanticCommandLabel(ev) {
-        return semanticCommandInfo(ev)?.label || '';
       }
 
       function semanticCommandSummary(ev, live, lineCount = 0) {

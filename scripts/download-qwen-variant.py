@@ -3,11 +3,11 @@
 
 Every file of the variant (and its required components, such as the
 Qwen3.8-27B F16 projector) is fetched from its pinned repository revision,
-resumable, verified by size and SHA-256 and published only when complete,
-through the same per-file machinery as scripts/download-qwen27.py: one
-non-waiting leader per file, a private flock-owned stage, verification outside
-publication and an atomic no-clobber hard link. Existing verified files are
-reused; nothing is overwritten or deleted. Loads no model and starts no engine.
+resumable, verified by size and SHA-256 and published only when complete:
+one non-waiting leader per file, a private flock-owned stage, verification
+outside publication and an atomic no-clobber hard link. Existing verified files
+are reused; nothing is overwritten or deleted. Loads no model and starts no
+engine.
 
   --variant ID --directory DIR   GGUF variants: DIR is the shared gguf/ store.
                                  MLX variants: DIR is the model folder.
@@ -16,16 +16,18 @@ reused; nothing is overwritten or deleted. Loads no model and starts no engine.
   --variant ID --manifest|--field NAME
                                  the pins of one variant; no disk or network access.
 
-The catalog is shipped with DStudio and never fetched. qwen36-q6 keeps its
-original downloader (scripts/download-qwen35.py) and partial-file layout.
+The catalog is shipped with DStudio and never fetched.
 """
 import argparse
-import importlib.util
+import contextlib
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import signal
+import stat
+import subprocess
 import sys
 from urllib.parse import quote, urlsplit
 
@@ -40,13 +42,22 @@ MAX_FILE_BYTES = 1024 ** 4
 HUB = 'https://huggingface.co'
 FAMILIES = {'qwen36': 'Qwen3.6-35B-A3B', 'qwen27': 'Qwen3.8-27B'}
 ENGINES = ('llama', 'mlx')
-# The original pins. Their ids, file names and sizes are fixed: existing
-# installs, settings and partial downloads depend on them.
-LEGACY = {
-    'qwen36-q6': ('scripts/download-qwen35.py', 'gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf'),
-    'qwen27-q6': ('scripts/download-qwen27.py', 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf'),
-    'qwen36-mlx': ('scripts/download-mlx-qwen36.py', 'mlx/Qwen3.6-35B-A3B-mxfp8'),
+# The original pins are frozen: existing installs, settings and partial
+# downloads depend on their ids, paths and files. Each digest is pin_digest()
+# of the variant as first published.
+ORIGINALS = {
+    'qwen36-q6': ('gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf',
+                  '2b826bb0a1b84bcc3cf2a51dcde9b9d487499aee0f6f99b9d3854c442b9bcf16'),
+    'qwen27-q6': ('gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf',
+                  'ec6e2fe4ef8d694fd929204a35a48b2dfa64d6b2e4d447b58a09ff1775472a66'),
+    'qwen36-mlx': ('mlx/Qwen3.6-35B-A3B-mxfp8',
+                   '9d3780cfc940ce7628bd06732f4e18fde59ff1bcfd674b65be1fdeae8cf664a7'),
 }
+# The private per-file stage inside each store. The name predates the shared
+# catalog and is kept so that interrupted downloads still resume.
+STAGE = '.dstudio-qwen27-downloads'
+CHUNK = 1024 * 1024
+MAX_SECONDS = 6 * 60 * 60
 MODIFIED = re.compile(r'abliterat|uncensor|jailbreak|heretic', re.I)
 ID = re.compile(r'qwen(36|27)-[a-z0-9][a-z0-9_.-]{0,31}')
 COMPONENT_ID = re.compile(r'[a-z0-9][a-z0-9_.-]{0,39}')
@@ -95,26 +106,17 @@ def _files(entries, where, limit):
     return entries
 
 
-def _legacy_pins():
-    """The files the original downloaders pin, as {id: [(file, bytes, sha256)]}."""
-    def load(name):
-        spec = importlib.util.spec_from_file_location(name.replace('-', '_'), HERE / name)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    q35, q27, mlx = load('download-qwen35.py'), load('download-qwen27.py'), load('download-mlx-qwen36.py')
-    return {
-        'qwen36-q6': ([(q35.FILE, q35.FILE, q35.SIZE, q35.SHA256)], q35.REPO, q35.REVISION),
-        'qwen27-q6': ([(q27.FILES['model']['file'], q27.FILES['model']['file'], q27.FILES['model']['bytes'],
-                        q27.FILES['model']['sha256']),
-                       (q27.FILES['vision']['remote'], q27.FILES['vision']['file'], q27.FILES['vision']['bytes'],
-                        q27.FILES['vision']['sha256'])], q27.REPO, q27.REVISION),
-        'qwen36-mlx': ([(name, name, item['bytes'], item['sha256']) for name, item in mlx.FILES.items()],
-                       mlx.REPO, mlx.REVISION),
-    }
+def pin_digest(variant, components):
+    """SHA-256 over every (repository, revision, remote, file, bytes, sha256)
+    of a variant and of the components it requires."""
+    files = [(variant['repository'], variant['revision'], f['remote'], f['file'], f['bytes'], f['sha256'])
+             for f in variant['files']]
+    files += [(components[r]['repository'], components[r]['revision'], f['remote'], f['file'], f['bytes'],
+               f['sha256']) for r in variant['requires'] for f in components[r]['files']]
+    return hashlib.sha256(json.dumps(sorted(files), separators=(',', ':')).encode()).hexdigest()
 
 
-def validate(document, legacy=True):
+def validate(document, originals=True):
     """Structural, identity and size checks; mirrors the host's loader."""
     _keys(document, ('schema', 'version', 'components', 'variants'), ('generator', 'source'), 'catalog')
     _require(document['schema'] == SCHEMA and document['version'] == VERSION, 'unsupported catalog schema/version')
@@ -184,21 +186,15 @@ def validate(document, legacy=True):
             _require(not requires, f'{identifier}: MLX variants have no components')
         total = sum(f['bytes'] for f in files) + sum(f['bytes'] for r in requires for f in by_component[r]['files'])
         _require(variant['bytes'] == total, f'{identifier}: total bytes {variant["bytes"]} != {total}')
-    if legacy:
-        pins = _legacy_pins()
-        for identifier, (_, path) in LEGACY.items():
+    if originals:
+        for identifier, (path, digest) in ORIGINALS.items():
             variant = next((v for v in variants if v['id'] == identifier), None)
             _require(variant is not None and variant['path'] == path, f'the original pin {identifier} is missing or moved')
-            files, repository, revision = pins[identifier]
-            catalog = [(f['remote'], f['file'], f['bytes'], f['sha256']) for f in variant['files']]
-            catalog += [(f['remote'], f['file'], f['bytes'], f['sha256']) for r in variant['requires']
-                        for f in by_component[r]['files']]
-            _require(sorted(catalog) == sorted(files) and variant['repository'] == repository and
-                     variant['revision'] == revision, f'the original pin {identifier} differs from its downloader')
+            _require(pin_digest(variant, by_component) == digest, f'the original pin {identifier} changed')
     return document
 
 
-def parse(data, legacy=True):
+def parse(data, originals=True):
     """Bounded, unambiguous JSON (no duplicate keys), then validate()."""
     _require(len(data) <= CATALOG_MAX_BYTES, 'catalog exceeds its size limit')
 
@@ -206,7 +202,7 @@ def parse(data, legacy=True):
         keys = [key for key, _ in pairs]
         _require(len(keys) == len(set(keys)), 'duplicate JSON key')
         return dict(pairs)
-    return validate(json.loads(data.decode('utf-8'), object_pairs_hook=unique), legacy=legacy)
+    return validate(json.loads(data.decode('utf-8'), object_pairs_hook=unique), originals=originals)
 
 
 def load(path=None):
@@ -216,7 +212,7 @@ def load(path=None):
     include the original pins."""
     with open(Path(path) if path else CATALOG, 'rb') as stream:
         data = stream.read(CATALOG_MAX_BYTES + 1)
-    return parse(data, legacy=path is None)
+    return parse(data, originals=path is None)
 
 
 def find(document, identifier):
@@ -235,11 +231,231 @@ def find(document, identifier):
     return variant, jobs
 
 
-def _pinned():
-    spec = importlib.util.spec_from_file_location('download_qwen27', HERE / 'download-qwen27.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def identity(info):
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def regular(parent, name, flags=os.O_RDONLY):
+    # O_NONBLOCK prevents a replaced FIFO from hanging before fstat can reject it.
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise RuntimeError(f'Not a regular file; preserved: {name}')
+    return fd
+
+
+def verify_fd(fd, size, expected):
+    before = os.fstat(fd)
+    if not stat.S_ISREG(before.st_mode) or before.st_size != size:
+        raise RuntimeError('Invalid/incomplete file; preserved')
+    os.lseek(fd, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    remaining = size
+    while remaining:
+        chunk = os.read(fd, min(CHUNK, remaining))
+        if not chunk:
+            raise RuntimeError('File shortened during verification; preserved')
+        digest.update(chunk)
+        remaining -= len(chunk)
+    if identity(before) != identity(os.fstat(fd)):
+        raise RuntimeError('File changed during verification; preserved')
+    if digest.hexdigest() != expected:
+        raise RuntimeError('Checksum mismatch; file preserved, not accepted')
+    return identity(before)
+
+
+def verify(target, size, expected, expected_store=None):
+    target = Path(target)
+    parent = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        if expected_store and (os.fstat(parent).st_dev, os.fstat(parent).st_ino) != expected_store:
+            raise RuntimeError('Model store changed since download admission; not accepted')
+        with contextlib.closing(os.fdopen(regular(parent, target.name), 'rb')) as stream:
+            checked = verify_fd(stream.fileno(), size, expected)
+            if identity(os.stat(target.name, dir_fd=parent, follow_symlinks=False)) != checked:
+                raise RuntimeError('File identity changed; preserved')
+    finally:
+        os.close(parent)
+
+
+def private_directory(parent, name):
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent)
+    except FileExistsError:
+        pass
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    info = os.fstat(fd)
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        os.close(fd)
+        raise RuntimeError(f'Download preparation directory is not private: {name}')
+    return fd
+
+
+def transfer(fd, size, url, token):
+    start = os.fstat(fd).st_size
+    parsed = urlsplit(url)
+    # Public CLI URLs are fixed HTTPS pins. HTTP is only allowed for loopback
+    # behavioral fixtures; redirects may never downgrade HTTPS or reach file://.
+    loopback = parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', '::1')
+    if parsed.username or parsed.password or (parsed.scheme != 'https' and not loopback):
+        raise ValueError('Download requires HTTPS')
+    protocols = '=http' if loopback else '=https'
+    config = 'header = ' + json.dumps('Authorization: Bearer ' + token) + '\n' if token else ''
+    command = [
+        'curl', '--disable', '--fail', '--location', '--silent', '--show-error',
+        '--proto', protocols, '--proto-redir', protocols, '--connect-timeout', '30',
+        '--max-time', str(MAX_SECONDS), '--speed-limit', '1024', '--speed-time', '120',
+        '--max-filesize', str(size - start), '--continue-at', str(start),
+        '--output', '-', '--config', '-', url,
+    ]
+    os.lseek(fd, start, os.SEEK_SET)
+    child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        child.stdin.write(config.encode('ascii'))
+        child.stdin.close()
+        written = start
+        while True:
+            chunk = child.stdout.read(CHUNK)
+            if not chunk:
+                break
+            if len(chunk) > size - written:
+                raise RuntimeError('Download exceeds pinned size; partial preserved')
+            view = memoryview(chunk)
+            while view:
+                count = os.write(fd, view)
+                if count <= 0:
+                    raise RuntimeError('Partial write failed; partial preserved')
+                view = view[count:]
+                written += count
+        code = child.wait(timeout=5)
+        if code:
+            raise RuntimeError(f'Download failed ({code}); partial preserved for resume')
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
+        child.stdout.close()
+        child.stdin.close()
+
+
+def download(directory, token='', *, name, size, expected, url, progress=None, expected_store=None):
+    """One non-waiting leader per filename; no global lock or inference lease.
+
+    Each preparation has one persistent empty lock file and one resumable
+    partial bounded by the exact file size. The OS lock, not file presence/PID text, denotes ownership.
+    Failures retain the partial; verified publication uses an atomic hard link
+    on the same volume. No existing target is overwritten or deleted.
+    """
+    import fcntl  # POSIX only; main() refuses other hosts.
+    if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}', name) or
+            not isinstance(size, int) or not 0 < size <= 1024**4 or
+            not re.fullmatch(r'[a-f0-9]{64}', expected)):
+        raise ValueError('Invalid pinned component identity')
+    if len(token) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in token):
+        raise ValueError('Invalid Hugging Face token')
+    destination = Path(directory).resolve()
+    if not expected_store:
+        destination.mkdir(parents=True, exist_ok=True)
+    with contextlib.ExitStack() as handles:
+        root = os.open(destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        handles.callback(os.close, root)
+        if expected_store and (os.fstat(root).st_dev, os.fstat(root).st_ino) != expected_store:
+            raise RuntimeError('Model store changed since download admission; not published')
+        prepared = private_directory(root, STAGE)
+        handles.callback(os.close, prepared)
+        stage = private_directory(prepared, name)
+        handles.callback(os.close, stage)
+        lock = regular(stage, 'lock', os.O_RDWR | os.O_CREAT)
+        handles.callback(os.close, lock)
+        if os.fstat(lock).st_nlink != 1:
+            raise RuntimeError('Linked preparation lock; preserved')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError(f'Download already active for {name}') from error
+
+        def revalidate_store():
+            current = os.stat(destination, follow_symlinks=False)
+            owned = os.fstat(root)
+            if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+                raise RuntimeError('Model store changed during preparation; not published')
+
+        try:
+            existing = regular(root, name)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            handles.callback(os.close, existing)
+            if progress:
+                progress('V')
+            checked = verify_fd(existing, size, expected)
+            revalidate_store()
+            if identity(os.stat(name, dir_fd=root, follow_symlinks=False)) != checked:
+                raise RuntimeError('Model identity changed; not accepted')
+            return destination / name
+
+        adopt_visible_partial(root, stage, name, size)
+        partial = regular(stage, 'data.part', os.O_RDWR | os.O_CREAT)
+        handles.callback(os.close, partial)
+        info = os.fstat(partial)
+        if info.st_nlink != 1 or info.st_size > size:
+            raise RuntimeError('Invalid/linked partial; preserved')
+        if info.st_size < size:
+            if progress:
+                progress('D')
+            print(f'Downloading {name}: {size / 1e9:.2f} GB; resumable', flush=True)
+            transfer(partial, size, url, token)
+        os.fsync(partial)
+        if progress:
+            progress('V')
+        print(f'Verifying SHA-256: {name}', flush=True)
+        checked = verify_fd(partial, size, expected)
+        revalidate_store()
+        if identity(os.stat('data.part', dir_fd=stage, follow_symlinks=False)) != checked:
+            raise RuntimeError('Partial identity changed; not published')
+        # Preparation is private and locked; the bounded publication never
+        # replaces a concurrent user file. Verification is outside publication.
+        os.link('data.part', name, src_dir_fd=stage, dst_dir_fd=root, follow_symlinks=False)
+        os.fsync(root)
+        os.unlink('data.part', dir_fd=stage)
+        os.fsync(stage)
+        return destination / name
+
+
+def adopt_visible_partial(root, stage, name, size):
+    """Resume a transfer left by the earlier single-file layout, a visible
+    <name>.part beside the model. It moves into the stage only while the stage
+    holds no bytes; a linked, oversized or non-regular file stays untouched."""
+    visible = name + '.part'
+    try:
+        fd = regular(root, visible)
+    except (OSError, RuntimeError):
+        return
+    try:
+        info = os.fstat(fd)
+        if info.st_nlink != 1 or not 0 < info.st_size <= size:
+            return
+        try:
+            if os.stat('data.part', dir_fd=stage, follow_symlinks=False).st_size:
+                return
+        except FileNotFoundError:
+            pass
+        current = os.stat(visible, dir_fd=root, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            return
+        os.rename(visible, 'data.part', src_dir_fd=root, dst_dir_fd=stage)
+        os.fsync(stage)
+        os.fsync(root)
+    finally:
+        os.close(fd)
+
+
+def stop_download(_signal, _frame):
+    raise KeyboardInterrupt
 
 
 def base_url(value):
@@ -298,10 +514,6 @@ def main():
                           'engine': variant['engine'], 'path': variant['path'], 'bytes': variant['bytes'],
                           'files': [{'repository': r, 'revision': v, **f} for r, v, f in jobs]}))
         return 0
-    if variant['id'] == 'qwen36-q6':
-        print('qwen36-q6 keeps its original downloader and partial file: use scripts/download-qwen35.py '
-              'or ./download-model.sh qwen36-q6', file=sys.stderr)
-        return 2
     if (args.directory is None) == (args.root is None):
         parser.error('give exactly one of --directory or --root')
     directory = args.directory if args.directory is not None else args.root / store
@@ -313,8 +525,7 @@ def main():
     if os.name != 'posix':
         parser.error('Qwen variant downloads currently require a POSIX host')
     hub = base_url(args.base_url)
-    pinned = _pinned()
-    signal.signal(signal.SIGTERM, pinned.stop_download)
+    signal.signal(signal.SIGTERM, stop_download)
     # Phase hints only; readiness still comes from this process's exit status.
     if args.progress_fd is not None:
         os.set_inheritable(args.progress_fd, False)
@@ -334,9 +545,9 @@ def main():
         url = f"{hub}/{repository}/resolve/{revision}/{quote(item['remote'], safe='/')}"
         if args.verify_only:
             progress('V')
-            pinned.verify(directory / item['file'], item['bytes'], item['sha256'], expected_store)
+            verify(directory / item['file'], item['bytes'], item['sha256'], expected_store)
         else:
-            pinned.download(directory, token, name=item['file'], size=item['bytes'], expected=item['sha256'],
+            download(directory, token, name=item['file'], size=item['bytes'], expected=item['sha256'],
                             url=url, progress=progress, expected_store=expected_store)
         verified.append({'file': item['file'], 'bytes': item['bytes'], 'sha256': item['sha256']})
     print(json.dumps({'id': variant['id'], 'repository': variant['repository'], 'revision': variant['revision'],
@@ -350,6 +561,6 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print('Download stopped; partial files preserved for resume.', file=sys.stderr)
         sys.exit(130)
-    except (OSError, RuntimeError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

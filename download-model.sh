@@ -28,8 +28,6 @@ case "${1:---help}" in
     exec python3 "$project_root/scripts/download-qwen-variant.py" --list ;;
   laguna-q4) engine=laguna; directory=ds4-laguna-s21 ;;
   qwen38-q2|qwen38-q4k) engine=main; directory=ds4 ;;
-  qwen36-q6|qwen27-q6) engine=llama; directory=llama.cpp ;;
-  qwen36-mlx) engine=mlx; directory=. ;;
   qwen36-*|qwen27-*)
     # The catalog names the engine; an unknown id stops here (exit 2).
     engine=$(python3 "$project_root/scripts/download-qwen-variant.py" --variant "$1" --field engine) || exit 2
@@ -49,18 +47,6 @@ if [ "$variant" = 1 ]; then
   target=$1
   shift
   exec python3 "$project_root/scripts/download-qwen-variant.py" --variant "$target" --root "$project_root/ds4" "$@"
-fi
-if [ "$1" = qwen36-q6 ]; then
-  shift
-  exec python3 "$project_root/scripts/download-qwen35.py" --directory "$project_root/ds4/gguf" "$@"
-fi
-if [ "$1" = qwen36-mlx ]; then
-  shift
-  exec python3 "$project_root/scripts/download-mlx-qwen36.py" --directory "$project_root/ds4/mlx/Qwen3.6-35B-A3B-mxfp8" "$@"
-fi
-if [ "$1" = qwen27-q6 ]; then
-  shift
-  exec python3 "$project_root/scripts/download-qwen27.py" --directory "$project_root/ds4/gguf" "$@"
 fi
 case "$1" in
   ds41f-q2|ds41f-q2-original|ds41f-1017-vision) DS4_GGUF_DIR=${DS4_GGUF_DIR:-"$project_root/ds4/gguf"}; export DS4_GGUF_DIR

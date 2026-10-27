@@ -194,11 +194,12 @@ try {
       assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
     }
     assert(!report.requests.some(r => r.url.endsWith('/api/qwen/setup')));
-    const tombstone = await fetch(report.base + '/api/qwen/setup', {method:'POST',
+    // The retired engine has no setup endpoint: the request installs nothing.
+    const retired = await fetch(report.base + '/api/qwen/setup', {method:'POST',
       headers:{'Content-Type':'application/json','X-Requested-With':'ds4web'}, body:'{}'});
-    assert.equal(tombstone.status, 410);
+    assert.equal(retired.status, 404);
     assert.equal(fs.existsSync(path.join(data,'ds4-qwen38')), false);
-    return {legacyEndpoint:410, weightTransfers:'not run', mainSharedByBothQuantizations:true};
+    return {retiredEndpoint:404, weightTransfers:'not run', mainSharedByBothQuantizations:true};
   });
   for (const id of ['laguna']) {
     await step(`${id}: model choice installs the matching absent engine`, async () => {

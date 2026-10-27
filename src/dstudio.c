@@ -20,7 +20,6 @@
  *   POST /api/stop                    stops the engine
  *   POST /api/agent/send {prompt}     sends a prompt to the agent (agent only)
  *   GET  /api/agent/poll?since=N      incremental stream of the agent output
- *   GET  /api/design/status           design workspace and run state
  *   GET  /api/design/files            list of design project files (JSON)
  *   GET  /api/design/file?name=R      one project file (path R sandboxed)
  *
@@ -344,7 +343,6 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define TASK_RING_CAP 128
 #define TASK_EVENT_RING_CAP 512
 #define LOG_RING_CAP 768
-#define DIAG_SSE_MAX 8
 #define DS4_REPO_URL "https://github.com/antirez/ds4"
 /* The primary managed checkout always follows the pinned upstream main. GLM
  * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
@@ -379,7 +377,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* Qwen3.6 MoE for the bundled MLX runtime: a directory of safetensors
  * (mlx-community/Qwen3.6-35B-A3B-mxfp8), not a GGUF file. */
 #define MODEL_QWEN36_MLX "mlx/Qwen3.6-35B-A3B-mxfp8"
-/* The pinned revision's 20 files (scripts/download-mlx-qwen36.py). */
+/* The pinned revision's 20 files (scripts/qwen-variants.json). */
 #define MODEL_QWEN36_MLX_BYTES 36665809057LL
 #define MODEL_QWEN27_VISION "gguf/Qwen3.8-27B-mmproj-F16.gguf"
 #define MODEL_QWEN27_BYTES 25299061664LL
@@ -1175,14 +1173,6 @@ static unsigned long long g_active_turn_task = 0;
 static unsigned long long g_active_download_task = 0;
 static unsigned long long g_active_setup_task = 0;
 
-static int g_log_sse_fd[DIAG_SSE_MAX];
-static unsigned long long g_log_sse_since[DIAG_SSE_MAX];
-static int g_log_sse_n = 0;
-static int g_task_sse_fd[DIAG_SSE_MAX];
-static unsigned long long g_task_sse_since[DIAG_SSE_MAX];
-static int g_task_sse_n = 0;
-static int g_diag_sse_tick = 0;
-static int g_diag_sse_adopt = 0;
 
 static long long dstudio_now_ms(void) {
 #ifdef _WIN32
@@ -1478,79 +1468,6 @@ static void api_logs(int fd, const char *path) {
     free(b.ptr);
 }
 
-static int diag_send_task_sse_event(int fd, const dstudio_task *t) {
-    json_dyn_buf b = {0};
-    int ok = json_dyn_puts(&b, "event: task\ndata: ") &&
-             json_add_task_summary(&b, t) &&
-             json_dyn_puts(&b, "\n\n");
-    if (!ok) { free(b.ptr); return -1; }
-    int rc = write(fd, b.ptr, b.len) == (ssize_t)b.len ? 0 : -1;
-    free(b.ptr);
-    return rc;
-}
-
-static int diag_send_log_sse_event(int fd, const dstudio_log_entry *e) {
-    json_dyn_buf b = {0};
-    int ok = json_dyn_puts(&b, "event: log\ndata: ") &&
-             json_add_log_entry(&b, e) &&
-             json_dyn_puts(&b, "\n\n");
-    if (!ok) { free(b.ptr); return -1; }
-    int rc = write(fd, b.ptr, b.len) == (ssize_t)b.len ? 0 : -1;
-    free(b.ptr);
-    return rc;
-}
-
-static void diag_sse_drop_log(int i) {
-    close(g_log_sse_fd[i]);
-    if (i < g_log_sse_n - 1) {
-        memmove(&g_log_sse_fd[i], &g_log_sse_fd[i + 1], (size_t)(g_log_sse_n - i - 1) * sizeof g_log_sse_fd[0]);
-        memmove(&g_log_sse_since[i], &g_log_sse_since[i + 1], (size_t)(g_log_sse_n - i - 1) * sizeof g_log_sse_since[0]);
-    }
-    g_log_sse_n--;
-}
-
-static void diag_sse_drop_task(int i) {
-    close(g_task_sse_fd[i]);
-    if (i < g_task_sse_n - 1) {
-        memmove(&g_task_sse_fd[i], &g_task_sse_fd[i + 1], (size_t)(g_task_sse_n - i - 1) * sizeof g_task_sse_fd[0]);
-        memmove(&g_task_sse_since[i], &g_task_sse_since[i + 1], (size_t)(g_task_sse_n - i - 1) * sizeof g_task_sse_since[0]);
-    }
-    g_task_sse_n--;
-}
-
-static void diag_sse_flush(void) {
-    int beat = (++g_diag_sse_tick % 75) == 0;
-    for (int i = 0; i < g_log_sse_n; ) {
-        int dropped = 0;
-        for (int n = g_log_count - 1; n >= 0; n--) {
-            int idx = (g_log_next_slot - 1 - n + LOG_RING_CAP) % LOG_RING_CAP;
-            if (!g_logs[idx].seq || g_logs[idx].seq <= g_log_sse_since[i]) continue;
-            if (diag_send_log_sse_event(g_log_sse_fd[i], &g_logs[idx]) != 0) { diag_sse_drop_log(i); dropped = 1; break; }
-            g_log_sse_since[i] = g_logs[idx].seq;
-        }
-        if (dropped) continue;
-        if (beat && write(g_log_sse_fd[i], ": ping\n\n", 8) != 8) { diag_sse_drop_log(i); continue; }
-        i++;
-    }
-    for (int i = 0; i < g_task_sse_n; ) {
-        int dropped = 0;
-        for (int n = g_task_count - 1; n >= 0; n--) {
-            int idx = (g_task_next_slot - 1 - n + TASK_RING_CAP) % TASK_RING_CAP;
-            if (!g_tasks[idx].id || g_tasks[idx].seq <= g_task_sse_since[i]) continue;
-            if (diag_send_task_sse_event(g_task_sse_fd[i], &g_tasks[idx]) != 0) { diag_sse_drop_task(i); dropped = 1; break; }
-            if (g_tasks[idx].seq > g_task_sse_since[i]) g_task_sse_since[i] = g_tasks[idx].seq;
-        }
-        if (dropped) continue;
-        if (beat && write(g_task_sse_fd[i], ": ping\n\n", 8) != 8) { diag_sse_drop_task(i); continue; }
-        i++;
-    }
-}
-
-static void diag_sse_close_all(void) {
-    while (g_log_sse_n) diag_sse_drop_log(0);
-    while (g_task_sse_n) diag_sse_drop_task(0);
-}
-
 static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
@@ -1562,48 +1479,6 @@ static void git_branch_of(const char *dir, char *out, size_t outsz);
 static int native_glm_vision_installed(void);
 static int native_deepseek_vision_installed(void);
 static const char *native_selected_vision_encoder(void);
-
-static void api_stream_logs(int fd, const char *path) {
-    if (g_log_sse_n >= DIAG_SSE_MAX) {
-        send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"too many log streams\"}");
-        return;
-    }
-    unsigned long long since = 0;
-    query_ull(path, "since", &since);
-    const char *hdr = "HTTP/1.1 200 OK\r\n"
-                      "Content-Type: text/event-stream\r\n"
-                      "Cache-Control: no-cache\r\n"
-                      "Connection: keep-alive\r\n\r\n";
-    if (write(fd, hdr, strlen(hdr)) != (ssize_t)strlen(hdr)) return;
-    int fl = fcntl(fd, F_GETFL, 0);
-    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-    g_log_sse_fd[g_log_sse_n] = fd;
-    g_log_sse_since[g_log_sse_n] = since;
-    g_log_sse_n++;
-    diag_sse_flush();
-    g_diag_sse_adopt = 1;
-}
-
-static void api_stream_tasks(int fd, const char *path) {
-    if (g_task_sse_n >= DIAG_SSE_MAX) {
-        send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"too many task streams\"}");
-        return;
-    }
-    unsigned long long since = 0;
-    query_ull(path, "since", &since);
-    const char *hdr = "HTTP/1.1 200 OK\r\n"
-                      "Content-Type: text/event-stream\r\n"
-                      "Cache-Control: no-cache\r\n"
-                      "Connection: keep-alive\r\n\r\n";
-    if (write(fd, hdr, strlen(hdr)) != (ssize_t)strlen(hdr)) return;
-    int fl = fcntl(fd, F_GETFL, 0);
-    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-    g_task_sse_fd[g_task_sse_n] = fd;
-    g_task_sse_since[g_task_sse_n] = since;
-    g_task_sse_n++;
-    diag_sse_flush();
-    g_diag_sse_adopt = 1;
-}
 
 static void api_diagnostics(int fd) {
     reap_child();
@@ -2458,7 +2333,7 @@ static long long ds41_download_bytes(const char *checkout, const char *target,
 static long long model_download_bytes_present(void) {
     if (!g_dl_rel[0]) return 0;
     const char *checkout = g_dl_directory[0] ? g_dl_directory : g_ds4_dir;
-    if (g_dl_qwen_valid && !strcmp(g_dl_variant, g_dl_qwen.id) && qwen_variant_staged(&g_dl_qwen))
+    if (g_dl_qwen_valid && !strcmp(g_dl_variant, g_dl_qwen.id))
         return qwen_download_bytes(checkout, &g_dl_qwen, NULL);
     if (model_download_uses_hf_artifacts(g_dl_variant)) return ds41_download_bytes(checkout, g_dl_variant, NULL);
     char full[2048], part[2060];
@@ -2512,8 +2387,8 @@ static long long hf_partial_bytes_in_checkout(const char *checkout) {
 static int paused_model_download(char *target, size_t targetsz,
                                  long long *bytes, long long *expected) {
     if (g_dl_pid > 0) return 0;
-    /* Staged Qwen downloads stay bound to the store of the last download. */
-    const char *checkout = qwen_variant_staged(qwen_variant_by_id(g_dl_variant)) && g_dl_directory[0]
+    /* Qwen downloads stay bound to the store of the last download. */
+    const char *checkout = qwen_variant_by_id(g_dl_variant) && g_dl_directory[0]
         ? g_dl_directory : g_ds4_dir;
     long long qwen_bytes = 0;
     const qwen_variant *qwen_paused = qwen_paused_download(checkout, g_dl_variant, &qwen_bytes);
@@ -2552,7 +2427,6 @@ static int paused_model_download(char *target, size_t targetsz,
         "pro-q2-imatrix", "glm53-q2", "glm53-vision",
         "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4",
         "ds4f-vision-encoder", "ds4f-vision-dspark",
-        "qwen36-q6",
     };
     for (size_t i = 0; i < sizeof stable_targets / sizeof stable_targets[0]; i++) {
         char rel[1100], final[DSTUDIO_PATH_MAX + 1100], part[DSTUDIO_PATH_MAX + 1110];
@@ -6857,10 +6731,9 @@ static void api_model_download(int fd, const char *body) {
         return;
     }
 #endif
-    /* Every staged Qwen download (all but qwen36-q6, which keeps its original
-     * downloader) shares one isolated path: managed root, admitted store
-     * identity, private log, phase pipe and engine install. */
-    const int q27 = catalog_variant && qwen_variant_staged(&variant);
+    /* Every Qwen download shares one isolated path: managed root, admitted
+     * store identity, private log, phase pipe and engine install. */
+    const int q27 = catalog_variant != NULL;
     char install_root[DSTUDIO_PATH_MAX] = "";
     char store_identity[64] = "", log_path[128] = "/tmp/ds4-model-dl.log";
     int owned_log = -1;
@@ -6970,26 +6843,11 @@ static void api_model_download(int fd, const char *body) {
                 fprintf(stderr, "%s\n", error); _exit(1);
             }
             char helper[DSTUDIO_PATH_MAX + 64], store[DSTUDIO_PATH_MAX + 160];
-            /* The original pins keep their original downloaders; every other
-             * variant uses the generic one with the same per-file machinery. */
-            const int legacy = !strcmp(variant.id, "qwen27-q6") || !strcmp(variant.id, "qwen36-mlx");
-            snprintf(helper, sizeof helper, "%s/scripts/%s", g_web_dir,
-                     !legacy ? "download-qwen-variant.py" : mlx ? "download-mlx-qwen36.py" : "download-qwen27.py");
+            snprintf(helper, sizeof helper, "%s/scripts/download-qwen-variant.py", g_web_dir);
             snprintf(store, sizeof store, "%s/%s", ds4_abs, mlx ? variant.path : "gguf");
             fcntl(3, F_SETFD, 0); /* explicitly passed to this one downloader */
-            if (legacy)
-                execlp("python3", "python3", helper, "--directory", store,
-                       "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
-            else
-                execlp("python3", "python3", helper, "--variant", variant.id, "--directory", store,
-                       "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
-            _exit(127);
-        }
-        if (!strcmp(target, "qwen36-q6")) {
-            char helper[DSTUDIO_PATH_MAX + 64];
-            snprintf(helper, sizeof helper, "%s/scripts/download-%s.py", g_web_dir,
-                     "qwen35");
-            execlp("python3", "python3", helper, "--directory", "gguf", (char *)NULL);
+            execlp("python3", "python3", helper, "--variant", variant.id, "--directory", store,
+                   "--directory-identity", store_identity, "--progress-fd", "3", (char *)NULL);
             _exit(127);
         }
         if (!strcmp(target, "laguna-q4")) _exit(child_download_laguna_resumable(ds4_abs));
@@ -7138,9 +6996,9 @@ static void api_model_partials_delete(int fd, const char *body) {
                   "{\"ok\":false,\"error\":\"explicit partial deletion confirmation is required\"}");
         return;
     }
-    if (qwen_variant_staged(qwen_variant_by_id(target)) || model_download_uses_hf_artifacts(target)) {
-        /* Its private, flock-owned staging tree is not the legacy .part
-         * layout. Keep it resumable; never delete around its active leader. */
+    if (qwen_variant_by_id(target) || model_download_uses_hf_artifacts(target)) {
+        /* A private, flock-owned staging tree, not a visible .part file.
+         * Keep it resumable; never delete around its active leader. */
         send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"Partial files are preserved; this cleanup does not support this model's locked download cache\"}");
         return;
     }
@@ -9324,15 +9182,6 @@ static void dbuf_puts(design_buf_t *b, const char *s) {
     memcpy(b->ptr + b->len, s, n);
     b->len += n;
     b->ptr[b->len] = '\0';
-}
-
-static void api_design_status(int fd) {
-    char wd_esc[1100];
-    json_escape_into(wd_esc, sizeof wd_esc, g_design_dir, strlen(g_design_dir));
-    char body[1300];
-    snprintf(body, sizeof body, "{\"ok\":true,\"workdir\":\"%s\",\"running\":%s}",
-             wd_esc, g_mode == ENGINE_DESIGN && g_child > 0 ? "true" : "false");
-    send_json(fd, "200 OK", body);
 }
 
 /* Same validation as the ds4-design tool-layer: relative, no "..",
@@ -11657,7 +11506,6 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (launch_preparation_busy() && (!strcmp(path, "/api/engine/checkout") ||
         !strcmp(path, "/api/webdir") || !strcmp(path, "/api/updates/run") ||
         !strcmp(path, "/api/ds4/setup") || !strcmp(path, "/api/laguna/setup") ||
-        !strcmp(path, "/api/qwen/setup") ||
         !strcmp(path, "/api/setup/content") || !strcmp(path, "/api/user-skills") ||
         !strcmp(path, "/api/user-skills/delete"))) {
         send_json(fd, "409 Conflict", "{\"ok\":false,\"code\":\"launch_busy\",\"error\":\"Wait for the pending launch or cancel it before changing engine files\"}"); return 409;
@@ -11671,13 +11519,13 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/agent/steer/status")) { api_steer_status(fd); return 200; }
     if (!strcmp(path, "/api/agent/steer/pull")) { api_steer_pull(fd, body); return 200; }
     if (path_eq_clean(path, "/api/pdf/evidence")) { api_pdf_evidence(fd, body); return 200; }
-    if (!strcmp(path, "/api/task-graph/create") || !strcmp(path, "/api/task-graphs/create")) return api_dtg_create(fd, body);
-    if (!strcmp(path, "/api/task-graph/validate") || !strcmp(path, "/api/task-graphs/validate")) return api_dtg_validate(fd, body);
-    if (!strcmp(path, "/api/task-graph/approve") || !strcmp(path, "/api/task-graphs/approve")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_approve_graph);
-    if (!strcmp(path, "/api/task-graph/start") || !strcmp(path, "/api/task-graphs/start")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_start);
-    if (!strcmp(path, "/api/task-graph/pause") || !strcmp(path, "/api/task-graphs/pause")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_pause);
-    if (!strcmp(path, "/api/task-graph/resume") || !strcmp(path, "/api/task-graphs/resume")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_resume);
-    if (!strcmp(path, "/api/task-graph/cancel") || !strcmp(path, "/api/task-graphs/cancel")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_cancel);
+    if (!strcmp(path, "/api/task-graph/create")) return api_dtg_create(fd, body);
+    if (!strcmp(path, "/api/task-graph/validate")) return api_dtg_validate(fd, body);
+    if (!strcmp(path, "/api/task-graph/approve")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_approve_graph);
+    if (!strcmp(path, "/api/task-graph/start")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_start);
+    if (!strcmp(path, "/api/task-graph/pause")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_pause);
+    if (!strcmp(path, "/api/task-graph/resume")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_resume);
+    if (!strcmp(path, "/api/task-graph/cancel")) return api_dtg_graph_mutation(fd, body, dtg_scheduler_cancel);
     if (!strcmp(path, "/api/task-graph/node/retry")) return api_dtg_node_mutation(fd, body, dtg_scheduler_retry_node);
     if (!strcmp(path, "/api/task-graph/node/skip")) return api_dtg_node_mutation(fd, body, dtg_scheduler_skip_node);
     if (!strcmp(path, "/api/task-graph/node/approve")) return api_dtg_node_mutation(fd, body, dtg_scheduler_approve_node);
@@ -11716,7 +11564,6 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/fs/mkdir")) { api_fs_mkdir(fd, body); return 200; }
     if (!strcmp(path, "/api/ds4/setup")) { api_setup_ds4(fd, body); return 200; }
     if (!strcmp(path, "/api/laguna/setup")) { api_setup_laguna(fd); return 200; }
-    if (!strcmp(path, "/api/qwen/setup")) { api_setup_qwen(fd); return 200; }
     if (!strcmp(path, "/api/image/generate")) { api_image_generate(fd, body); return 200; }
     if (!strcmp(path, "/api/image/stop")) { api_image_stop(fd, body); return 200; }
     if (!strcmp(path, "/api/video/setup")) { api_video_setup(fd, body); return 200; }
@@ -11747,7 +11594,7 @@ static size_t g_route_request_header_len = 0;
 static int route_get_or_static(int fd, const char *method, const char *path, int head_only) {
     const int is_get = !strcmp(method, "GET") || head_only;
     if (is_get && path_eq_clean(path, "/api/task-graphs")) return api_dtg_list(fd, path);
-    if (is_get && (path_eq_clean(path, "/api/task-graph/events") || path_eq_clean(path, "/api/task-graph/stream"))) return api_dtg_events(fd, path);
+    if (is_get && path_eq_clean(path, "/api/task-graph/events")) return api_dtg_events(fd, path);
     if (is_get && path_eq_clean(path, "/api/task-graph")) return api_dtg_get(fd, path);
     if (is_get && !strcmp(path, "/api/store")) {
         api_store_get(fd);
@@ -11775,9 +11622,7 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strcmp(path, "/api/doctor")) { api_doctor(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/diagnostics")) { api_diagnostics(fd); return 200; }
     if (is_get && path_eq_clean(path, "/api/updates/check")) { api_updates_check(fd); return 200; }
-    if (is_get && path_eq_clean(path, "/api/logs/stream")) { api_stream_logs(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/logs")) { api_logs(fd, path); return 200; }
-    if (is_get && path_eq_clean(path, "/api/tasks/stream")) { api_stream_tasks(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/tasks")) { api_tasks(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/task")) { api_task(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/ggufs")) { api_ggufs(fd); return 200; }
@@ -11796,7 +11641,6 @@ static int route_get_or_static(int fd, const char *method, const char *path, int
     if (is_get && !strncmp(path, "/api/agent/poll", 15)) { api_agent_poll(fd, path); return 200; }
     if (is_get && path_eq_clean(path, "/api/lan/cowork")) { api_lan_cowork(fd, "GET", NULL); return 200; }
     if (is_get && path_eq_clean(path, "/api/lan/cowork/status")) { api_lan_cowork_status(fd); return 200; }
-    if (is_get && !strcmp(path, "/api/design/status")) { api_design_status(fd); return 200; }
     if (is_get && !strncmp(path, "/api/design/events", 18)) { api_design_events(fd, path); return 200; }
     if (is_get && !strcmp(path, "/api/design/state")) { api_design_state(fd); return 200; }
     if (is_get && !strcmp(path, "/api/design/artifacts")) { api_design_artifacts(fd); return 200; }
@@ -12160,12 +12004,11 @@ static void handle_connection(int fd) {
 
     /* fd adopted by the SSE registry: the main loop owns it now */
     if (g_sse_adopt) { g_sse_adopt = 0; free(body_buf); return; }
-    if (g_diag_sse_adopt) { g_diag_sse_adopt = 0; free(body_buf); return; }
     if (g_launch_adopt) { g_launch_adopt = 0; free(body_buf); return; }
 
     /* compact log, I exclude polling so as not to flood the terminal */
     if (strncmp(path, "/api/agent/poll", 15) != 0 && strcmp(path, "/api/status") != 0 &&
-        strcmp(path, "/api/design/status") != 0 && strcmp(path, "/api/design/files") != 0 &&
+        strcmp(path, "/api/design/files") != 0 &&
         strncmp(path, "/api/design/preview/", 20) != 0 &&
         strncmp(path, "/api/design/events", 18) != 0 &&
         strcmp(path, "/api/design/state") != 0 && strcmp(path, "/api/design/artifacts") != 0 &&
@@ -12457,10 +12300,8 @@ int main(int argc, char **argv)
         /* push to the SSE clients: new pipe data wakes poll() immediately,
          * so streamed agent output has chat-like latency. */
         sse_flush();
-        diag_sse_flush();
     }
     sse_close_all();
-    diag_sse_close_all();
     model_rpc_shutdown();
     launch_preparation_shutdown();
     image_runtime_shutdown();

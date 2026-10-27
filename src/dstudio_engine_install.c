@@ -171,8 +171,3 @@ static int setup_engine_cli(int argc, char **argv) {
     else printf("install-engine: OK engine=%s bundled=1 sourcesInstalled=%d path=%s\n", argv[2], downloaded, target);
     return ok ? 0 : 1;
 }
-
-static void api_setup_qwen(int fd) {
-    /* A stale client must never reinstall the retired checkout. */
-    send_json(fd, "410 Gone", "{\"ok\":false,\"engine\":\"main\",\"error\":\"Qwen Next is included in ds4 main. Update DStudio and download the single-file Qwen Next Q2 or Q4 model from Settings > Models.\"}");
-}

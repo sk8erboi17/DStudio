@@ -673,10 +673,6 @@ test-engine-pins: $(TEST_SERVER)
 
 check-fast: test-engine-upstream test-engine-pins
 
-.PHONY: test-qwen35-download
-test-qwen35-download:
-	@python3 tests/integration/qwen35_download_test.py
-
 .PHONY: test-qwen27-download test-qwen27-download-host test-ui-qwen27-download test-qwen27-download-settings-live
 test-qwen27-download:
 	@python3 tests/integration/qwen27_download_test.py
@@ -703,7 +699,7 @@ check-fast: test-qwen27-download test-qwen27-download-host
 # catalog loader and its consumers on fixture files, downloads through the
 # real host with simulated installers, and the UI catalog functions. Model
 # files are tiny or sparse; no network, engine or weights. The original pins
-# are compared with their original downloaders.
+# stay frozen.
 .PHONY: test-qwen-variants
 $(TEST_BUILD)/qwen_variants_unit: tests/unit/qwen_variants_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
@@ -741,8 +737,6 @@ test-qwen38-prepare-patch:
 # patched candidate. No downloads or changes to the user's installation.
 test-qwen38-prepare-live:
 	@node tests/live/qwen38_prepare_test.mjs "$(QWEN38_AGENT_TREE)" "$(QWEN38_MODEL)" $(if $(QWEN38_WEIGHT_RECEIPTS),--weight-receipts "$(QWEN38_WEIGHT_RECEIPTS)")
-
-check-fast: test-qwen35-download
 
 .PHONY: test-glm53-m2max-patch
 test-glm53-m2max-patch:

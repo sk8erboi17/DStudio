@@ -2,8 +2,7 @@
 
 Executes the production scripts (and their real curl transfers) against a
 loopback HTTP fixture serving tiny payloads under a test catalog. No weights,
-no network. The shipped catalog is checked against the original downloaders
-by running their --manifest commands.
+no network. The shipped catalog must keep the original pins frozen.
 """
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -134,31 +133,21 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(sorted(split), ['qwen27-bf16', 'qwen36-bf16'])
         self.assertTrue(all(f[0].endswith('-00001-of-00002.gguf') and f[1].endswith('-00002-of-00002.gguf') for f in split.values()))
 
-    def test_original_pins_equal_their_original_downloaders(self):
+    def test_original_pins_are_frozen(self):
         document = catalog.load()
         by_id = {v['id']: v for v in document['variants']}
-        projector = document['components'][0]['files'][0]
-
-        def manifest(script):
-            result = subprocess.run([sys.executable, str(SCRIPTS / script), '--manifest'], capture_output=True,
-                                    text=True, timeout=20, cwd=tempfile.gettempdir())
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return json.loads(result.stdout)
-        q35 = manifest('download-qwen35.py')
-        self.assertEqual((q35['repository'], q35['revision']), (by_id['qwen36-q6']['repository'], by_id['qwen36-q6']['revision']))
-        self.assertEqual({k: q35['files']['model'][k] for k in ('file', 'bytes', 'sha256')},
-                         {k: by_id['qwen36-q6']['files'][0][k] for k in ('file', 'bytes', 'sha256')})
-        q27 = manifest('download-qwen27.py')
-        self.assertEqual(q27['revision'], by_id['qwen27-q6']['revision'])
-        self.assertEqual(q27['files']['model']['sha256'], by_id['qwen27-q6']['files'][0]['sha256'])
-        self.assertEqual((q27['files']['vision']['remote'], q27['files']['vision']['file'], q27['files']['vision']['sha256']),
-                         (projector['remote'], projector['file'], projector['sha256']))
-        self.assertEqual(by_id['qwen27-q6']['bytes'], q27['files']['model']['bytes'] + q27['files']['vision']['bytes'])
-        q36mlx = manifest('download-mlx-qwen36.py')
-        self.assertEqual(q36mlx['revision'], by_id['qwen36-mlx']['revision'])
-        self.assertEqual('mlx/' + q36mlx['folder'], by_id['qwen36-mlx']['path'])
-        self.assertEqual(q36mlx['files'], {f['file']: {'bytes': f['bytes'], 'sha256': f['sha256']} for f in by_id['qwen36-mlx']['files']})
-        self.assertEqual(q36mlx['bytes'], by_id['qwen36-mlx']['bytes'])
+        self.assertEqual((by_id['qwen36-q6']['revision'], by_id['qwen27-q6']['revision']), (R36, R27))
+        self.assertEqual(by_id['qwen36-q6']['files'][0]['sha256'],
+                         'f6b6c6d5cfa6f00d964eeb7add28eb14ce7481734d506b90681007678cd2c484')
+        self.assertEqual(by_id['qwen27-q6']['bytes'], 25299061664 + 927607488)
+        self.assertEqual(len(by_id['qwen36-mlx']['files']), 20)
+        # Changing any file of an original pin, here one MLX shard digest, is refused.
+        shard = next(f['sha256'] for f in by_id['qwen36-mlx']['files'] if f['file'] == 'model-00001-of-00008.safetensors')
+        self.assertEqual(SHIPPED.count(shard), 1)
+        changed = SHIPPED.replace(shard, shard[::-1]).encode()
+        with self.assertRaisesRegex(ValueError, 'original pin qwen36-mlx changed'):
+            catalog.parse(changed)
+        catalog.parse(changed, originals=False)  # maintainer and test catalogs need not carry them
 
     def test_the_five_planned_real_weight_checks_are_pinned(self):
         by_id = {v['id']: v for v in catalog.load()['variants']}
@@ -168,11 +157,11 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(round(sum(by_id[k]['bytes'] for k in planned) / 1e9), 98)
 
     def test_invalid_catalog_edits_are_rejected(self):
-        catalog.parse(SHIPPED.encode(), legacy=True)
+        catalog.parse(SHIPPED.encode(), originals=True)
         for case in EDITS['cases']:
             with self.subTest(case=case['name']):
                 with self.assertRaises(ValueError):
-                    catalog.parse(edited(SHIPPED, case).encode(), legacy=True)
+                    catalog.parse(edited(SHIPPED, case).encode(), originals=True)
 
     def test_oversized_catalog_is_rejected_before_parsing(self):
         with self.assertRaisesRegex(ValueError, 'size limit'):
@@ -303,11 +292,8 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(sorted(self.root.rglob('*')), before)
         self.assertEqual(REQUESTS, [])
 
-    def test_unknown_original_and_invalid_inputs_are_refused(self):
+    def test_unknown_and_invalid_inputs_are_refused(self):
         self.assertEqual(self.run_cli('--variant', 'qwen36-q2_k', '--field', 'engine').returncode, 2)
-        original = self.run_cli('--variant', 'qwen36-q6', '--root', str(self.ds4), catalog_path=False)
-        self.assertEqual(original.returncode, 2)
-        self.assertIn('download-qwen35.py', original.stderr)
         self.catalog.write_text(edited(json.dumps(TEST_CATALOG), {'edits': [['"version": 1', '"version": 3']]}))
         invalid = self.run_cli('--variant', 'qwen36-q4_k_m', '--root', str(self.ds4))
         self.assertEqual(invalid.returncode, 2)
@@ -335,12 +321,11 @@ class DownloadModelRoutingTests(unittest.TestCase):
         (self.project / 'ds4/ds4.c').write_text('')
         (self.project / 'llama.cpp').mkdir()  # what the (stubbed) llama.cpp installer creates
         shutil.copy(ROOT / 'download-model.sh', self.project)
-        for name in ('download-qwen-variant.py', 'download-qwen27.py', 'download-qwen35.py', 'download-mlx-qwen36.py'):
-            shutil.copy(SCRIPTS / name, self.project / 'scripts')
+        shutil.copy(DOWNLOADER, self.project / 'scripts')
         # The shipped original pins plus two tiny test variants, at the default
         # location: the downloader checks the original pins as in production.
         shipped = json.loads(SHIPPED)
-        originals = [v for v in shipped['variants'] if v['id'] in catalog.LEGACY]
+        originals = [v for v in shipped['variants'] if v['id'] in catalog.ORIGINALS]
         tiny = [v for v in TEST_CATALOG['variants'] if v['id'] in ('qwen36-q4_k_m', 'qwen27-mlx-4bit')]
         (self.project / 'scripts/qwen-variants.json').write_text(json.dumps(
             {**shipped, 'variants': originals + tiny}))
@@ -376,9 +361,9 @@ class DownloadModelRoutingTests(unittest.TestCase):
         self.assertIn('Unknown Qwen variant', result.stderr)
         self.assertEqual(self.calls_made(), [])
 
-    def test_original_targets_keep_their_original_downloaders(self):
+    def test_original_targets_use_the_same_downloader(self):
         for target, key, expected in (('qwen36-q6', 'revision', R36), ('qwen27-q6', 'revision', R27),
-                                      ('qwen36-mlx', 'folder', 'Qwen3.6-35B-A3B-mxfp8')):
+                                      ('qwen36-mlx', 'path', 'mlx/Qwen3.6-35B-A3B-mxfp8')):
             with self.subTest(target=target):
                 result = self.cli(target, '--manifest')
                 self.assertEqual(result.returncode, 0, result.stderr)

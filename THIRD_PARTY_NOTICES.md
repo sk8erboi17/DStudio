@@ -104,7 +104,8 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
   [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/4ca720788d1e01f1bff70c033e0d0028fd02e502/README.md),
   revision `4ca720788d1e01f1bff70c033e0d0028fd02e502`, whose model card
   declares Apache-2.0. Both are downloaded separately, not committed; exact
-  filenames, sizes and hashes are pinned in `scripts/download-qwen27.py`.
+  filenames, sizes and hashes are pinned in
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json).
   An encoder differential test is not full language-model qualification.
 
 ## MLX runtime (bundled wheels for Qwen3.6 on Apple Silicon)
@@ -134,7 +135,7 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 - [`mlx-community/Qwen3.6-35B-A3B-mxfp8`](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-mxfp8/tree/5c216c8705fed28a7a16fc92555befd507628709),
   revision `5c216c8705fed28a7a16fc92555befd507628709`, Apache-2.0 per its model card. Downloaded
   separately, not committed; the 20 files, sizes and SHA-256 are pinned in
-  [`scripts/download-mlx-qwen36.py`](scripts/download-mlx-qwen36.py).
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json).
 
 ## pi, pi-ds4 and OpenCode (optional Agent harnesses)
 

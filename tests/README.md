@@ -1317,8 +1317,9 @@ fixed in production code with a regression:
 These are development regressions on one Mac, not a quality comparison with
 the llama.cpp Qwen3.6 or a numerical-parity claim for MXFP8.
 
-`scripts/download-mlx-qwen36.py --verify-only --directory <folder>` checked an
-existing local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
+The MLX downloader's `--verify-only` mode (since merged into
+`scripts/download-qwen-variant.py --variant qwen36-mlx`) checked an existing
+local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
 
 ### Every pinned Qwen3.6 and Qwen3.8-27B variant
 
@@ -1339,13 +1340,18 @@ default selections (Q6_K_XL, MXFP8) have run on real weights.
   refused without publication (the partial stays resumable), a replaced store
   is never written, `--verify-only` never downloads, a non-loopback base URL is
   refused, and read-only commands touch neither disk nor network. The shipped
-  catalog validates, has the expected counts and keeps the original pins
-  exactly as their original downloaders print them (`--manifest` of
-  `download-qwen35.py`, `download-qwen27.py`, `download-mlx-qwen36.py`). The
-  same file runs the repository `download-model.sh` with stub `make`/`dstudio`:
-  new targets install their engine (llama.cpp or MLX) and land in `ds4/gguf/` or
-  `ds4/mlx/<folder>/`, an unknown target stops before building, the original
-  targets keep their original downloaders, and `--list-qwen` lists the catalog.
+  catalog validates, has the expected counts and keeps the three original
+  pins (`qwen36-q6`, `qwen27-q6`, `qwen36-mlx`) frozen: changing any of their
+  files is refused. The same file runs the repository `download-model.sh` with
+  stub `make`/`dstudio`: every target, the original ones included, installs its
+  engine (llama.cpp or MLX) and lands in `ds4/gguf/` or `ds4/mlx/<folder>/`
+  through this one downloader, an unknown target stops before building, and
+  `--list-qwen` lists the catalog.
+- `tests/integration/qwen27_download_test.py` exercises the downloader's
+  per-file machinery (resume, linked or oversized partials, concurrent leaders,
+  SIGTERM, replaced stores, credentials). A visible `<file>.part` left by the
+  earlier single-file Qwen3.6 downloader resumes from its bytes; a linked,
+  oversized or superseded one is left untouched.
 - `tests/unit/qwen_variants_unit.c` executes the host's catalog loader and its
   consumers on fixture trees: the compiled original pins equal their catalog
   entries; the 22 textual edits in

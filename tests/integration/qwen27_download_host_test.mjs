@@ -36,7 +36,7 @@ if (root / 'install-fail').exists(): sys.exit(9)
 (root / 'llama.cpp' / 'bin').mkdir(parents=True, exist_ok=True)
 (root / 'llama.cpp' / 'bin' / 'llama-server').write_text('fixture, no native build')
 `);
-file(path.join(assets, 'scripts/download-qwen27.py'), `import sys, os, json, time
+file(path.join(assets, 'scripts/download-qwen-variant.py'), `import sys, os, json, time
 from pathlib import Path
 directory = Path(sys.argv[sys.argv.index('--directory') + 1]).resolve()
 control = directory.parent.parent
@@ -119,6 +119,7 @@ try {
     assert.equal(row.phase.downloadExpectedBytes, 26226669152);
     assert.ok(!fs.existsSync(path.join(alternate, 'gguf', model)));
     const args = JSON.parse(fs.readFileSync(path.join(root, 'download-entered')));
+    assert.equal(args[args.indexOf('--variant') + 1], 'qwen27-q6');
     assert.equal(path.resolve(args[args.indexOf('--directory') + 1]), path.join(engine, 'gguf'));
     const store = fs.statSync(path.join(engine, 'gguf'), {bigint: true});
     assert.equal(args[args.indexOf('--directory-identity') + 1], `${store.dev}:${store.ino}`);

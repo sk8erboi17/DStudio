@@ -108,7 +108,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     result = json.load(handle)
 assert result["ok"] and result["bundled"] and result["contentOk"]
 PY
-python3 "$TMP_ROOT/support/scripts/download-qwen35.py" --help >/dev/null
+python3 "$TMP_ROOT/support/scripts/download-qwen-variant.py" --help >/dev/null
 # Every pinned Qwen variant ships with the bundle: the materialized catalog is
 # what the bundled host serves, byte for byte, and what the materialized
 # generic downloader validates (including the original pins) and lists. No
@@ -178,15 +178,15 @@ install_mlx.verify_wheels(mlx_packages, mlx_manifest)
 assert not Path(root, 'support/src/engines/mlx').exists(), 'MLX wheels are not copied at every launch'
 for mlx_patch in install_mlx.PATCHES:
     assert Path(root, 'support', mlx_patch).is_file(), mlx_patch
-mlx_pins = produced_json([sys.executable, os.path.join(root, 'support/scripts/download-mlx-qwen36.py'), '--manifest'])
-assert mlx_pins['files'] and len(mlx_pins['files']) == 20 and re.fullmatch(r'[0-9a-f]{40}', mlx_pins['revision'])
+qwen_downloader = os.path.join(root, 'support/scripts/download-qwen-variant.py')
+mlx_pins = produced_json([sys.executable, qwen_downloader, '--variant', 'qwen36-mlx', '--manifest'])
+assert len(mlx_pins['files']) == 20 and re.fullmatch(r'[0-9a-f]{40}', mlx_pins['revision'])
 for bridge_file in ('dstudio-harness.mjs', 'pi-workspace-guard.ts'):
     assert Path(root, 'support/src/harness/bridge', bridge_file).is_file(), bridge_file
-manifest = produced_json([sys.executable, os.path.join(root, 'support/scripts/download-qwen27.py'), '--manifest'])
+manifest = produced_json([sys.executable, qwen_downloader, '--variant', 'qwen27-q6', '--manifest'])
 assert re.fullmatch(r'[0-9a-f]{40}', manifest['revision'])
-assert set(manifest['files']) == {'model', 'vision'}
-assert len({item['file'] for item in manifest['files'].values()}) == 2
-for item in manifest['files'].values():
+assert [item['file'] for item in manifest['files']] == ['Qwen3.8-27B-UD-Q6_K_XL.gguf', 'Qwen3.8-27B-mmproj-F16.gguf']
+for item in manifest['files']:
     assert item['bytes'] > 0 and re.fullmatch(r'[0-9a-f]{64}', item['sha256'])
 assert not os.path.exists(os.path.join(root, 'metadata support')), 'metadata commands must not initialize a profile'
 PY

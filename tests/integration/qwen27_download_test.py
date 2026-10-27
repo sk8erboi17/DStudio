@@ -14,7 +14,7 @@ import threading
 import unittest
 from unittest import mock
 
-SPEC = importlib.util.spec_from_file_location('qwen27_download', 'scripts/download-qwen27.py')
+SPEC = importlib.util.spec_from_file_location('qwen_download', 'scripts/download-qwen-variant.py')
 download = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(download)
 PAYLOAD = b'controlled-qwen27-transfer-not-model-weights' * 1024
@@ -104,6 +104,39 @@ class DownloadTests(unittest.TestCase):
         self.partial.write_bytes(PAYLOAD[:137])
         self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
         self.assertEqual(REQUESTS[0][1], 'bytes=137-')
+
+    def test_visible_partial_of_the_earlier_layout_resumes(self):
+        # The earlier Qwen3.6 downloader kept <name>.part beside the model.
+        visible = self.root / (self.name + '.part')
+        visible.write_bytes(PAYLOAD[:137])
+        self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
+        self.assertEqual(REQUESTS[0][1], 'bytes=137-')
+        self.assertFalse(visible.exists())
+
+    def test_visible_partial_stays_when_linked_oversized_or_superseded(self):
+        visible = self.root / (self.name + '.part')
+        other = self.root / 'user file'
+        other.write_bytes(PAYLOAD[:50])
+
+        def already_resumed():
+            visible.write_bytes(PAYLOAD[:50])
+            self.partial.write_bytes(PAYLOAD[:200])
+        for label, prepare in (('hard link', lambda: os.link(other, visible)),
+                               ('symlink', lambda: visible.symlink_to(other)),
+                               ('oversized', lambda: visible.write_bytes(PAYLOAD + b'extra')),
+                               ('stage already resumed', already_resumed)):
+            with self.subTest(label):
+                REQUESTS.clear()
+                prepare()
+                state = lambda: os.readlink(visible) if visible.is_symlink() else visible.read_bytes()
+                kept = state()
+                self.assertEqual(self.run_download().read_bytes(), PAYLOAD)
+                self.assertEqual(state(), kept)
+                self.assertEqual(other.read_bytes(), PAYLOAD[:50])
+                if label == 'stage already resumed':
+                    self.assertEqual(REQUESTS[0][1], 'bytes=200-')
+                visible.unlink()
+                self.target.unlink()
 
     def test_shared_store_alias_returns_same_verified_file(self):
         alias = self.root.with_name('model store link')
@@ -269,7 +302,7 @@ except KeyboardInterrupt:
     sys.exit(130)
 '''
         child = subprocess.Popen(['python3', '-c', probe,
-                                  str(Path('scripts/download-qwen27.py').resolve()),
+                                  str(Path('scripts/download-qwen-variant.py').resolve()),
                                   str(self.root), str(len(PAYLOAD)), DIGEST,
                                   self.url + '/blocked'], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -367,14 +400,15 @@ except KeyboardInterrupt:
 
     def test_manifest_cli_is_read_only_and_exact(self):
         before = list(self.root.iterdir())
-        process = subprocess.run(['python3', str(Path('scripts/download-qwen27.py').resolve()),
-                                  '--manifest'], cwd=self.root, capture_output=True, timeout=5)
+        process = subprocess.run(['python3', str(Path('scripts/download-qwen-variant.py').resolve()),
+                                  '--variant', 'qwen27-q6', '--manifest'], cwd=self.root, capture_output=True, timeout=5)
         self.assertEqual(process.returncode, 0, process.stderr)
         manifest = json.loads(process.stdout)
         self.assertEqual(manifest['revision'], '4ca720788d1e01f1bff70c033e0d0028fd02e502')
-        self.assertEqual(set(manifest['files']), {'model', 'vision'})
-        self.assertEqual(manifest['files']['model']['bytes'], 25299061664)
-        self.assertEqual(manifest['files']['vision']['remote'], 'mmproj-F16.gguf')
+        self.assertEqual([f['file'] for f in manifest['files']],
+                         ['Qwen3.8-27B-UD-Q6_K_XL.gguf', 'Qwen3.8-27B-mmproj-F16.gguf'])
+        self.assertEqual(manifest['files'][0]['bytes'], 25299061664)
+        self.assertEqual(manifest['files'][1]['remote'], 'mmproj-F16.gguf')
         self.assertEqual(list(self.root.iterdir()), before)
         self.assertEqual(REQUESTS, [])
 
