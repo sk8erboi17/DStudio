@@ -1,4 +1,5 @@
-// Real patch lifecycle on sparse source fixtures. No model or compiler needed.
+// Real patch lifecycle on a copy of the bundled main sources (src/engines/ds4).
+// No model or compiler needed.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,49 +7,26 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 const script = path.resolve('scripts/apply-ds4-glm53-m2max.sh');
-const nativePatch = fs.readFileSync('patch/ds4-glm53-m2max/native-decode.patch', 'utf8');
-const loggingHunks = fs.readFileSync('patch/ds4-glm53-m2max/legacy-selected-logging.patch', 'utf8').split('\n').slice(3).join('\n');
-const originalPatch = nativePatch.replace('diff --git a/metal/moe.metal', loggingHunks + 'diff --git a/metal/moe.metal');
-const currentPatch = originalPatch.split(/(?=^diff --git )/m)
-  .filter(s=>!/^diff --git a\/(?:Makefile|\.gitignore) /m.test(s)).join('')
-  + fs.readFileSync('patch/ds4-glm53-m2max/build-main.patch','utf8');
-const latestPatch = nativePatch.split(/(?=^diff --git )/m)
-  .filter(s=>!/^diff --git a\/(?:Makefile|\.gitignore) /m.test(s)).join('')
-  + fs.readFileSync('patch/ds4-glm53-m2max/build-main-current.patch','utf8');
-for (const [generation,patch] of [['legacy',originalPatch],['current',currentPatch],['latest',latestPatch]]) {
+const engineSource = path.resolve('src/engines/ds4');
+// Every file the composed port touches; the hook itself composes the patch.
+const files = [...new Set(['native-decode-main-qwen.patch', 'build-main-current.patch', 'hotlist-main-layout.patch']
+  .flatMap(f => fs.readFileSync(path.join('patch/ds4-glm53-m2max', f), 'utf8').match(/^\+\+\+ b\/\S+/gm))
+  .map(line => line.slice(6)))];
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dstudio-glm-port-'));
 const checkout = path.join(root, 'engine with spaces');
 const bin = path.join(root, 'bin');
 const before = new Map();
-const files = [];
 try {
   fs.mkdirSync(checkout); fs.mkdirSync(bin);
   // Mac-only packaging logic is testable without a Metal device.
   fs.writeFileSync(path.join(bin, 'uname'), '#!/bin/sh\nprintf "%s\\n" "${TEST_SYSTEM:-Darwin}"\n', {mode:0o755});
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
-  // Reconstruct old-side hunks at their original line numbers. Unchanged
-  // regions are padding: this tests all shipped anchors, not model mechanics.
-  for (const section of patch.split(/^diff --git /m).slice(1)) {
-    const name = section.match(/^a\/(\S+) b\/(\S+)/)[2];
-    files.push(name);
-    if (/^new file mode /m.test(section)) continue;
-    const out = [];
-    let inHunk = false;
-    for (const line of section.split('\n')) {
-      const header = line.match(/^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@/);
-      if (header) {
-        while (out.length < Number(header[1]) - 1) out.push('');
-        inHunk = true;
-      } else if (inHunk && (line[0] === ' ' || line[0] === '-')) out.push(line.slice(1));
-    }
-    if (name === 'ds4.c') out.push('// static bool ds4_model_is_glm53');
-    if (generation!=='legacy' && name==='Makefile') out.push('test-glm-attention:');
-    if (generation==='latest' && name==='Makefile') out.push('test-frontends:');
-    if (generation==='latest' && name==='ds4_metal.m') out.push('// "experts=",');
-    const bytes = Buffer.from(out.join('\n') + '\n');
+  for (const name of files) {
+    const from = path.join(engineSource, name);
+    if (!fs.existsSync(from)) continue; // created by the port
     fs.mkdirSync(path.dirname(path.join(checkout, name)), {recursive:true});
-    fs.writeFileSync(path.join(checkout, name), bytes);
-    before.set(name, bytes);
+    fs.copyFileSync(from, path.join(checkout, name));
+    before.set(name, fs.readFileSync(from));
   }
   const snapshot = () => new Map(files.map(name => [name,
     fs.existsSync(path.join(checkout,name)) ? fs.readFileSync(path.join(checkout,name)) : null]));
@@ -66,36 +44,21 @@ try {
   pass('restore'); assert.deepEqual(snapshot(),initial);
   assert.ok(!fs.existsSync(path.join(root,'.git/index')), 'parent Git index untouched');
 
-  // Install the previously shipped release using its reversible migration
-  // delta. Exercise the actual hook; compare every output file, not anchors.
-  const installLegacy = () => {
-    pass('apply');
-    const r = spawnSync('git', ['-C', checkout, 'apply', '--reverse',
-      path.resolve('patch/ds4-glm53-m2max/batch-entry-limit.patch')], {
-      encoding:'utf8', env:{...process.env, GIT_CEILING_DIRECTORIES:root}
-    });
-    assert.equal(r.status,0,r.stderr+r.stdout);
-  };
-  installLegacy(); const legacy = snapshot();
-  assert.notDeepEqual(legacy,applied);
-  assert.match(pass('check').stdout,/upgrade available/); assert.deepEqual(snapshot(),legacy);
-  assert.match(pass('apply').stdout,/upgraded batch resource limit/);
-  assert.deepEqual(snapshot(),applied);
-  pass('apply'); assert.deepEqual(snapshot(),applied);
-  installLegacy(); pass('restore'); assert.deepEqual(snapshot(),initial);
-  installLegacy();
-  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),before.get('ds4_bench.c'));
-  const partialLegacy=snapshot();
-  for (const action of ['check','apply','restore']) {
-    assert.equal(run(action).status,1); assert.deepEqual(snapshot(),partialLegacy);
-  }
-  fs.writeFileSync(path.join(checkout,'ds4_bench.c'),applied.get('ds4_bench.c'));
-  const legacyCore=path.join(checkout,'ds4.c');
-  fs.writeFileSync(legacyCore,Buffer.concat([Buffer.from('// preserved user edit\n'),legacy.get('ds4.c')]));
+  // The previously shipped port (wrong batch-resource bound) is not upgraded:
+  // it is drift, refused for every action without touching a file.
   pass('apply');
-  assert.deepEqual(fs.readFileSync(legacyCore),Buffer.concat([Buffer.from('// preserved user edit\n'),applied.get('ds4.c')]));
-  pass('restore'); fs.writeFileSync(legacyCore,before.get('ds4.c'));
-  assert.deepEqual(snapshot(),initial);
+  const metalFile = path.join(checkout,'ds4_metal.m');
+  const current = applied.get('ds4_metal.m').toString();
+  const bound = '        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||\n';
+  assert.equal(current.split(bound).length, 2, 'port carries the corrected bound once');
+  fs.writeFileSync(metalFile, current.replace(bound, '        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||\n'));
+  const oldPort = snapshot();
+  for (const action of ['check','apply','restore']) {
+    const r = run(action); assert.equal(r.status,1,r.stdout); assert.match(r.stderr,/source drift or partial patch/);
+    assert.deepEqual(snapshot(),oldPort);
+  }
+  fs.writeFileSync(metalFile, applied.get('ds4_metal.m'));
+  pass('restore'); assert.deepEqual(snapshot(),initial);
 
   // Fail before applying any other hunk when the final file has drifted.
   const metal = path.join(checkout,'metal/moe.metal');
@@ -122,24 +85,9 @@ try {
   assert.deepEqual(snapshot(),saved);
   fs.writeFileSync(core,'// non-GLM engine\n'); saved=snapshot();
   assert.match(pass('apply').stdout,/non-GLM checkout skipped/); assert.deepEqual(snapshot(),saved);
-  // Qwen rebases contain the GLM family too, but retain native Qwen kernels.
-  // This fixture exercises the hook's family admission, not source semantics.
-  fs.writeFileSync(core,'// DS4_MODEL_FAMILY_QWEN4_EXP\n// static bool ds4_model_is_glm53\n');
-  saved=snapshot();
-  for (const action of ['apply','build','check','restore']) {
-    assert.match(pass(action).stdout,/Qwen engine uses native kernels/);
-    assert.deepEqual(snapshot(),saved);
-  }
-  fs.appendFileSync(core,'// glm_stream_m2_glm53_top8_addr_enabled\n'); saved=snapshot();
-  for (const action of ['apply','build','check','restore']) {
-    result=run(action); assert.equal(result.status,1);
-    assert.match(result.stderr,/unsupported GLM adaptation present in Qwen/);
-    assert.deepEqual(snapshot(),saved);
-  }
-  console.log(`GLM M2 Max patch (${generation} upstream): lifecycle, legacy migration/restore, idempotence, drift, partial state, preserved edits and platform gates PASS`);
+  console.log('GLM M2 Max patch (bundled main): lifecycle, old-port refusal, idempotence, drift, partial state, preserved edits and platform gates PASS');
 } finally {
   fs.rmSync(root,{recursive:true,force:true});
-}
 }
 
 // Optional pinned-source stack check; --shared uses only local Git objects and

@@ -167,14 +167,12 @@ try {
       try {pass(invoke());for(const [name,bytes]of applied)assert.deepEqual(fs.readFileSync(path.join(engine,name)),bytes);}
       finally {for(const name of names)fs.writeFileSync(path.join(engine,name),originals.get(name));}
     });
-    await test('complete legacy labels normalize privately; a partial legacy edit is preserved and rejected',()=>{
+    await test('an edited residency implementation is preserved and rejected',()=>{
       const common=path.join(assets,'patch/ds4-media-memory/residency-lease.patch');
-      const labels=path.join(assets,'patch/ds4-media-memory/legacy-labels.patch');
-      function apply(...args) {const r=spawnSync('git',['-C',engine,'apply',...args],{encoding:'utf8',env:{...process.env,GIT_CEILING_DIRECTORIES:run}});assert.equal(r.status,0,r.stderr);}
-      apply(common);apply('--reverse',labels);
-      const legacyBytes=new Map(names.map(name=>[name,fs.readFileSync(path.join(engine,name))]));
-      try {pass(invoke());for(const [name,bytes]of legacyBytes)assert.deepEqual(fs.readFileSync(path.join(engine,name)),bytes);
-        const file=path.join(engine,'ds4.c');fs.writeFileSync(file,legacyBytes.get('ds4.c').toString().replace('temporary Qwen memory pressure active','contributor custom memory pressure active'));
+      const r=spawnSync('git',['-C',engine,'apply',common],{encoding:'utf8',env:{...process.env,GIT_CEILING_DIRECTORIES:run}});assert.equal(r.status,0,r.stderr);
+      try {const file=path.join(engine,'ds4.c'),applied=fs.readFileSync(file).toString();
+        assert.equal(applied.split('temporary media memory pressure active').length,2);
+        fs.writeFileSync(file,applied.replace('temporary media memory pressure active','contributor custom memory pressure active'));
         const edited=fs.readFileSync(file),before=snapshot(),n=count();assert.equal(invoke().status,1);assert.equal(count(),n);assertSnapshot(before);assert.deepEqual(fs.readFileSync(file),edited);
       }finally{for(const name of names)fs.writeFileSync(path.join(engine,name),originals.get(name));}
     });

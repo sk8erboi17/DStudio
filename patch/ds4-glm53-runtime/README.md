@@ -1,13 +1,11 @@
-# Native GLM memory adaptation across main revisions
+# Native GLM memory adaptation for the bundled main
 
 [`main-latest.patch`](main-latest.patch) targets MIT-licensed `antirez/ds4` at
 `0aaea5a238fb41a35106a551e73c8409dfb751ac`. Upstream now owns the GLM model
 aliases, so this newest delta keeps only DStudio's mapped-span calculation and
-GLM host-memory-guard policy. [`main-qwen.patch`](main-qwen.patch) remains the
-historical unified-main variant for `9139e2ae58a41503968a500f36f75895c1ba63fc`;
-[`main-v41.patch`](main-v41.patch) covers `bd66c402070042bf0a79ad6ece8242de4c93680c`.
-[`streaming-memory.patch`](streaming-memory.patch) remains for older main.
-`scripts/apply-ds4-glm53-runtime.sh` selects the whole exact-context delta and
+GLM host-memory-guard policy. It is the only variant: the deltas for earlier
+main revisions were removed on October 27, 2026 (Git history keeps them).
+`scripts/apply-ds4-glm53-runtime.sh` applies the whole exact-context delta and
 rejects partial or drifted source; repeated application is idempotent.
 
 The V4.1 base already owns `weights_streaming_non_routed_bytes`, so the new

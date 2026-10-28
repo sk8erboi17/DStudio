@@ -14,7 +14,7 @@ const run = artifactRunDir('qwen27-download-settings-live');
 const files = [['Qwen3.8-27B-UD-Q6_K_XL.gguf', 25299061664], ['Qwen3.8-27B-mmproj-F16.gguf', 927607488]];
 const identity = file => {const s = fs.statSync(file, {bigint: true}); return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].map(String);};
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const inputs = [binary, 'src/dstudio.c', 'scripts/download-qwen27.py', 'scripts/install-llama.py',
+const inputs = [binary, 'src/dstudio.c', 'scripts/download-qwen-variant.py', 'scripts/install-llama.py',
   path.join(root, 'llama.cpp/bin/llama-server'), path.join(root, 'llama.cpp/.dstudio-llama.json')]
   .map(file => ({path: path.resolve(file), sha256: sha(file)}));
 const beforeFiles = files.map(([name, bytes]) => {

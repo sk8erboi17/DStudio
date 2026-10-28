@@ -3923,58 +3923,6 @@
     .cbar-pop-wd .wd-path {
       font-family: var(--font-mono); font-size: 11.5px; direction: rtl; text-align: left;
     }
-    .gsa-tools {
-      display: grid;
-      gap: 6px;
-      padding: 7px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--surface);
-    }
-    .gsa-tools__head,
-    .gsa-tools__actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-width: 0;
-    }
-    .gsa-tools__actions > span:last-child {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      flex: 0 0 auto;
-    }
-    .gsa-tools__title {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-2);
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-    .gsa-tools__sub {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 10.5px;
-      color: var(--faint);
-      font-family: var(--font-mono);
-    }
-    .gsa-tools__btn {
-      height: 28px;
-      padding: 0 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border-2);
-      background: var(--surface-2);
-      color: var(--text-2);
-      font: inherit;
-      font-size: 11px;
-      cursor: pointer;
-    }
-    .gsa-tools__btn:hover { border-color: var(--accent); color: var(--text); }
-    .gsa-tools__btn--open { min-width: 88px; }
-
     #design-gallery-dialog.settings-dialog {
       width: min(96vw, 76rem);
       max-height: min(90vh, 54rem);
@@ -4915,30 +4863,6 @@
       line-height: 1.15;
       text-align: center;
     }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-menu-badge { border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); background: var(--accent-soft); color: var(--accent-2); }
-    .cbar-switch {
-      position: relative;
-      width: 32px;
-      height: 19px;
-      flex: 0 0 auto;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--text) 16%, transparent);
-      transition: background .16s;
-    }
-    .cbar-switch::after {
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      width: 15px;
-      height: 15px;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 1px 3px rgb(0 0 0 / .28);
-      content: '';
-      transition: transform .16s;
-    }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-switch { background: var(--accent); }
-    .cbar-menu-toggle[aria-pressed="true"] .cbar-switch::after { transform: translateX(13px); }
     .cbar-plan { display: grid; gap: 8px; padding: 9px 8px 8px; }
     .cbar-plan__head { display: flex; align-items: center; gap: 11px; }
     .cbar-plan__choices {
@@ -10216,6 +10140,7 @@
             <div class="set-nav__group" data-nav-group>
               <div class="set-nav__eyebrow">Capabilities</div>
               <button type="button" class="set-nav__b" data-pane="generation">Generation</button>
+              <button type="button" class="set-nav__b" data-pane="research">Web research</button>
               <button type="button" class="set-nav__b" data-pane="vision">Vision</button>
               <button type="button" class="set-nav__b" data-pane="video">Video</button>
               <button type="button" class="set-nav__b" data-pane="embed">Skill search</button>
@@ -10404,6 +10329,30 @@
           <label class="field">
             <span>System prompt <small class="field-note">empty = none; changing it invalidates the prefix cache</small></span>
             <textarea id="set-system" rows="3" placeholder="Empty = none. Changing it invalidates the prefix cache."></textarea>
+          </label>
+        </section>
+
+        <section class="set-grp" data-pane="research" data-title="Web research" data-description="Choose how many pages Search and Deep Research may read and how many candidate sources they may retain." hidden>
+          <p class="set-help">Applies to new runs. These are upper bounds, not targets: research may finish earlier when the evidence is sufficient or other discovery budgets are reached. Candidate sources are discovered links, not verified evidence until read.</p>
+          <label class="field">
+            <span>Search: pages to read</span>
+            <input type="number" id="set-search-pages" aria-label="Search: pages to read" min="1" max="512" step="1" required>
+            <small class="field-note">1–512 pages per run. Default: 8.</small>
+          </label>
+          <label class="field">
+            <span>Search: candidate sources</span>
+            <input type="number" id="set-search-sources" aria-label="Search: candidate sources" min="1" max="4096" step="1" required>
+            <small class="field-note">1–4096 sources per run. Default: 96.</small>
+          </label>
+          <label class="field">
+            <span>Deep Research: pages to read</span>
+            <input type="number" id="set-research-pages" aria-label="Deep Research: pages to read" min="1" max="512" step="1" required>
+            <small class="field-note">1–512 pages per run. Default: 24. Also applies to learning-path research.</small>
+          </label>
+          <label class="field">
+            <span>Deep Research: candidate sources</span>
+            <input type="number" id="set-research-sources" aria-label="Deep Research: candidate sources" min="1" max="4096" step="1" required>
+            <small class="field-note">1–4096 sources per run. Default: 256.</small>
           </label>
         </section>
 
@@ -10964,6 +10913,10 @@
       securityProfile: 'passive', // passive | blue | red-authorized | purple | black-hat
       securityAuthorized: false,  // explicit scope authorization for red-authorized runs
       webSearchBrowserAllowed: false,// remembers the local visible-browser consent
+      webSearchMaxPages: 8,
+      webSearchMaxSources: 96,
+      deepResearchMaxPages: 24,
+      deepResearchMaxSources: 256,
       lanEnabled: false,    // persisted host preference; reconciled with /api/status on Settings open
       ds4GateMode: 'local', // last setup choice shown by the missing-engine gate
       workdirs: {},        // last working folder per local pipe mode
@@ -13590,11 +13543,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         return ggufIsMlxFolder(g) || qwenGgufComplete(g, allGgufs);
       }
       if (!/qwen3\.8-flash-next/i.test(file)) return true;
-      // Main validates the embedded BF16 table when loading. Neither a legacy
-      // sidecar nor an unrelated projector can make an old checkpoint usable.
-      return /^Qwen3\.8-Flash-Next-Q[24]\.gguf$/i.test(file) &&
-        !/(?:^|[/\\])ds4-qwen38(?:[/\\]|$)/i.test(String(g?.engineDir || '')) &&
-        String(g?.branch || '') !== 'qwen3.8-flash-next';
+      // Main validates the embedded BF16 table when loading; only the
+      // single-file Q2/Q4 checkpoints are models.
+      return /^Qwen3\.8-Flash-Next-Q[24]\.gguf$/i.test(file);
     }
     function ggufBranchLabel(g) {
       return String(g?.branch || g?.engineName || 'ds4');
@@ -13762,9 +13713,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         on(resume, 'click', () => Switcher.downloadModel(choice.body));
         host.append(resume);
       }
-      // Staged Qwen downloads keep a locked, resumable cache the host does not
-      // delete; only qwen36-q6 keeps the older visible .part file.
-      if (dl.paused && !(choice?.qwen && choice.id !== 'qwen36-q6')) {
+      // Qwen downloads keep a locked, resumable cache the host does not delete.
+      if (dl.paused && !choice?.qwen) {
         const remove = el('button', { class: 'btn btn--sm', type: 'button', text: 'Delete partial' });
         on(remove, 'click', async () => {
           const yes = await askConfirm({
@@ -19264,13 +19214,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      function researchRunLimits(mode) {
+      function researchRunLimits(mode, settings = {}) {
         // Count/byte ceilings bound discovery independently of hardware speed.
         // A slow valid extraction or planner must not spend a hidden wall-clock
         // budget. Stop and actual transport failures still end the operation.
+        const count = (value, fallback, max) =>
+          Number.isSafeInteger(value) && value >= 1 && value <= max ? value : fallback;
         return mode === 'research'
-          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: Infinity }
-          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: Infinity };
+          ? { queries: 18, reads: count(settings.deepResearchMaxPages, 24, 512), actions: 12,
+              sources: count(settings.deepResearchMaxSources, 256, 4096), durationMs: Infinity }
+          : { queries: 6, reads: count(settings.webSearchMaxPages, 8, 512), actions: 0,
+              sources: count(settings.webSearchMaxSources, 96, 4096), durationMs: Infinity };
       }
 
       function researchAdmissionOpen(state) {
@@ -19608,7 +19562,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           model: settings.model,
           messages,
           temperature: 0,
-          maxTokens: 800,
+          // Omit max_tokens so a list of long source URLs can finish its JSON.
+          // Page-read and source-count budgets still bound discovery work.
+          maxTokens: 0,
           thinkLevel: 'off',
         }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Web source picker', settings.webSignal),
         candidates, state.readUrls, state.purpose === 'roadmap' ? 8 : Infinity);
@@ -20987,7 +20943,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const throwIfCancelled = () => {
           if (job?.cancelled || signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         };
-        const limits = researchRunLimits(mode);
+        // Copy validated preferences once: edits apply to the next run.
+        const limits = researchRunLimits(mode, settings);
         const startedAt = performance.now();
         const deadline = startedAt + limits.durationMs;
         let visionStatus = null;
@@ -22998,6 +22955,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       return {
         sendMessage, steer, isBusy, abortStream, restorePreviousRoadmap, regenerateLast, handleSlashCommand, isResearching,
+        researchRunLimits,
         tutorHistory,
         tutorFormattingProtocols: () => [CHAT_EXPLANATION_STYLE_PROTOCOL, CHAT_MATH_OUTPUT_PROTOCOL].join('\n\n'),
       };
@@ -26531,41 +26489,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         });
       }
 
-      function renderGsaToolsPanel() {
-        if (gsaToolCache === null && !gsaToolLoading) loadGsaTools();
-        const box = el('div', { class: 'gsa-tools' });
-        const tools = gsaToolList();
-        const found = tools.filter((t) => gsaToolIsEnabled(t) && t.found);
-        const enabled = tools.filter((t) => gsaToolIsEnabled(t));
-        const missing = enabled.filter((t) => !t.found);
-        const blocked = missing.filter((t) => t.installable === false);
-        const installing = gsaToolInstallBusy();
-        box.append(el('div', { class: 'gsa-tools__head' }, [
-          el('span', { class: 'gsa-tools__title', text: 'Analysis automation' }),
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking…' : (installing ? 'installing tools…' : `${found.length}/${enabled.length || 0} active ready · ${securityProfileValue()}`) }),
-        ]));
-        const open = el('button', { class: 'gsa-tools__btn gsa-tools__btn--open', type: 'button', text: 'Open tools' });
-        on(open, 'click', (e) => { e.stopPropagation(); openGsaToolsDialog(); });
-        box.append(el('div', { class: 'gsa-tools__actions' }, [
-          el('span', { class: 'gsa-tools__sub', text: gsaToolLoading ? 'checking' : (installing ? 'running in background' : (blocked.length ? `${blocked.length} need installers` : (missing.length ? `${missing.length} missing, optional` : 'All detected tools ready'))) }),
-          el('span', {}, [open]),
-        ]));
-        if (isBlackHatSecurityProfile()) {
-          box.append(el('div', {
-            class: 'gsa-tools__sub',
-            text: 'Black-hat full-surface mode: Scope and Safety gate are disabled.',
-          }));
-        } else if (isRedSecurityProfile()) {
-          box.append(el('div', {
-            class: 'gsa-tools__sub',
-            text: securityAuthorizedValue()
-              ? 'Warning: operational validation is armed for the authorized scope only.'
-              : 'Red authorized selected: it will downgrade until Scope is marked authorized.',
-          }));
-        }
-        return box;
-      }
-
       const GSA_TOOL_GROUP_ORDER = [
         ['recon', 'Recon & scanning'],
         ['web', 'Web & browser'],
@@ -27024,29 +26947,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           extra || el('span', { class: 'cbar-menu-chevron', text: '›', 'aria-hidden': 'true' }),
         ].filter(Boolean));
         if (onClick) on(row, 'click', (e) => { e.stopPropagation(); onClick(); });
-        return row;
-      }
-
-      function composerToggleRow({ badge, title, subtitle, pressed, onToggle }) {
-        const row = el('button', {
-          class: 'cbar-menu-row cbar-menu-toggle',
-          type: 'button',
-          role: 'switch',
-          'aria-checked': pressed ? 'true' : 'false',
-          'aria-pressed': pressed ? 'true' : 'false',
-        }, [
-          el('span', { class: 'cbar-menu-badge', text: badge }),
-          el('span', { class: 'cbar-menu-copy' }, [
-            el('span', { class: 'cbar-menu-title', text: title }),
-            el('span', { class: 'cbar-menu-sub', text: subtitle }),
-          ]),
-          el('span', { class: 'cbar-switch', 'aria-hidden': 'true' }),
-        ]);
-        on(row, 'click', (e) => {
-          e.stopPropagation();
-          onToggle(!pressed);
-          requestAnimationFrame(rebuildGearIfOpen);
-        });
         return row;
       }
 
@@ -27769,6 +27669,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           temp: qs('#set-temp'),
           tempOut: qs('#set-temp-out'),
           maxTok: qs('#set-maxtok'),
+          webSearchMaxPages: qs('#set-search-pages'),
+          webSearchMaxSources: qs('#set-search-sources'),
+          deepResearchMaxPages: qs('#set-research-pages'),
+          deepResearchMaxSources: qs('#set-research-sources'),
           designThinkTokens: qs('#set-design-think-tokens'),
           theme: qs('#set-theme'),
           ctx: qs('#set-ctx'),
@@ -27910,6 +27814,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const v = parseInt(f.maxTok.value, 10);
           Store.setSettings({ maxTokens: v > 0 ? v : null });
         });
+        for (const key of ['webSearchMaxPages', 'webSearchMaxSources', 'deepResearchMaxPages', 'deepResearchMaxSources']) {
+          on(f[key], 'change', () => {
+            if (!f[key].reportValidity()) return;
+            Store.setSettings({ [key]: Number(f[key].value) });
+          });
+        }
         on(f.designThinkTokens, 'change', () => {
           const v = parseInt(f.designThinkTokens.value, 10);
           Store.setSettings({ designThinkTokens: Number.isFinite(v) && v >= 0 ? v : 0 });
@@ -28521,6 +28431,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
         f.maxTok.value = s.maxTokens ?? '';
+        const searchLimits = Chat.researchRunLimits('search', s);
+        const researchLimits = Chat.researchRunLimits('research', s);
+        f.webSearchMaxPages.value = searchLimits.reads;
+        f.webSearchMaxSources.value = searchLimits.sources;
+        f.deepResearchMaxPages.value = researchLimits.reads;
+        f.deepResearchMaxSources.value = researchLimits.sources;
         f.designThinkTokens.value = String([0, 8192, 16384, 24576].includes(+s.designThinkTokens) ? +s.designThinkTokens : 0);
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);
@@ -34316,10 +34232,6 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           parameters: compactShellText(rawParameters) || 'none',
           command: command.trim(),
         };
-      }
-
-      function semanticCommandLabel(ev) {
-        return semanticCommandInfo(ev)?.label || '';
       }
 
       function semanticCommandSummary(ev, live, lineCount = 0) {

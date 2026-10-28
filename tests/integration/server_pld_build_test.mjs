@@ -11,9 +11,8 @@ const checkout=path.join(root,'engine with spaces');
 const bin=path.join(root,'bin');
 const report={scope:'Production Chat PLD builder; simulated compiler and source fixture, no inference',
   started:new Date().toISOString(),builds:[],passed:false};
-const latest=process.argv.includes('--latest');
 const bundleProfile=process.argv.includes('--bundle-profile');
-report.sourceVariant=latest?'main-latest':'main-current';
+report.sourceVariant='main-latest';
 report.bundledSupport=bundleProfile;
 // Preimages are fixture plumbing for the real transformer/builder. Exact native
 // output on the pinned sources has its independent runtime-patch-migration gate.

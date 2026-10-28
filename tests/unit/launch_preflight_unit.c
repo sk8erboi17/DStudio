@@ -152,12 +152,7 @@ int main(void) {
         {"Qwen3.8 in an unsupported engine checkout", "other-engine", MODEL_QWEN, "", "engine_model_mismatch", NULL, "{\"engine\":\"unsupported\"}\n"},
         {"Qwen3.8 in a checkout whose receipt names no engine", "other-engine", MODEL_QWEN, "", "engine_model_mismatch", NULL, "{\"commit\":\"0\"}\n"},
         {"Qwen3.6 throttled power with a main receipt", "ds4", MODEL_QWEN35, "", "unsupported_power", NULL, "{\"engine\":\"main\"}\n"},
-        {"Qwen3.6 in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN35, "", "engine_model_mismatch", NULL},
-        {"Flash in retired Qwen checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_FLASH, "", "engine_model_mismatch", NULL},
-        {"New Qwen in retired checkout", DS4_LEGACY_QWEN_DIR_NAME, MODEL_QWEN, "", "engine_model_mismatch", NULL},
-        {"Legacy Qwen Chat format", "ds4", MODEL_LEGACY_QWEN, "", "unsupported_model_format", NULL},
-        {"Legacy Qwen Agent format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"agent\"", "unsupported_model_format", NULL},
-        {"Legacy Qwen Cowork format", "ds4", MODEL_LEGACY_QWEN, ",\"mode\":\"cowork\"", "unsupported_model_format", NULL},
+        {"Flash in an unsupported engine checkout", "other-engine", MODEL_FLASH, "", "engine_model_mismatch", NULL, "{\"engine\":\"unsupported\"}\n"},
         {"Qwen3.6 forced SSD", "ds4", MODEL_QWEN35, ",\"power\":100,\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         /* The UI launches Qwen3.8 at full power; isolate the memory-mode check. */
         {"Qwen3.8 forced SSD", "ds4", MODEL_QWEN, ",\"power\":100,\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
@@ -172,7 +167,7 @@ int main(void) {
         {"Remote Cowork forced SSD", "ds4", NULL, ",\"mode\":\"cowork\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
         {"Remote Design forced SSD", "ds4", NULL, ",\"mode\":\"design\",\"modelBackend\":\"remote\",\"remoteBaseUrl\":\"http://127.0.0.1:1\",\"ssdStreaming\":\"on\"", "unsupported_memory_mode", NULL},
     };
-    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN27, MODEL_QWEN, MODEL_LEGACY_QWEN, MODEL_DSPARK_UPSTREAM };
+    const char *files[] = { MODEL_FLASH, MODEL_LAGUNA, MODEL_QWEN35, MODEL_QWEN27, MODEL_QWEN, MODEL_DSPARK_UPSTREAM };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         snprintf(engine, sizeof engine, "%s/%s", temp, cases[i].checkout);
         snprintf(gguf, sizeof gguf, "%s/gguf", engine);

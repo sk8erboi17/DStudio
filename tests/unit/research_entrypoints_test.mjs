@@ -11,6 +11,7 @@ const sentence = 'Orchid waits for an acknowledgement before retrying.';
 const comparisonSentence = 'Lily retries immediately without waiting for an acknowledgement.';
 const answer = `Orchid attende la conferma prima di ritentare [F1].\n\nFonte: ${sourceUrl}`;
 const calls = [];
+const pickerReason = 'The official comparison handbook provides the requested retry evidence. '.repeat(150).trim();
 let blockedRead, readEntered;
 let comparison = false, judgeCalls = 0;
 function json(res, value) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); }
@@ -33,7 +34,10 @@ const server = http.createServer(async (req, res) => {
   const system = body.messages[0].content;
   let content;
   if (system.includes('search classifier')) content = {needsSearch: comparison, explicitUrls: [], queries: comparison ? ['Orchid Lily retry'] : []};
-  else if (system.includes('source picker')) content = {reason: 'The second handbook answers the comparison.', urls: [comparisonUrl]};
+  else if (system.includes('source picker')) {
+    assert.equal(body.max_tokens, undefined, 'Source selection must not impose an output-token cap');
+    content = {reason: pickerReason, urls: [comparisonUrl, comparisonUrl, 'https://invented.test/page', sourceUrl]};
+  }
   else if (system.includes('evidence extractor')) {
     const fact = body.messages[1].content.includes(comparisonSentence) ? comparisonSentence : sentence;
     content = {facts: [{fact, excerpt: fact}]};
@@ -71,14 +75,36 @@ try {
   }
   comparison = true; calls.length = 0;
   const compareQuestion = `Confronta il retry di Orchid e Lily. ${sourceUrl}`;
-  const compared = await pipeline.searchWithPlan(compareQuestion, {model: 'simulated'});
+  const pickTraces = [];
+  const compared = await pipeline.searchWithPlan(compareQuestion, {model: 'simulated'}, trace => pickTraces.push(trace));
   assert.deepEqual(compared.sources.map(source => source.url), [sourceUrl, comparisonUrl]);
   assert.deepEqual(compared.facts.map(fact => fact.fact), [sentence, comparisonSentence]);
   assert.ok(compared.context.includes(compareQuestion), 'Discovery must retain the requested comparison');
+  assert.ok(pickTraces.at(-1).some(row => row.label === 'Pick sources' && row.detail === `${pickerReason}: ${comparisonUrl}`),
+    'A long picker response must remain complete while invented, duplicate and already-read URLs are rejected');
   assert.deepEqual(calls.filter(call => call.path.startsWith('/api/web-')).map(call => [call.path, call.body.url || call.body.query]), [
     ['/api/web-read', sourceUrl], ['/api/web-search', 'Orchid Lily retry'], ['/api/web-read', comparisonUrl],
   ], 'Read the supplied repository first, then only the selected comparison evidence');
   console.log('PASS: comparison reads explicit evidence first, keeps selected external evidence and skips unrelated homonyms');
+  judgeCalls = 0; calls.length = 0;
+  const researched = await pipeline.runDeepResearch(compareQuestion, {model: 'simulated'});
+  assert.equal(researched.judge.decision, 'enough');
+  assert.deepEqual(researched.sources.map(source => source.url), [sourceUrl, comparisonUrl]);
+  assert.deepEqual(researched.facts.map(fact => fact.fact), [sentence, comparisonSentence]);
+  assert.equal(researched.report, answer);
+  assert.equal(calls.filter(call => call.path === '/api/web-read').length, 2);
+  console.log('PASS: Search and Deep Research accept long uncapped source selections and preserve URL validation');
+  for (const [pages, sources] of [[1, 2], [3, 1]]) {
+    judgeCalls = 0; calls.length = 0;
+    const limited = await pipeline.searchWithPlan(compareQuestion, {
+      model: 'simulated', webSearchMaxPages: pages, webSearchMaxSources: sources,
+    });
+    assert.equal(limited.budget.limits.reads, pages);
+    assert.equal(limited.budget.limits.sources, sources);
+    assert.deepEqual(calls.filter(call => call.path === '/api/web-read').map(call => call.body.url), [sourceUrl]);
+    assert.deepEqual(limited.facts.map(fact => fact.fact), [sentence], 'Configured limits must preserve earlier evidence');
+  }
+  console.log('PASS: Search enforces configured page and candidate-source limits over HTTP');
   comparison = false;
   const controller = new AbortController(); let release;
   blockedRead = new Promise(resolve => {release = resolve;});

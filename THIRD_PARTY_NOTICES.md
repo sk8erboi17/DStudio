@@ -76,22 +76,15 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 
 - Source: [`ivanfioravanti/ds4-metal`](https://github.com/ivanfioravanti/ds4-metal/tree/ff4f0ff4fdff70d6b7c3941ef437b91dde960e14).
 - Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`,
-  retained in Git history, not distributed as an installable source snapshot.
-  Five exact compressed files from this and two earlier revisions are retained
-  solely as [historical patch regression inputs](tests/fixtures/retired-qwen-next/),
-  with [per-file provenance](tests/fixtures/retired-qwen-next/provenance.json) and
-  the upstream [MIT notice](tests/fixtures/retired-qwen-next/LICENSE).
+  retained in Git history only; no file of it or of earlier fork revisions is
+  distributed, as source, fixture or patch.
 - Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
   which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices in
   [the active bundled engine](src/engines/ds4/LICENSE). Historical patches and
   the retired Qwen3.6 tool-parser adaptation retain their upstream attribution.
-- The older metadata-only PLE prefetch correction remains as a historical
-  [regression patch](patch/ds4-qwen38-inspect/README.md), not a main install step.
 - The structured Agent/Cowork adaptation is an explicit
   [patch](patch/ds4-agent-jsonl/README.md), applied to private build sources.
-- Main already performs correct native snapshot-allocation cleanup; the older
-  [correction](patch/ds4-qwen38-snapshot/README.md) is retained for historical tests.
 - Current single-file Q2/Q4 weights, including original BF16 n-grams, come from
   [`antirez/qwen3.8-flash-next-gguf`](https://huggingface.co/antirez/qwen3.8-flash-next-gguf/tree/d600fe1a43d2e1cdcadb85144ce3142f66f9eefe),
   revision `d600fe1a43d2e1cdcadb85144ce3142f66f9eefe`. They retain their own model
@@ -104,7 +97,8 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
   [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/blob/4ca720788d1e01f1bff70c033e0d0028fd02e502/README.md),
   revision `4ca720788d1e01f1bff70c033e0d0028fd02e502`, whose model card
   declares Apache-2.0. Both are downloaded separately, not committed; exact
-  filenames, sizes and hashes are pinned in `scripts/download-qwen27.py`.
+  filenames, sizes and hashes are pinned in
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json).
   An encoder differential test is not full language-model qualification.
 
 ## MLX runtime (bundled wheels for Qwen3.6 on Apple Silicon)
@@ -134,7 +128,7 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 - [`mlx-community/Qwen3.6-35B-A3B-mxfp8`](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-mxfp8/tree/5c216c8705fed28a7a16fc92555befd507628709),
   revision `5c216c8705fed28a7a16fc92555befd507628709`, Apache-2.0 per its model card. Downloaded
   separately, not committed; the 20 files, sizes and SHA-256 are pinned in
-  [`scripts/download-mlx-qwen36.py`](scripts/download-mlx-qwen36.py).
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json).
 
 ## pi, pi-ds4 and OpenCode (optional Agent harnesses)
 

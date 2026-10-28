@@ -39,13 +39,13 @@ if (root / 'install-fail').exists(): sys.exit(9)
 (root / 'mlx' / 'venv' / 'bin').mkdir(parents=True, exist_ok=True)
 (root / 'mlx' / 'venv' / 'bin' / 'python3').write_text('fixture, no runtime')
 `);
-file(path.join(assets, 'scripts/download-mlx-qwen36.py'), `import sys, os, json, time
+file(path.join(assets, 'scripts/download-qwen-variant.py'), `import sys, os, json, time
 from pathlib import Path
 directory = Path(sys.argv[sys.argv.index('--directory') + 1]).resolve()
 control = Path(${JSON.stringify(root)})
 (control / 'download-entered').write_text(json.dumps(sys.argv[1:]))
 progress = int(sys.argv[sys.argv.index('--progress-fd') + 1])
-stage = directory / '.dstudio-qwen27-downloads' / 'model-00001-of-00008.safetensors'
+stage = directory / '.dstudio-qwen-downloads' / 'model-00001-of-00008.safetensors'
 stage.mkdir(parents=True, exist_ok=True)
 (directory / 'config.json').write_bytes(b'{}' * 512)
 (stage / 'data.part').write_bytes(b'x' * 4096)
@@ -138,7 +138,7 @@ try {
     row.failed = await phase('failed'); assert.notEqual(row.failed.downloadPct, 100);
     row.failed = await until(async () => {const s = await state(); return s.pausedDownloadVariant ? s : false;}, 'paused state');
     assert.equal(row.failed.pausedDownloadVariant, 'qwen36-mlx');
-    const part = path.join(folder, '.dstudio-qwen27-downloads/model-00001-of-00008.safetensors/data.part');
+    const part = path.join(folder, '.dstudio-qwen-downloads/model-00001-of-00008.safetensors/data.part');
     assert.equal(fs.statSync(part).size, 4096);
     assert.equal((await request('/api/model/partials/delete', {target: 'qwen36-mlx', confirm: true})).status, 409);
     assert.equal(fs.statSync(part).size, 4096);
@@ -162,7 +162,7 @@ try {
   await check('the real downloader rejects a folder replaced after admission (verify-only, offline)', async row => {
     const other = path.join(run, 'replaced'); fs.mkdirSync(other, {recursive: true});
     const id = fs.statSync(path.join(run, 'previous-folder'), {bigint: true});
-    const done = spawnSync('python3', [path.resolve('scripts/download-mlx-qwen36.py'), '--directory', other,
+    const done = spawnSync('python3', [path.resolve('scripts/download-qwen-variant.py'), '--variant', 'qwen36-mlx', '--directory', other,
       '--directory-identity', `${id.dev}:${id.ino}`, '--verify-only'], {encoding: 'utf8', timeout: 60000});
     row.exit = done.status; row.stderr = done.stderr.slice(-400);
     assert.equal(done.status, 1); assert.match(done.stderr, /changed since download admission/);

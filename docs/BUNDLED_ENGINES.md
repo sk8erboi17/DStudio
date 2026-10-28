@@ -125,9 +125,9 @@ are not copied on every launch. MLX is admitted only on Apple Silicon; Linux and
 Windows reject the MLX model explicitly.
 
 The model is the folder `ds4/mlx/Qwen3.6-35B-A3B-mxfp8`, filled by
-[`scripts/download-mlx-qwen36.py`](../scripts/download-mlx-qwen36.py) (20 pinned
-files of `mlx-community/Qwen3.6-35B-A3B-mxfp8` at `5c216c8`, 36.67 GB, the same
-resumable per-file verification as the 27B download). That folder may be a link
+[`scripts/download-qwen-variant.py`](../scripts/download-qwen-variant.py) (20 pinned
+files of `mlx-community/Qwen3.6-35B-A3B-mxfp8` at `5c216c8`, 36.67 GB, with the
+same resumable per-file verification as every other Qwen download). That folder may be a link
 to an existing copy; DStudio admits it by its target's identity and never
 copies or moves the weights.
 

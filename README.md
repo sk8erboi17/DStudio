@@ -32,7 +32,7 @@
 - [Requirements](#requirements)
 - [Development and tests](#development-and-tests)
 - [Network access](#network-lan) · [How it works](#how-it-works) · [Security](#security)
-- [WIP checklist](#wip-checklist--october-25-2026)
+- [WIP checklist](#wip-checklist--october-27-2026)
 - [Project layout](docs/PROJECT_LAYOUT.md)
 
 DStudio is one desktop application for local AI. It runs large open-weight
@@ -144,7 +144,7 @@ These are focused development checks, not a quality score or a ranking.
   is started. See [the list](PLAN.MD#proposals).
 - Learn/Tutor, PDF/vision, long tasks, the native desktop matrix, generated
   Design projects and final release admission. See the
-  [WIP checklist](#wip-checklist--october-25-2026),
+  [WIP checklist](#wip-checklist--october-27-2026),
   [remaining work](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
 
 ## Install
@@ -348,7 +348,7 @@ Flash Next shares ds4 main (pinned at
 there is no separate engine to install. Download the single-file **Q2
 (147.2 GB)** or **Q4 (177.3 GB)**: each includes the original BF16 n-grams read
 from SSD, with the backbone resident in Metal memory. The older base + PLE
-files stay on disk but are not compatible and are not converted. It exposes
+files are not supported, recognized or converted. It exposes
 experimental Chat, Agent and Cowork with its native tool format; Design and
 vision remain unavailable. The Q4 baseline answered 75/100 corpus questions and
 8/8 long-context cases; wrong answers stay in the denominator. See the
@@ -746,8 +746,15 @@ the local model too: it helps catch errors but cannot guarantee truth.
 
 Relevant details can come from later page sections, and with an active native
 vision model research can inspect real pixels of an image or chart (one
-viewport per page, three captures per run). Search admits up to 6 queries and 8
-page reads; Deep Research up to 18 queries, 24 reads and 12 follow-up actions.
+viewport per page, three captures per run). **Settings → Web research** lets you
+set separate page-read and candidate-source limits for Search and Deep Research.
+Defaults are 8 reads / 96 candidates for Search and 24 reads / 256 candidates
+for Deep Research, including learning-path research. Each mode accepts 1–512
+page reads and 1–4096 candidates; changes apply to new runs. These are ceilings,
+not targets: sufficient evidence can end discovery earlier. Query/action budgets
+also remain bounded: Search admits up to 6 queries; Deep Research up to 18 queries
+and 12 follow-up actions. Source selection has no application output-token cap;
+the engine's context and output limits still apply.
 There is no application elapsed-time cutoff on discovery, writing or review: a
 slow valid local-model request continues until it completes, fails or you press
 Stop. [Measured scope and limits](extension/search/bench/README.md).
@@ -1378,6 +1385,8 @@ host and Cowork runtime and a simulated model.
   SHA-256 manifests, verified before every build. Adaptations to other projects
   are versioned `.patch` files in [`patch/`](patch/README.md), applied with
   `git apply --check` first; a drifted source fails instead of being rewritten.
+  Patches exist only for the bundled engine revisions: an engine checkout at any
+  other revision is refused, not adapted.
 - **The ds4 agent patch.** ds4's agent is a separate, fast-moving codebase.
   DStudio keeps its structured Agent/Cowork adaptations as
   [versioned patches](patch/ds4-agent-jsonl/README.md): verify the pinned
@@ -1439,7 +1448,7 @@ right testers.
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta. Bundled third-party sources
 keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## WIP checklist — October 25, 2026
+## WIP checklist — October 27, 2026
 
 The macOS/Apple Silicon campaign is **incomplete**. Checked items mean the
 stated implementation or scoped verification is complete; they do not qualify
@@ -1496,6 +1505,23 @@ every model or a release. Exact acceptance criteria and retained failures are in
   install reaching Metal, and real Qwen3.6 MXFP8 tool-call streaming in Agent,
   Cowork and Design. Two earlier Design attempts failed on the test client's
   start limit; their receipts are kept.
+- [x] Download every Qwen variant, the three original ones included, through
+  one verified downloader (`scripts/download-qwen-variant.py`). Remove host
+  routes and UI code that nothing called.
+- [x] Keep patches only for the bundled engine revisions (ds4 main `0aaea5a`,
+  Laguna `448d569`): the variants for earlier main revisions and the retired
+  Qwen Next fork, with its fixtures and tests, are deleted (about 19,000 lines).
+  The patch stack applies and restores byte for byte on the bundled sources.
+  [Patch notes](patch/README.md).
+- [x] **Breaking (October 27, 2026):** no backward compatibility with older
+  installations. An engine at another revision, an older DStudio patch state
+  (the former M2 Max batch-limit upgrade and Design label normalization), a
+  leftover `ds4-qwen38`/`ds4-glm5.3` folder without a DStudio receipt or the old
+  Qwen Next base + PLE files get no special handling or upgrade: they fail as
+  drift or are treated like any other folder or file. Half-finished Qwen
+  downloads from before this change do not resume (their staging folder is now
+  `.dstudio-qwen-downloads`); partial files are left on disk. Reinstall the
+  bundled engines and restart those downloads.
 
 ### Still required
 

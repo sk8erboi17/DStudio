@@ -442,7 +442,7 @@ Focused model-free entry points:
 make test-engine-pins test-engine-setup-unit test-launch-preflight test-qwen27-model-ui
 make test-agent-patch-migration test-runtime-patch-migration
 make test-qwen38-agent test-qwen-session-reset test-qwen38-prepare-patch
-make test-qwen38-snapshot-patch test-main-qwen-download
+make test-main-qwen-download
 node tests/integration/glm53_m2max_patch_test.mjs /path/to/exact-main --unified-qwen
 node tests/integration/agent_native_build_test.mjs /path/to/built-main
 ```
@@ -454,7 +454,7 @@ download test uses tiny real SHA-checked files and simulated transport. The
 int32 oracle under ASan/UBSan and the unchanged 256 KiB scratch bound.
 `make test-first-launch-e2e` instead builds the bundled engine sources from an
 empty profile through headless WebKit, with external network denied; it refuses weights before transfer and
-checks Qwen Q2/Q4 reuse main plus the retired Qwen Next endpoint's 410 response.
+checks Qwen Q2/Q4 reuse main and that the retired Qwen Next setup route is gone (404).
 
 ## Host relay and model RPC
 
@@ -664,17 +664,10 @@ prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
 
-`make test-qwen38-inspect` tests the reversible metadata-only PLE patch on
-verified [historical input files](fixtures/retired-qwen-next/) expanded into a
-private directory. It does not require the retired installed fork. Set
-`QWEN38_DIR` to explicitly test another complete historical checkout.
-Add `--native ds4/gguf` after a full source directory in the documented Node command in
-[the patch notes](../patch/ds4-qwen38-inspect/README.md) to build the real CLI
-and check its OS prefetch behavior and actual GGUF summaries on macOS. The
-ordinary uninstrumented CLI is checked too. This does not generate tokens.
-
-Historical Qwen Agent and Web patch migration cases use the same offline fixture
-reader, retaining their original revision/hash and independent Git oracles.
+Patch variants, fixtures and tests for the retired Qwen Next fork
+(`test-qwen38-inspect`, `test-qwen38-snapshot-patch` and the compressed fork
+sources they read) and for earlier main revisions were removed on October 27,
+2026: every patch test now covers only the bundled main and Laguna.
 Default backend link tests cover the active main and Laguna trees; Qwen Next
 uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
@@ -732,12 +725,6 @@ turn must still complete. It uses an isolated workspace and simulated runtime
 pipe, without starting or signalling an inference engine.
 
 To rebuild only unified main, run `node tests/integration/agent_native_build_test.mjs ds4`.
-For the historical three-source comparison, supply the archived Qwen fork explicitly:
-
-```sh
-make test-agent-native-build AGENT_MAIN_TREE=ds4 AGENT_LAGUNA_TREE=ds4-laguna-s21 \
-  AGENT_QWEN38_TREE=/path/to/archived-qwen-next
-```
 
 Sources are copied into a new task-owned directory, without weights or reused
 build objects. Agent/Cowork/Design are linked against each selected upstream;
@@ -847,9 +834,8 @@ corrections solely for the historical oracle. Every variant first reverses its
 v100 readiness delta to its frozen v99 hash. Laguna and older MoE reverse their
 v99 continuation deltas, then the v98 publication delta, to recover their exact
 v97 bytes first. The
-newer main/Qwen variants have no fictitious legacy oracle. It requires local source
-objects or exact base files; `DSTUDIO_AGENT_QWEN38_DIR` selects the isolated new
-candidate. It does not perform a network install.
+main variant has no fictitious legacy oracle. It requires local source
+objects or exact base files. It does not perform a network install.
 
 `make test-agent-compaction AGENT_LAGUNA_TREE=ENGINE_LAGUNA
 QWEN35_AGENT_TREE=ENGINE_MOE` requires the already-built native cores.
@@ -1012,8 +998,8 @@ All three runtime types additionally exercise model-wait Stop and next-turn
 tool execution without restarting the process, with model replies simulated.
 It runs upstream Agent unit tests and fragmented rendering both with and without
 a JSONL worker, under ASan/UBSan for private Agent/helper C objects. Core/GPU
-objects remain uninstrumented. Set `AGENT_QWEN38_TREE` to also build the new
-Qwen3.8 source; building a runtime alone does not qualify its application modes.
+objects remain uninstrumented. Building a runtime alone does not qualify its
+application modes.
 On macOS, `DSTUDIO_AGENT_BUILD_BACKEND=cpu make test-agent-native-build` selects
 a fresh real CPU build; it does not qualify Windows or Linux behavior.
 
@@ -1317,8 +1303,9 @@ fixed in production code with a regression:
 These are development regressions on one Mac, not a quality comparison with
 the llama.cpp Qwen3.6 or a numerical-parity claim for MXFP8.
 
-`scripts/download-mlx-qwen36.py --verify-only --directory <folder>` checked an
-existing local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
+The MLX downloader's `--verify-only` mode (since merged into
+`scripts/download-qwen-variant.py --variant qwen36-mlx`) checked an existing
+local copy against all 20 pins (36,665,809,057 bytes) in 27 s.
 
 ### Every pinned Qwen3.6 and Qwen3.8-27B variant
 
@@ -1339,13 +1326,16 @@ default selections (Q6_K_XL, MXFP8) have run on real weights.
   refused without publication (the partial stays resumable), a replaced store
   is never written, `--verify-only` never downloads, a non-loopback base URL is
   refused, and read-only commands touch neither disk nor network. The shipped
-  catalog validates, has the expected counts and keeps the original pins
-  exactly as their original downloaders print them (`--manifest` of
-  `download-qwen35.py`, `download-qwen27.py`, `download-mlx-qwen36.py`). The
-  same file runs the repository `download-model.sh` with stub `make`/`dstudio`:
-  new targets install their engine (llama.cpp or MLX) and land in `ds4/gguf/` or
-  `ds4/mlx/<folder>/`, an unknown target stops before building, the original
-  targets keep their original downloaders, and `--list-qwen` lists the catalog.
+  catalog validates, has the expected counts and keeps the three original
+  pins (`qwen36-q6`, `qwen27-q6`, `qwen36-mlx`) frozen: changing any of their
+  files is refused. The same file runs the repository `download-model.sh` with
+  stub `make`/`dstudio`: every target, the original ones included, installs its
+  engine (llama.cpp or MLX) and lands in `ds4/gguf/` or `ds4/mlx/<folder>/`
+  through this one downloader, an unknown target stops before building, and
+  `--list-qwen` lists the catalog.
+- `tests/integration/qwen27_download_test.py` exercises the downloader's
+  per-file machinery (resume, linked or oversized partials, concurrent leaders,
+  SIGTERM, replaced stores, credentials).
 - `tests/unit/qwen_variants_unit.c` executes the host's catalog loader and its
   consumers on fixture trees: the compiled original pins equal their catalog
   entries; the 22 textual edits in
@@ -2127,8 +2117,19 @@ judge, writer and reviewer messages. It checks that a classifier cannot drop a
 supplied URL, explicit evidence is read first, sufficient evidence avoids
 unrelated discovery, a comparison retains selected external evidence, original
 language/request constraints and evidence identities survive, and Stop during
-a blocked read cannot start a late writer. The live harness loads the complete
-canonical runtime; private helper-list omissions cannot change its behavior.
+a blocked read cannot start a late writer. Source selection omits an application
+output-token cap, allowing long URL lists and reasons to finish within the
+engine's available budget; invented, duplicate and already-read URLs remain
+excluded, and page-read/source-count budgets still apply. The HTTP regression
+checks uncapped picker requests and long complete responses in both modes;
+the research-progress browser test also verifies the actual UI request omits
+the cap in WebKit and Chromium. The browser test also changes all four page/source
+preferences through Settings → Web research, rejects invalid input, verifies
+persistence after reload, and checks the resulting candidate and read counts.
+`research_budget_test.mjs` exercises valid settings above and below the defaults,
+invalid stored values, bounded admission and unchanged limits during a run.
+The live harness loads the complete canonical
+runtime; private helper-list omissions cannot change its behavior.
 No quality scores, live inference deadlines or evaluation requirements change.
 
 Focused regressions exercise URL-heavy page excerpts, overlapping windows,
@@ -2330,3 +2331,17 @@ and prompt fixture that nothing referenced; and the name-specific checks for the
 retired `q36` and `ds4-qwen35` engines, replaced by receipt-based cases in
 `test-launch-preflight` and `test-engine-startup` (see
 [BUNDLED_ENGINES](../docs/BUNDLED_ENGINES.md#retired-qwen-side-engines)).
+
+October 27, 2026: `qwen35_download_test.py` went with the merged Qwen3.6
+downloader (its cases run in `qwen27_download_test.py` on the one
+downloader). `qwen38_inspect_patch_test.mjs`,
+`qwen38_snapshot_patch_test.mjs`, their Make targets and the compressed fork
+sources in `tests/fixtures/retired-qwen-next/` went with the retired Qwen Next
+fork's patches. The M2 Max, native round-trip, Agent/runtime migration,
+native build and Chat PLD builder tests now cover only the bundled main and
+Laguna; the M2 Max lifecycle test runs on a copy of `src/engines/ds4` instead of
+reconstructed fragments of three older layouts. No backward compatibility is
+kept: the M2 Max test checks that the previously shipped port is refused as
+drift, the Design builder test that an edited residency delta is refused, and
+the preflight/setup units that a leftover checkout is refused only by its
+receipt (the name-based `ds4-qwen38` and old Qwen Next format cases are gone).

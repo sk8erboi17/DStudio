@@ -14,24 +14,7 @@ if [ -z "$ds4_dir" ] || [ ! -f "$ds4_dir/ds4.c" ]; then
 fi
 ds4_dir=$(CDPATH= cd -- "$ds4_dir" && pwd)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode.patch"
-if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
-   grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
-    patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode-main-qwen.patch"
-fi
-
-# DStudio routes only Qwen checkpoints to this fork. Its rebased source also
-# contains GLM code, but that does not make the GLM-specific M2 adaptation a
-# Qwen dependency (its native layer/expert bounds and kernels are different).
-if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
-   ! grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
-    if grep -q 'glm_stream_m2_glm53_top8_addr_enabled' "$ds4_dir/ds4.c"; then
-        echo "DStudio M2 Max patch: unsupported GLM adaptation present in Qwen source; no files changed" >&2
-        exit 1
-    fi
-    echo "DStudio M2 Max patch: Qwen engine uses native kernels; GLM adaptation skipped"
-    exit 0
-fi
+patch_file="$script_dir/../patch/ds4-glm53-m2max/native-decode-main-qwen.patch"
 
 # Only macOS builds consume this port. The compiled runtime still checks the
 # exact Apple M2 Max / GLM53 Q2 / top-8 / token-one / SSD shape at dispatch.
@@ -45,37 +28,19 @@ command -v git >/dev/null 2>&1 || {
     exit 1
 }
 
-# September 2026 main already fixes ds4_image linkage and adds Metal tests.
-# Keep one copy of the runtime delta; replace only its obsolete build hunks.
-# Both generations are still checked/applied as a single atomic git patch.
+# The bundled main already fixes ds4_image linkage and adds Metal tests: keep
+# the runtime delta, replace its build hunks, add the hot-list layout, and
+# check/apply everything as a single atomic git patch.
 main_patch=
-legacy_patch=
 cleanup() {
     [ -z "$main_patch" ] || rm -f "$main_patch"
-    [ -z "$legacy_patch" ] || rm -f "$legacy_patch"
 }
 trap cleanup EXIT HUP INT TERM
 main_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-main.XXXXXX")
-if grep -q '^test-glm-attention:' "$ds4_dir/Makefile"; then
-    awk '/^diff --git / { skip = ($3 == "a/Makefile" || $3 == "a/.gitignore") }
-         !skip { print }' "$patch_file" > "$main_patch"
-    if grep -q '^test-frontends:' "$ds4_dir/Makefile"; then
-        cat "$script_dir/../patch/ds4-glm53-m2max/build-main-current.patch" >> "$main_patch"
-    else
-        cat "$script_dir/../patch/ds4-glm53-m2max/build-main.patch" >> "$main_patch"
-    fi
-else
-    cat "$patch_file" > "$main_patch"
-fi
-# September 6 main prints all selected experts itself. Keep that upstream loop;
-if grep -q 'DS4_MODEL_FAMILY_QWEN4_EXP' "$ds4_dir/ds4.c" &&
-   grep -q 'DS4_MODEL_FAMILY_DEEPSEEK41' "$ds4_dir/ds4.c"; then
-    cat "$script_dir/../patch/ds4-glm53-m2max/hotlist-main-layout.patch" >> "$main_patch"
-fi
-# earlier source layouts still need the old six-to-eight diagnostic correction.
-if ! grep -Fq '"experts=",' "$ds4_dir/ds4_metal.m"; then
-    cat "$script_dir/../patch/ds4-glm53-m2max/legacy-selected-logging.patch" >> "$main_patch"
-fi
+awk '/^diff --git / { skip = ($3 == "a/Makefile" || $3 == "a/.gitignore") }
+     !skip { print }' "$patch_file" > "$main_patch"
+cat "$script_dir/../patch/ds4-glm53-m2max/build-main-current.patch" \
+    "$script_dir/../patch/ds4-glm53-m2max/hotlist-main-layout.patch" >> "$main_patch"
 patch_file=$main_patch
 
 # git apply checks the entire eight-file patch before writing, unlike a series
@@ -103,22 +68,6 @@ elif apply_patch --check --whitespace=error >/dev/null 2>&1; then
            echo "DStudio M2 Max patch: applied" ;;
     esac
 else
-    # Recognize the COMPLETE previously shipped port before upgrading its one
-    # wrong batch-resource bound. Never partially repair a drifted port. Derive
-    # the old patch mechanically to avoid shipping a duplicate eight-file delta.
-    legacy_patch=$(mktemp "${TMPDIR:-/tmp}/dstudio-m2-legacy.XXXXXX")
-    sed 's/^+        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||$/+        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||/' \
-        "$patch_file" > "$legacy_patch"
-    if apply_file "$legacy_patch" --reverse --check >/dev/null 2>&1; then
-        case "$action" in
-            check) echo "DStudio M2 Max patch: batch-limit upgrade available (no changes)" ;;
-            restore) apply_file "$legacy_patch" --reverse
-                     echo "DStudio M2 Max patch: legacy port restored" ;;
-            *) apply_file "$script_dir/../patch/ds4-glm53-m2max/batch-entry-limit.patch" --whitespace=error
-               echo "DStudio M2 Max patch: upgraded batch resource limit" ;;
-        esac
-        exit 0
-    fi
     echo "DStudio M2 Max patch: source drift or partial patch; no files changed" >&2
     echo "Restore/rebase the complete managed patch before rebuilding. Local edits were preserved." >&2
     exit 1

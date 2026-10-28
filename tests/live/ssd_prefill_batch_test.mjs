@@ -16,7 +16,7 @@ const engine=path.join(root,'engine');
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const receipt={passed:false,scope:'real Metal kernels + real transformer layer 0; NOT full-LLM/PDF E2E',
   context:131072,ssd:true,cacheExperts:256,model,modelBytes:fs.statSync(model).size,encoder,
-  patchSHA256:hash(fs.readFileSync('patch/ds4-glm53-m2max/native-decode.patch')),steps:[],comparisons:[]};
+  patchSHA256:hash(fs.readFileSync('patch/ds4-glm53-m2max/native-decode-main-qwen.patch')),steps:[],comparisons:[]};
 const save=()=>fs.writeFileSync(path.join(root,'result.json'),JSON.stringify(receipt,null,2));
 const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('DS4_')));
 async function run(command,args,{cwd=engine,expected=0,timeout=180000,extra={}}={}) {
@@ -66,14 +66,18 @@ try {
   const reference=await compileLayer('layer-reference');
   for (const n of counts) await layer(reference,n);
   await hook('glm53-m2max','apply');
-  await run('git',['apply','--reverse',path.join(repo,'patch/ds4-glm53-m2max/batch-entry-limit.patch')]);
+  // Rebuild the previously shipped port (per-token bound on the batch's
+  // distinct resources) to reproduce the failure it had.
+  const metal=path.join(engine,'ds4_metal.m'),fixedSource=fs.readFileSync(metal,'utf8');
+  const bound='        n_entries > DS4_METAL_STREAM_EXPERT_CACHE_MAX_EXPERT ||\n';
+  assert.equal(fixedSource.split(bound).length,2,'port carries the corrected bound once');
+  fs.writeFileSync(metal,fixedSource.replace(bound,'        n_entries > DS4_METAL_MAX_ROUTED_EXPERT_USED ||\n'));
   const brokenQ2=await compileQ2('q2-legacy');
   assert.match(await run(brokenQ2,[],{expected:1,timeout:60000}),/BATCH REJECTED: tokens=2 per_token=6 distinct=12/);
   const broken=await compileLayer('layer-legacy');
   assert.match(await layer(broken,139,1),/failed to encode down path tokens=139 unique=30/);
-  // Upgrade exactly as the app does, without disabling the optimized path.
-  assert.match(await hook('glm53-m2max','apply'),/upgraded batch resource limit/);
-  await hook('glm53-m2max','apply');
+  fs.writeFileSync(metal,fixedSource);
+  assert.match(await hook('glm53-m2max','apply'),/already applied/);
   const fixedQ2=await compileQ2('q2-fixed');
   const oracle=await run(fixedQ2,[],{timeout:60000});
   assert.equal((oracle.match(/Q2 EXACT CPU ORACLE PASS/g)||[]).length,4);

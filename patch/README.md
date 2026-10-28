@@ -56,18 +56,21 @@ The native host no longer loads ordered `.find`/`.replace` edits or treats a
 marker as proof that a web patch is complete. Other native extensions use
 unified patches through dedicated scripts. Missing or drifted inputs fail explicitly.
 
-Patch 87 preserved the version-86 adaptations for main `c0a6119`/`f62ca29`, the previous September 5 main layout and the
-pinned Laguna branch. It preserves native vision-capability gating, file-tool
-contracts and exact-versus-opportunistic speculative sampling. Chat PLD patch 3
-preserves version 2's GLM/DSML parser identity and speculative boundary handling.
-Patch 89 fixes reasoning-event rendering when upstream captures output without
-a worker. The old migration oracle is still checked after reversing only that
-documented correction. The fourth full variant targets the isolated Qwen3.8
-`b4c3550` candidate, preserving native tool syntax and adding Cowork schemas;
-its literal-markup parser correction has native regression coverage. Version 90
-adds Qwen3.6's native-tool adaptation and version 91 makes piped Qwen resets
-cancelable while retaining the old context on failure. Both models now expose
-experimental Agent/Cowork on Metal. Version 92 adds the explicit
+Every patch set now carries only the variants for the engine revisions DStudio
+bundles: ds4 main `0aaea5a` and Laguna `448d569`. Variants for earlier main
+revisions (`c0a6119`/`f62ca29`, `f4d03f6`, V4.1 `bd66c40`, the unified-main
+`9139e2a` server and runtime layouts) and for the retired Qwen Next fork
+(`b4c3550`, `ff4f0ff`, `bd9cfbc`) were removed on October 27, 2026, together
+with the fork-only `ds4-qwen38-inspect` and `ds4-qwen38-snapshot` sets and
+their historical source fixtures; Git history keeps them. An installed checkout
+at another revision is refused with a drift error instead of being patched:
+reinstall the bundled engine. Patch 87 preserved the version-86 adaptations,
+including native vision-capability gating, file-tool contracts and
+exact-versus-opportunistic speculative sampling. Chat PLD patch 3 preserves
+version 2's GLM/DSML parser identity and speculative boundary handling. Patch
+89 fixes reasoning-event rendering when upstream captures output without a
+worker. The old migration oracle is still checked after reversing only that
+documented correction. Version 92 adds the explicit
 [empty-candidate core API](ds4-qwen38-prepare/README.md) for responsive Qwen3.8
 reset cancellation between GPU layers, without changing live-sync semantics.
 See [the variant notes and prerequisites](ds4-agent-jsonl/README.md)
@@ -93,37 +96,23 @@ Patch version 78 links the mandatory upstream `ds4_prompt_prefix` module so conv
 ds4's native decode-pass timing in the OpenAI-compatible usage object. The UI
 never estimates token speed from character counts. Complete-delta preflight
 rejects partial/drifted patches without mutation; lifecycle and compiled JSON/SSE
-tests cover current main, previous main and Laguna. See the timing/recovery limits
+tests cover the bundled main and Laguna. See the timing/recovery limits
 in the linked notes; this is not an end-to-end latency measurement.
 
-[`ds4-qwen38-inspect/metadata-only-ple.patch`](ds4-qwen38-inspect/README.md)
-is retained for the historical fork: it keeps `--inspect` from requesting a full
-PLE prefetch. Current main does not apply it. Normal historical inference requirements stay
-unchanged; lifecycle and native OS-prefetch behavior have separate tests.
-The complete delta supports checked repeat apply and restore, rejecting drift.
-
-[`ds4-qwen38-snapshot`](ds4-qwen38-snapshot/README.md) followed inspection and
-empty-candidate preparation on the retired fork. Main already fixes this issue.
-The historical delta prevents a failed lazy snapshot allocation from
-being mistaken for a complete speculative state on retry; the native inference
-math and existing fallback are retained. Actual native-helper failpoint tests
-and patch lifecycle checks are distinct from real-weight quality evaluation.
-
-[`ds4-glm53-runtime`](ds4-glm53-runtime/README.md) selects the unified-Qwen, V4.1 or older
-complete delta for main, where GLM 5.3 lives. The new base's native non-routed
+[`ds4-glm53-runtime`](ds4-glm53-runtime/README.md) applies one complete delta
+to the bundled main, where GLM 5.3 lives. The new base's native non-routed
 weight helper replaces the duplicate local helper; GLM's mapped-span correction
 remains. V4.1 retains its own native memory planner and model ID.
 
-[`ds4-glm53-m2max/native-decode.patch`](ds4-glm53-m2max/README.md) follows
-that GLM patch on macOS. It carries the local top-8 cache-backed decode and
+[`ds4-glm53-m2max/native-decode-main-qwen.patch`](ds4-glm53-m2max/README.md)
+follows that GLM patch on macOS, composed with its build and hot-list hunks. It carries the local top-8 cache-backed decode and
 short-resume specialization, with exact M2 Max/GLM Q2/SSD runtime predicates.
-The hook preflights the complete patch, refuses partial/drifted sources, and
-reverses it before the older patches during updates. It never enables SSD or
+The hook preflights the complete patch and refuses partial/drifted sources. It never enables SSD or
 MTP, changes context, or selects a model. See the linked QA report for the
 unclosed live-model gates; this is not a new DeepSeek speed claim.
 
 [`ds4-visible-downloads`](ds4-visible-downloads/README.md) uses visible resumable
-`.part` files for legacy main models. V4.1 instead retains its native pinned
+`.part` files for the main downloader's models. V4.1 instead retains its native pinned
 Hugging Face/Xet download, full verification and split assembly. Its progress
 counts matching cache artifacts only; intermediate bytes are not readiness.
 

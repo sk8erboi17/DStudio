@@ -73,7 +73,7 @@ support_files=(src/harness/design/build-design.sh src/harness/design/design.mk
   src/harness/design/ds4_design.c src/harness/design/design_system_catalog.h
   extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h
   extension/remote/dstudio_wire_string.h extension/remote/dstudio_json_tokens.h
-  patch/ds4-media-memory/residency-lease.patch patch/ds4-media-memory/legacy-labels.patch)
+  patch/ds4-media-memory/residency-lease.patch)
 support_signature() (
   for file in "${support_files[@]}"; do
     from="$ROOT/$file"
@@ -148,14 +148,7 @@ PATCH=../support/residency-lease.patch
 if git -C "$STAGE/engine" apply --check "$PATCH" 2>/dev/null; then
   git -C "$STAGE/engine" apply "$PATCH"
 elif ! git -C "$STAGE/engine" apply --reverse --check "$PATCH" 2>/dev/null; then
-  # A recorded old installation has four obsolete log labels and one comment.
-  # Normalize only this complete known delta, only inside the private copy,
-  # then still require the entire residency implementation to reverse exactly.
-  LEGACY=../support/legacy-labels.patch
-  git -C "$STAGE/engine" apply --check "$LEGACY" 2>/dev/null &&
-    git -C "$STAGE/engine" apply "$LEGACY" &&
-    git -C "$STAGE/engine" apply --reverse --check "$PATCH" 2>/dev/null ||
-    die "memory-pressure patch is partial, drifted or incompatible; existing runtime preserved"
+  die "memory-pressure patch is partial, drifted or incompatible; existing runtime preserved"
 fi
 
 echo "build-design: compiling in a private source snapshot…"

@@ -24,8 +24,7 @@ leftover `ds4-qwen35/` or `q36/` from the retired Qwen side engines is ignored
 and left untouched.
 `ds4/gguf/` remains the single physical model store; optional engines link to it.
 Qwen Next uses `ds4/`; the retired `ds4-qwen38/` checkout is unnecessary for the
-application and default patch tests. Exact historical regression inputs live in
-[`tests/fixtures/retired-qwen-next/`](../tests/fixtures/retired-qwen-next/).
+application and every test.
 Generated Design workspaces, exports, the private Discord archive and existing
 local app bundles are not relocated, since persisted user paths can refer to them.
 

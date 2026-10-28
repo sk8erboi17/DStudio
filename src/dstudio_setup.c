@@ -502,7 +502,7 @@ static int setup_server_metrics_binary_ready(void) {
  * rebuild when that capability is absent or the Metal source is newer. This keeps exact tok/s
  * reporting self-healing without adding work to normal launches. */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
-    if (selected_checkout_is_qwen()) return 1; /* Qwen runs its pinned native server. */
+    if (checkout_engine_unsupported(g_ds4_dir)) return 1; /* never rebuilt */
 #ifdef _WIN32
     (void)err;
     (void)errsz;

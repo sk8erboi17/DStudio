@@ -40,7 +40,7 @@ if (requiredProducts.length) report.opencodeVersion = execFileSync('/opt/homebre
 report.harnessSha256 = createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex');
 report.sourceHashes = Object.fromEntries(['src/harness/cowork/ds4_cowork.c', 'src/harness/design/ds4_design.c',
   'patch/ds4-agent-jsonl/remote-agent.cfrag', 'patch/ds4-agent-jsonl/manifest',
-  'patch/ds4-agent-jsonl/main-current.patch', 'patch/ds4-agent-jsonl/main-previous.patch',
+  'patch/ds4-agent-jsonl/main-qwen.patch',
   'patch/ds4-agent-jsonl/laguna.patch'].map(file => [file,
   createHash('sha256').update(fs.readFileSync(file)).digest('hex')]));
 const save = () => fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));

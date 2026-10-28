@@ -557,9 +557,9 @@ try {
   }
   await switchPage.waitForFunction(() => document.querySelector('#set-model-count').textContent.includes('installed'));
 
-  // A stale pre-upgrade host can still report the retired checkout. Exercise
-  // its repair to main, including delayed I/O, without adding it to the catalog.
-  activeEngine = '/tmp/dstudio-settings/ds4-qwen38';
+  // Another active checkout that the catalog does not list is repaired to
+  // main, including delayed I/O.
+  activeEngine = '/tmp/dstudio-settings/other-engine';
   const catalogGate = gate();
   const checkoutGate = gate();
   let catalogEntered = false;
@@ -637,7 +637,7 @@ try {
   engineStatus = { running: true, ready: true, loadPct: 100, stage: 'Ready' };
 
   // Failed checkout must surface the actual error and submit no launch.
-  activeEngine = '/tmp/dstudio-settings/ds4-qwen38';
+  activeEngine = '/tmp/dstudio-settings/other-engine';
   checkoutError = 'Selected engine folder is unavailable';
   await cardFor(qwenBase).click();
   await switchPage.getByRole('button', { name: 'Load model', exact: true }).click();

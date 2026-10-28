@@ -52,7 +52,7 @@ control = Path(${JSON.stringify(root)})
 (control / 'download-entered').write_text(json.dumps(args))
 progress = int(args[args.index('--progress-fd') + 1])
 publish = json.loads((control / 'publish.json').read_text())
-stage = directory / '.dstudio-qwen27-downloads' / publish[0]
+stage = directory / '.dstudio-qwen-downloads' / publish[0]
 stage.mkdir(parents=True, exist_ok=True)
 (stage / 'data.part').write_bytes(b'x' * 4096)
 os.write(progress, b'D')
@@ -174,7 +174,7 @@ try {
     assert.equal(row.failed.pausedDownloadVariant, 'qwen27-mlx-4bit');
     assert.equal(row.failed.pausedDownloadBytes, 4096);
     assert.equal((await request('/api/model/partials/delete', {target: 'qwen27-mlx-4bit', confirm: true})).status, 409);
-    assert.equal(fs.statSync(path.join(folder, '.dstudio-qwen27-downloads/model-00001-of-00003.safetensors/data.part')).size, 4096);
+    assert.equal(fs.statSync(path.join(folder, '.dstudio-qwen-downloads/model-00001-of-00003.safetensors/data.part')).size, 4096);
   });
   await check('an unpinned target is refused before any child starts', async row => {
     reset([]);

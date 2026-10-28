@@ -36,13 +36,13 @@ if (root / 'install-fail').exists(): sys.exit(9)
 (root / 'llama.cpp' / 'bin').mkdir(parents=True, exist_ok=True)
 (root / 'llama.cpp' / 'bin' / 'llama-server').write_text('fixture, no native build')
 `);
-file(path.join(assets, 'scripts/download-qwen27.py'), `import sys, os, json, time
+file(path.join(assets, 'scripts/download-qwen-variant.py'), `import sys, os, json, time
 from pathlib import Path
 directory = Path(sys.argv[sys.argv.index('--directory') + 1]).resolve()
 control = directory.parent.parent
 (control / 'download-entered').write_text(json.dumps(sys.argv[1:]))
 progress = int(sys.argv[sys.argv.index('--progress-fd') + 1])
-stage = directory / '.dstudio-qwen27-downloads' / '${model}'
+stage = directory / '.dstudio-qwen-downloads' / '${model}'
 stage.mkdir(parents=True, exist_ok=True)
 (stage / 'data.part').write_bytes(b'x' * 4096)
 os.write(progress, b'D')
@@ -119,6 +119,7 @@ try {
     assert.equal(row.phase.downloadExpectedBytes, 26226669152);
     assert.ok(!fs.existsSync(path.join(alternate, 'gguf', model)));
     const args = JSON.parse(fs.readFileSync(path.join(root, 'download-entered')));
+    assert.equal(args[args.indexOf('--variant') + 1], 'qwen27-q6');
     assert.equal(path.resolve(args[args.indexOf('--directory') + 1]), path.join(engine, 'gguf'));
     const store = fs.statSync(path.join(engine, 'gguf'), {bigint: true});
     assert.equal(args[args.indexOf('--directory-identity') + 1], `${store.dev}:${store.ino}`);
@@ -154,7 +155,7 @@ try {
     assert.equal((await request('/api/model/download', {target: 'qwen27-q6'})).status, 200);
     row.failed = await phase('failed'); assert.notEqual(row.failed.downloadPct, 100);
     assert.equal(row.failed.pausedDownloadVariant, 'qwen27-q6');
-    assert.equal(fs.statSync(path.join(engine, 'gguf/.dstudio-qwen27-downloads', model, 'data.part')).size, 4096);
+    assert.equal(fs.statSync(path.join(engine, 'gguf/.dstudio-qwen-downloads', model, 'data.part')).size, 4096);
     assert.equal(fs.readFileSync(path.join(engine, 'gguf', model), 'utf8'), 'verified fixture model');
     // This layout requires its downloader's locked cleanup, not the legacy
     // neighboring .part deleter. Never pretend that unrelated files were deleted.

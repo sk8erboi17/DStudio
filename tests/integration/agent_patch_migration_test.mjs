@@ -6,7 +6,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { artifactRunDir, writeArtifact } from '../support/real_harness.mjs';
-import { historicalQwenSource } from '../support/retired_qwen_sources.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const assets = path.join(root, 'patch/ds4-agent-jsonl');
@@ -26,11 +25,7 @@ function command(cmd, args, cwd = root, pass = true) {
 function baseSource(base) {
   if (process.env.DSTUDIO_AGENT_BASE_SOURCES)
     return fs.readFileSync(path.join(process.env.DSTUDIO_AGENT_BASE_SOURCES, `${base.name}.c`));
-  if (['qwen38', 'qwen38-next'].includes(base.name) && !process.env.DSTUDIO_AGENT_QWEN38_DIR)
-    return historicalQwenSource(base.revision, bases.sourceFile);
-  const engine = path.resolve(base.name === 'qwen38' || base.name === 'qwen38-next'
-    ? (process.env.DSTUDIO_AGENT_QWEN38_DIR || path.join(root, 'ds4-qwen38'))
-    : (process.env.DSTUDIO_AGENT_MAIN_DIR || path.join(root, 'ds4')));
+  const engine = path.resolve(process.env.DSTUDIO_AGENT_MAIN_DIR || path.join(root, 'ds4'));
   const git = spawnSync('git', ['-C', engine, 'show', `${base.revision}:${bases.sourceFile}`], { maxBuffer: 16 * 1024 * 1024 });
   if (!git.error && git.status === 0) return git.stdout;
   // An archive has no local Git object; accept its actual file only if its
@@ -197,7 +192,7 @@ try {
       assert.equal(hash(parts.join(fragment + '\n')), base.legacyExpandedSHA256, 'Native output must match the pre-migration oracle');
       row.checks.push('frozen-legacy-byte-parity');
     } else {
-      assert(['main-qwen','main-v41','qwen38','qwen38-next'].includes(base.name),
+      assert.equal(base.name, 'main-qwen',
         'Only explicitly new upstream variants lack a legacy runtime oracle');
       assert(base.oracle, 'New variants require an explicit behavioral oracle');
       row.oracle = base.oracle;

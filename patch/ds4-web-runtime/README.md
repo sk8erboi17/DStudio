@@ -8,11 +8,11 @@ bound and visual evidence while using upstream's GET `/json/list`, PUT
 target-creation loop. Exact new-source/output hashes and a distinct oracle are
 recorded in [bases.json](bases.json); no old byte-parity result is relabeled.
 
-[browser.patch](browser.patch) replaces the three ordered CDP, direct-navigation
-and page-pixel edit stacks. The derived `ds4_web.c` is byte-identical to their
-pre-migration output on the historical bases in [bases.json](bases.json): older
-main, Laguna, Qwen3.8 and Qwen3.6. Those five pinned source files are
-identical; one complete delta covers them without model-name heuristics.
+[browser.patch](browser.patch) serves Laguna `448d569` and replaces the three
+ordered CDP, direct-navigation and page-pixel edit stacks. The derived
+`ds4_web.c` is byte-identical to their pre-migration output on that base,
+recorded in [bases.json](bases.json). The bases for earlier main revisions and
+the retired Qwen fork were removed on October 27, 2026.
 
 The host patches a private source copy. Original checkout files are never
 modified by this adaptation. Complete exact context is required: a marker,
@@ -34,8 +34,7 @@ application, CRLF and unrelated edits. It requires the local pinned Git objects
 or exact base sources; it downloads nothing implicitly.
 
 `make test-web-visual-browser` compiles the three active ds4-family source trees
-and runs isolated headless Chrome. `DSTUDIO_WEB_VISUAL_TREES` can also include
-the archived Qwen fork for historical coverage. It checks decoded JPEG colors, retained
+and runs isolated headless Chrome. It checks decoded JPEG colors, retained
 text, text-only behavior, below-the-fold capture, message bounds and exact tab
 cleanup. `make test-web-visual-unit` covers the host's same-page output adapter.
 These tests use no model weights. macOS execution is not Windows/Linux/browser
