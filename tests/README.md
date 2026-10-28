@@ -2117,8 +2117,19 @@ judge, writer and reviewer messages. It checks that a classifier cannot drop a
 supplied URL, explicit evidence is read first, sufficient evidence avoids
 unrelated discovery, a comparison retains selected external evidence, original
 language/request constraints and evidence identities survive, and Stop during
-a blocked read cannot start a late writer. The live harness loads the complete
-canonical runtime; private helper-list omissions cannot change its behavior.
+a blocked read cannot start a late writer. Source selection omits an application
+output-token cap, allowing long URL lists and reasons to finish within the
+engine's available budget; invented, duplicate and already-read URLs remain
+excluded, and page-read/source-count budgets still apply. The HTTP regression
+checks uncapped picker requests and long complete responses in both modes;
+the research-progress browser test also verifies the actual UI request omits
+the cap in WebKit and Chromium. The browser test also changes all four page/source
+preferences through Settings → Web research, rejects invalid input, verifies
+persistence after reload, and checks the resulting candidate and read counts.
+`research_budget_test.mjs` exercises valid settings above and below the defaults,
+invalid stored values, bounded admission and unchanged limits during a run.
+The live harness loads the complete canonical
+runtime; private helper-list omissions cannot change its behavior.
 No quality scores, live inference deadlines or evaluation requirements change.
 
 Focused regressions exercise URL-heavy page excerpts, overlapping windows,

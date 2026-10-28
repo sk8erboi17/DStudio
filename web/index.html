@@ -10140,6 +10140,7 @@
             <div class="set-nav__group" data-nav-group>
               <div class="set-nav__eyebrow">Capabilities</div>
               <button type="button" class="set-nav__b" data-pane="generation">Generation</button>
+              <button type="button" class="set-nav__b" data-pane="research">Web research</button>
               <button type="button" class="set-nav__b" data-pane="vision">Vision</button>
               <button type="button" class="set-nav__b" data-pane="video">Video</button>
               <button type="button" class="set-nav__b" data-pane="embed">Skill search</button>
@@ -10328,6 +10329,30 @@
           <label class="field">
             <span>System prompt <small class="field-note">empty = none; changing it invalidates the prefix cache</small></span>
             <textarea id="set-system" rows="3" placeholder="Empty = none. Changing it invalidates the prefix cache."></textarea>
+          </label>
+        </section>
+
+        <section class="set-grp" data-pane="research" data-title="Web research" data-description="Choose how many pages Search and Deep Research may read and how many candidate sources they may retain." hidden>
+          <p class="set-help">Applies to new runs. These are upper bounds, not targets: research may finish earlier when the evidence is sufficient or other discovery budgets are reached. Candidate sources are discovered links, not verified evidence until read.</p>
+          <label class="field">
+            <span>Search: pages to read</span>
+            <input type="number" id="set-search-pages" aria-label="Search: pages to read" min="1" max="512" step="1" required>
+            <small class="field-note">1–512 pages per run. Default: 8.</small>
+          </label>
+          <label class="field">
+            <span>Search: candidate sources</span>
+            <input type="number" id="set-search-sources" aria-label="Search: candidate sources" min="1" max="4096" step="1" required>
+            <small class="field-note">1–4096 sources per run. Default: 96.</small>
+          </label>
+          <label class="field">
+            <span>Deep Research: pages to read</span>
+            <input type="number" id="set-research-pages" aria-label="Deep Research: pages to read" min="1" max="512" step="1" required>
+            <small class="field-note">1–512 pages per run. Default: 24. Also applies to learning-path research.</small>
+          </label>
+          <label class="field">
+            <span>Deep Research: candidate sources</span>
+            <input type="number" id="set-research-sources" aria-label="Deep Research: candidate sources" min="1" max="4096" step="1" required>
+            <small class="field-note">1–4096 sources per run. Default: 256.</small>
           </label>
         </section>
 
@@ -10888,6 +10913,10 @@
       securityProfile: 'passive', // passive | blue | red-authorized | purple | black-hat
       securityAuthorized: false,  // explicit scope authorization for red-authorized runs
       webSearchBrowserAllowed: false,// remembers the local visible-browser consent
+      webSearchMaxPages: 8,
+      webSearchMaxSources: 96,
+      deepResearchMaxPages: 24,
+      deepResearchMaxSources: 256,
       lanEnabled: false,    // persisted host preference; reconciled with /api/status on Settings open
       ds4GateMode: 'local', // last setup choice shown by the missing-engine gate
       workdirs: {},        // last working folder per local pipe mode
@@ -19185,13 +19214,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      function researchRunLimits(mode) {
+      function researchRunLimits(mode, settings = {}) {
         // Count/byte ceilings bound discovery independently of hardware speed.
         // A slow valid extraction or planner must not spend a hidden wall-clock
         // budget. Stop and actual transport failures still end the operation.
+        const count = (value, fallback, max) =>
+          Number.isSafeInteger(value) && value >= 1 && value <= max ? value : fallback;
         return mode === 'research'
-          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: Infinity }
-          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: Infinity };
+          ? { queries: 18, reads: count(settings.deepResearchMaxPages, 24, 512), actions: 12,
+              sources: count(settings.deepResearchMaxSources, 256, 4096), durationMs: Infinity }
+          : { queries: 6, reads: count(settings.webSearchMaxPages, 8, 512), actions: 0,
+              sources: count(settings.webSearchMaxSources, 96, 4096), durationMs: Infinity };
       }
 
       function researchAdmissionOpen(state) {
@@ -19529,7 +19562,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           model: settings.model,
           messages,
           temperature: 0,
-          maxTokens: 800,
+          // Omit max_tokens so a list of long source URLs can finish its JSON.
+          // Page-read and source-count budgets still bound discovery work.
+          maxTokens: 0,
           thinkLevel: 'off',
         }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Web source picker', settings.webSignal),
         candidates, state.readUrls, state.purpose === 'roadmap' ? 8 : Infinity);
@@ -20908,7 +20943,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const throwIfCancelled = () => {
           if (job?.cancelled || signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         };
-        const limits = researchRunLimits(mode);
+        // Copy validated preferences once: edits apply to the next run.
+        const limits = researchRunLimits(mode, settings);
         const startedAt = performance.now();
         const deadline = startedAt + limits.durationMs;
         let visionStatus = null;
@@ -22919,6 +22955,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       return {
         sendMessage, steer, isBusy, abortStream, restorePreviousRoadmap, regenerateLast, handleSlashCommand, isResearching,
+        researchRunLimits,
         tutorHistory,
         tutorFormattingProtocols: () => [CHAT_EXPLANATION_STYLE_PROTOCOL, CHAT_MATH_OUTPUT_PROTOCOL].join('\n\n'),
       };
@@ -27632,6 +27669,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           temp: qs('#set-temp'),
           tempOut: qs('#set-temp-out'),
           maxTok: qs('#set-maxtok'),
+          webSearchMaxPages: qs('#set-search-pages'),
+          webSearchMaxSources: qs('#set-search-sources'),
+          deepResearchMaxPages: qs('#set-research-pages'),
+          deepResearchMaxSources: qs('#set-research-sources'),
           designThinkTokens: qs('#set-design-think-tokens'),
           theme: qs('#set-theme'),
           ctx: qs('#set-ctx'),
@@ -27773,6 +27814,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const v = parseInt(f.maxTok.value, 10);
           Store.setSettings({ maxTokens: v > 0 ? v : null });
         });
+        for (const key of ['webSearchMaxPages', 'webSearchMaxSources', 'deepResearchMaxPages', 'deepResearchMaxSources']) {
+          on(f[key], 'change', () => {
+            if (!f[key].reportValidity()) return;
+            Store.setSettings({ [key]: Number(f[key].value) });
+          });
+        }
         on(f.designThinkTokens, 'change', () => {
           const v = parseInt(f.designThinkTokens.value, 10);
           Store.setSettings({ designThinkTokens: Number.isFinite(v) && v >= 0 ? v : 0 });
@@ -28384,6 +28431,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         f.temp.value = s.temperature;
         f.tempOut.textContent = s.temperature;
         f.maxTok.value = s.maxTokens ?? '';
+        const searchLimits = Chat.researchRunLimits('search', s);
+        const researchLimits = Chat.researchRunLimits('research', s);
+        f.webSearchMaxPages.value = searchLimits.reads;
+        f.webSearchMaxSources.value = searchLimits.sources;
+        f.deepResearchMaxPages.value = researchLimits.reads;
+        f.deepResearchMaxSources.value = researchLimits.sources;
         f.designThinkTokens.value = String([0, 8192, 16384, 24576].includes(+s.designThinkTokens) ? +s.designThinkTokens : 0);
         setThemeActive(s.theme || 'light');
         f.ctx.value = String(s.ctxSize ?? 65536);

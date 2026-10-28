@@ -38,6 +38,7 @@ let store = { v: 2, chats: [initialChat], deleted: [] }, rev = 0;
 let held, writerHeld, extractionCount = 0, writerMode = 'partial';
 const partialAnswer = 'La scoperta è controversa [F1].\n';
 const modelRequests = [];
+const readRequests = [];
 const pageErrors = [];
 function json(res, data, status = 200) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -80,6 +81,7 @@ const server = http.createServer(async (req, res) => {
       json(res, { ok: true, sources: urls.map(url => ({ url, title: 'Read evidence', content: 'Discovery lead.' })) }); return;
     }
     if (url.pathname === '/api/web-read') {
+      readRequests.push(body.url);
       json(res, { ok: true, url: body.url, title: 'Read evidence', sourceKind: 'generic', reader: 'browser',
         markdown: 'The saved evidence supports the requested answer. '.repeat(80) }); return;
     }
@@ -89,7 +91,10 @@ const server = http.createServer(async (req, res) => {
       if (system.includes('DStudio search classifier')) {
         completion(res, { needsSearch: true, intent: 'research', standaloneQuestion: 'Research the saved evidence', explicitUrls: [], queries: ['saved evidence'] }); return;
       }
-      if (system.includes('DStudio source picker')) { completion(res, { reason: 'Read the evidence', urls }); return; }
+      if (system.includes('DStudio source picker')) {
+        assert.equal(body.max_tokens, undefined, 'The browser source picker must omit the output-token cap');
+        completion(res, { reason: 'Read the evidence', urls }); return;
+      }
       if (system.includes('DStudio evidence extractor')) {
         extractionCount++;
         const reply = { facts: [{ fact: 'The saved evidence supports the requested answer.', excerpt: 'The saved evidence supports the requested answer.', confidence: 'high' }] };
@@ -174,15 +179,54 @@ try {
   const origin = `http://127.0.0.1:${server.address().port}`;
   await page.addInitScript(({ origin, file, dir }) => {
     if (window.top !== window || location.origin !== origin) return;
+    if (localStorage.getItem('ds4web.settings.v2')) return;
     localStorage.setItem('ds4web.settings.v2', JSON.stringify({ v: 2, onboarded: true, theme: 'dark',
       chatBackend: 'local', model: 'deepseek-v4-flash', modelGguf: file, modelEngineDir: dir,
       ctxSize: 65536, enginePower: 90, ssdStreaming: 'off', webMode: 'research', webSearchBrowserAllowed: true }));
   }, { origin, file, dir });
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page.locator('[data-id="saved-answer"]').waitFor({ state: 'visible' });
+  await check('web research settings validate and persist all four budgets without model requests', async () => {
+    await page.locator('#btn-settings').click();
+    await page.locator('#set-nav [data-pane="research"]').click();
+    const preferences = [
+      ['Search: pages to read', 'webSearchMaxPages', 8, 12],
+      ['Search: candidate sources', 'webSearchMaxSources', 96, 120],
+      ['Deep Research: pages to read', 'deepResearchMaxPages', 24, 6],
+      ['Deep Research: candidate sources', 'deepResearchMaxSources', 256, 7],
+    ];
+    for (const [label, key, initial, selected] of preferences) {
+      const input = page.getByRole('spinbutton', { name: label, exact: true });
+      assert.equal(await input.inputValue(), String(initial));
+      await input.fill(String(selected)); await input.press('Tab');
+      await page.waitForFunction(({ key, selected }) =>
+        JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}')[key] === selected, { key, selected });
+      for (const invalid of ['', '0', '1.5', key.endsWith('Pages') ? '513' : '4097']) {
+        await input.fill(invalid); await input.press('Tab');
+        assert.equal(await input.evaluate(node => node.validity.valid), false);
+        assert.equal(await page.evaluate(key => window.__researchTest.Store.getSettings()[key], key), selected);
+      }
+      await input.fill(String(selected)); await input.press('Tab');
+    }
+    assert.equal(modelRequests.length, 0, 'Budget preferences must not start inference');
+    await page.screenshot({ path: path.join(artifacts, 'research-settings.png') });
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('#btn-settings').click();
+    await page.locator('#set-nav [data-pane="research"]').click();
+    for (const [label, , , selected] of preferences)
+      assert.equal(await page.getByRole('spinbutton', { name: label, exact: true }).inputValue(), String(selected));
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  });
   await page.locator('#composer-input').fill('Research the saved evidence');
   await page.locator('#composer-input').press('Enter');
   await waitForHeld(2);
+  await check('research uses the configured candidate and page ceilings over actual browser HTTP', () => {
+    assert.deepEqual(readRequests, urls.slice(0, 6));
+    const picker = modelRequests.find(request => request.messages[0].content.includes('DStudio source picker'));
+    assert.ok(picker.messages[1].content.includes(urls[6]));
+    assert.equal(picker.messages[1].content.includes(urls[7]), false);
+  });
   await check('the current extraction remains visible beyond twelve earlier events', async () => {
     const active = page.locator('.web-trace__row[data-state="active"]');
     assert.equal(await active.count(), 1);

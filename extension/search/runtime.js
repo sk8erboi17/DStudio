@@ -100,6 +100,12 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         return images;
       }
 
+      function tutorHistory(messages, nativeModelVision) {
+        const images = nativeModelImagesForHistory({ messages }, nativeModelVision);
+        return messages.filter(message => !message.streaming)
+          .map(message => ({ role: message.role, content: msgContentForModel(message, images) }));
+      }
+
       function buildHistory(chat, settings, { nativeModelVision = false } = {}) {
         const nativeImages = nativeModelImagesForHistory(chat, nativeModelVision);
         const msgs = chat.messages
@@ -599,13 +605,17 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
       }
 
-      function researchRunLimits(mode) {
+      function researchRunLimits(mode, settings = {}) {
         // Count/byte ceilings bound discovery independently of hardware speed.
         // A slow valid extraction or planner must not spend a hidden wall-clock
         // budget. Stop and actual transport failures still end the operation.
+        const count = (value, fallback, max) =>
+          Number.isSafeInteger(value) && value >= 1 && value <= max ? value : fallback;
         return mode === 'research'
-          ? { queries: 18, reads: 24, actions: 12, sources: 256, durationMs: Infinity }
-          : { queries: 6, reads: 8, actions: 0, sources: 96, durationMs: Infinity };
+          ? { queries: 18, reads: count(settings.deepResearchMaxPages, 24, 512), actions: 12,
+              sources: count(settings.deepResearchMaxSources, 256, 4096), durationMs: Infinity }
+          : { queries: 6, reads: count(settings.webSearchMaxPages, 8, 512), actions: 0,
+              sources: count(settings.webSearchMaxSources, 96, 4096), durationMs: Infinity };
       }
 
       function researchAdmissionOpen(state) {
@@ -943,7 +953,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           model: settings.model,
           messages,
           temperature: 0,
-          maxTokens: 800,
+          // Omit max_tokens so a list of long source URLs can finish its JSON.
+          // Page-read and source-count budgets still bound discovery work.
+          maxTokens: 0,
           thinkLevel: 'off',
         }, WEB_RESEARCH_JUDGE_TIMEOUT_MS, 'Web source picker', settings.webSignal),
         candidates, state.readUrls, state.purpose === 'roadmap' ? 8 : Infinity);
@@ -2322,7 +2334,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const throwIfCancelled = () => {
           if (job?.cancelled || signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         };
-        const limits = researchRunLimits(mode);
+        // Copy validated preferences once: edits apply to the next run.
+        const limits = researchRunLimits(mode, settings);
         const startedAt = performance.now();
         const deadline = startedAt + limits.durationMs;
         let visionStatus = null;

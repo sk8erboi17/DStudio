@@ -113,4 +113,46 @@ assert.equal(slow.budget.actions, 12);
 assert.equal(slow.budget.reads, 13);
 assert.match(slow.stopReason, /action budget/);
 assert.ok(slow.facts.length > 0);
-console.log('research_budget: simulated evidence, bounded queries/pages/sources/actions, slow discovery, explicit test deadline and Stop passed');
+
+// Persisted preferences are untrusted input; invalid values must not disable
+// the resource ceilings, while valid values may exceed the old defaults.
+for (const [mode, pagesKey, sourcesKey, defaultPages, defaultSources] of [
+  ['search', 'webSearchMaxPages', 'webSearchMaxSources', 8, 96],
+  ['research', 'deepResearchMaxPages', 'deepResearchMaxSources', 24, 256],
+]) {
+  for (const invalid of [undefined, null, true, '7', 0, -1, 1.5, Infinity, NaN, {}]) {
+    const limits = tools.researchRunLimits(mode, { [pagesKey]: invalid, [sourcesKey]: invalid });
+    assert.equal(limits.reads, defaultPages);
+    assert.equal(limits.sources, defaultSources);
+  }
+  const tooLarge = tools.researchRunLimits(mode, { [pagesKey]: 513, [sourcesKey]: 4097 });
+  assert.equal(tooLarge.reads, defaultPages); assert.equal(tooLarge.sources, defaultSources);
+  const maximum = tools.researchRunLimits(mode, { [pagesKey]: 512, [sourcesKey]: 4096 });
+  assert.equal(maximum.reads, 512); assert.equal(maximum.sources, 4096);
+  for (const [pages, sources] of [[1, 2], [defaultPages + 4, defaultSources + 24]]) {
+    const preferences = { [pagesKey]: pages, [sourcesKey]: sources };
+    const configured = { ...state(mode), limits: tools.researchRunLimits(mode, preferences), deadline: Infinity };
+    // A later settings edit cannot change a run's already-admitted limits.
+    preferences[pagesKey] = 1; preferences[sourcesKey] = 1;
+    for (let i = 0; i < sources + 10; i++) tools.addSourceToState(configured, { url: `https://configured.test/${i}` });
+    assert.equal(configured.byUrl.size, sources);
+    const beforeReads = reads;
+    await tools.readUrlsIntoState(configured, [...configured.byUrl.keys()], Infinity);
+    await tools.readUrlsIntoState(configured, [...configured.byUrl.keys()].reverse(), Infinity);
+    assert.equal(reads - beforeReads, pages);
+    assert.equal(configured.readUrls.size, pages);
+  }
+}
+engine.webSearch = async query => ({ ok: true, sources: [0, 1].map(i => ({
+  url: `https://configured.test/${query}/${i}`, title: query,
+})) });
+for (const [pages, sources, expectedReads] of [[3, 5, 3], [30, 300, 26]]) {
+  const configured = await tools.runResearchPipeline('Configured research', {
+    model: 'simulated', deepResearchMaxPages: pages, deepResearchMaxSources: sources,
+  }, { mode: 'research' });
+  assert.equal(configured.budget.limits.reads, pages);
+  assert.equal(configured.budget.limits.sources, sources);
+  assert.equal(configured.budget.reads, expectedReads);
+  assert.equal(configured.judge.decision, 'incomplete', 'A larger budget cannot declare unresolved evidence sufficient');
+}
+console.log('research_budget: simulated evidence, configurable validated page/source ceilings, run snapshots, bounded queries/actions, slow discovery, explicit test deadline and Stop passed');

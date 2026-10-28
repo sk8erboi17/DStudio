@@ -746,8 +746,15 @@ the local model too: it helps catch errors but cannot guarantee truth.
 
 Relevant details can come from later page sections, and with an active native
 vision model research can inspect real pixels of an image or chart (one
-viewport per page, three captures per run). Search admits up to 6 queries and 8
-page reads; Deep Research up to 18 queries, 24 reads and 12 follow-up actions.
+viewport per page, three captures per run). **Settings → Web research** lets you
+set separate page-read and candidate-source limits for Search and Deep Research.
+Defaults are 8 reads / 96 candidates for Search and 24 reads / 256 candidates
+for Deep Research, including learning-path research. Each mode accepts 1–512
+page reads and 1–4096 candidates; changes apply to new runs. These are ceilings,
+not targets: sufficient evidence can end discovery earlier. Query/action budgets
+also remain bounded: Search admits up to 6 queries; Deep Research up to 18 queries
+and 12 follow-up actions. Source selection has no application output-token cap;
+the engine's context and output limits still apply.
 There is no application elapsed-time cutoff on discovery, writing or review: a
 slow valid local-model request continues until it completes, fails or you press
 Stop. [Measured scope and limits](extension/search/bench/README.md).
