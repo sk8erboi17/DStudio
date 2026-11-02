@@ -4,10 +4,10 @@
 
 # DStudio: Local AI Studio
 
-**An open-source, local-first workspace for DeepSeek V4, GLM 5.3 Flash, Laguna S 2.1 and Qwen: private chat, coding and knowledge-work agents, document research, visual design, images and MiniMax H3 video. Three bundled inference engines (ds4, llama.cpp, MLX), DStudio's own agents plus pi and OpenCode. A cloud account is optional.**
+**Run open-weight models such as DeepSeek V4, GLM 5.3, Laguna and Qwen on your own Mac and put them to work on your files: chat, a coding agent, document work, web research, learning paths, design, images and video, in one native app. Where it can, DStudio checks the model's work against tool results and sources instead of taking its word. No cloud account required.**
 
 ![license](https://img.shields.io/badge/license-BSD%203%20Clause-blue)
-![platform](https://img.shields.io/badge/platform-macOS_%7C_Linux_%7C_Windows-black)
+![platform](https://img.shields.io/badge/platform-macOS_tested_%7C_Linux%2FWindows_untested-black)
 ![inference](https://img.shields.io/badge/inference-local_by_default-success)
 ![engines](https://img.shields.io/badge/engines-ds4_%7C_llama.cpp_%7C_MLX-informational)
 ![models](https://img.shields.io/badge/models-DeepSeek_V4_%7C_GLM_5.3_%7C_Laguna_%7C_Qwen3.6%2F3.8-orange)
@@ -16,52 +16,119 @@
 
 </div>
 
+> **Status: work in progress, tested on one Apple M2 Max (96 GB).** The latest
+> release, 1.1.0, predates most of this page: [build from source](#build-from-source)
+> to use it. [What works today and what does not](#current-status-october-3-2026).
+
+DStudio is one desktop application for local AI. It runs large open-weight
+models on your own machine behind a single interface: private **Chat**,
+**Learn** paths with a Tutor, a coding **Agent** (with Plan, GSA and RSA
+workflows), document-focused **Cowork**, a **Design** studio, local image
+understanding/generation/editing and optional MiniMax H3 video. Model
+execution, project files and generated artifacts stay under your control.
+
+**Who it is for.** People with a high-memory Apple Silicon Mac who want capable
+AI on their own code and documents without uploading them: developers,
+researchers, students and anyone working with files they would rather keep
+local. If no model fits your machine, a DeepSeek API key or another
+OpenAI-compatible endpoint can provide inference while every tool keeps running
+locally. DStudio is early: Linux and Windows builds are prepared but untested,
+and most models are integrated without being fully qualified.
+
+<div align="center">
+
+<img src="assets/demo.gif" width="820" alt="DStudio Chat demo showing local DeepSeek V4 chat, file generation and canvas preview">
+
+</div>
+
 ## Contents
 
+- [What DStudio can do](#what-dstudio-can-do) · [Why DStudio](#why-dstudio) · [Can my Mac run it?](#can-my-mac-run-it)
 - [Current status: what works today and what does not](#current-status-october-3-2026)
 - [Install](#install)
+- [Modes](#modes): [Chat](#chat), [Learn](#learn--interactive-learning-paths), [Search](#search--deep-research), [Agent](#agent), [Cowork](#cowork), [Design](#design-a-local-design-studio)
 - [Supported models and limitations](#supported-models-and-limitations)
   - [Qwen3.6 and Qwen3.8-27B on llama.cpp](#qwen36-and-qwen38-27b-on-llamacpp)
   - [Qwen3.6 on MLX (Apple Silicon)](#qwen36-on-mlx-apple-silicon)
   - [Every Qwen3.6 and Qwen3.8-27B quantization](#every-qwen36-and-qwen38-27b-quantization)
   - [Downloading models](#downloading-models)
 - [Harnesses: every engine with every agent loop](#harnesses-every-engine-with-every-agent-loop)
-- [What DStudio can do](#what-dstudio-can-do)
-- [Modes](#modes): [Chat](#chat), [Learn](#learn--interactive-learning-paths), [Search](#search--deep-research), [Agent](#agent), [Cowork](#cowork), [Design](#design-a-local-design-studio)
 - [Measured results](#latest-measured-results)
 - [Requirements](#requirements)
 - [Development and tests](#development-and-tests)
 - [Network access](#network-lan) · [How it works](#how-it-works) · [Security](#security)
+- [Contributing](#contributing)
 - [WIP checklist](#wip-checklist--october-27-2026)
 - [Project layout](docs/PROJECT_LAYOUT.md)
 
-DStudio is one desktop application for local AI. It runs large open-weight
-models on your own machine and puts them behind a single interface: private
-**Chat**, **Learn** paths with a Tutor, **Agent** (with Plan, GSA and RSA
-workflows), document-focused **Cowork**, a **Design** studio, local image
-understanding/generation/editing and optional MiniMax H3 video. Model
-execution, project files and generated artifacts stay under your control.
+## What DStudio can do
 
-Under the interface DStudio owns three inference engines and picks the right
-one for the model you choose:
+- Run **DeepSeek V4/V4.1, GLM 5.3 Flash, Laguna S 2.1 and Qwen** locally through one native interface and model picker; DStudio selects ds4, llama.cpp or MLX for you.
+- Use a **private AI chat** with reasoning display, prefix-cache reuse, citations from optional Web Search and local history.
+- Use **Learn** to build an interactive learning path from a goal, PDFs and links, and open a dedicated **Tutor** for any block.
+- Run **Web Search or Deep Research** through DStudio's local browser helper, with read-page evidence and source cards.
+- **Check PDF sources**: open the cited page with the quoted words highlighted and recheck simple calculations.
+- Send image pixels directly to **DeepSeek V4 Flash Vision-Exp**, **GLM 5.3 native vision** or **Qwen3.8-27B**; generate images with **Ideogram 4 FP8**, edit them with **HunyuanImage 3 NF4**, and create video with the optional **MiniMax H3** pipeline.
+- Use a **local coding agent** that reads, edits and verifies files in a folder you choose, with an **Open IDE** view, **Open Blueprint** code maps and automatic Task Graph checks; or run **pi** or **OpenCode** as the agent loop.
+- Use **Cowork** for source-grounded spreadsheet, PDF, document and presentation work with native Office tools and no arbitrary shell.
+- Toggle **Plan** for a Markdown execution plan, keep working towards a saved **/goal**, and add context while a turn runs.
+- Create **Skills**: private instruction packs for Agent, Cowork and Design.
+- Run **Guided Security Analysis (GSA)** for authorized reviews or **Reverse Structure Analysis (RSA)** for public websites.
+- Generate and refine complete interfaces in **Design**, with 25 offline design systems, measured layout checks and export.
+- Use an optional **DeepSeek API** or remote endpoint for inference while all tools keep running locally, and reach the UI from another device on your LAN.
 
-- **[ds4](https://github.com/antirez/ds4)**, antirez's native engine, for
-  DeepSeek V4/V4.1, GLM 5.3 Flash, Laguna S 2.1 and Qwen3.8-Flash-Next;
-- **[llama.cpp](https://github.com/ggml-org/llama.cpp)** for Qwen3.6-35B-A3B
-  and Qwen3.8-27B;
-- **[MLX](https://github.com/ml-explore/mlx)** for Qwen3.6-35B-A3B on Apple
-  Silicon.
+## Why DStudio
 
-Their sources ship inside this repository and are built or installed offline;
-setup never clones an engine. Agent mode can use DStudio's own agent or the
-third-party **pi** and **OpenCode** harnesses, with any of those engines.
+- **Your files stay on your machine.** Models run locally by default; the app
+  has no telemetry and listens only on localhost unless you enable LAN access.
+  Model downloads, web research, harness dependencies and the optional remote
+  API are separate, documented outbound paths, used only when you ask for them.
+  [Network](#network-lan) · [Security](#security)
+- **It checks instead of trusting.** An Agent action on your workspace counts
+  as done only after a real tool result and a completion receipt. A PDF
+  citation opens the original page with the quoted words highlighted.
+  Comparison-table cells keep their source excerpt, Blueprint diagrams cite
+  file lines that DStudio checks against the bytes, and Design renders each page
+  at three widths before accepting it. These checks prove that the evidence
+  exists, not that the model's interpretation is right.
+- **Not only a chat box.** Work happens in views made for it: an IDE that
+  shows the agent's edits while it writes them, a canvas for Design, an
+  editable roadmap for Learn, real Office files and source-backed tables in
+  Cowork, and a task graph you can pause, resume and reopen.
+- **One app for several engines and agents.** Choose a model and DStudio picks
+  and starts its engine (ds4, llama.cpp or MLX); there is no engine to
+  configure. The engine sources ship in this repository and build or install
+  offline.
+  Agent mode can also run pi or OpenCode on the same model and folder.
+- **Results keep their failures.** On 50 diverse workspace tasks, DStudio's
+  checked Agent, pi and OpenCode each completed 50/50, against 42/50 for the
+  same agent without checks. Search and Deep Research answers met the checked
+  requirements on 4/4 questions instead of 2/4, but took longer; Design shows no
+  overall win yet.
+  These are small samples on one Mac, not rankings, and failed runs stay in the
+  published charts. [All results](#latest-measured-results)
 
-On macOS DStudio ships as **DStudio.app** (double-click, no Terminal); on
-Windows as a portable folder. The UI is a single vanilla `index.html`
-embedded in a small C launcher: no Electron, no framework build, no CDN and no
-telemetry. Network access is explicit: model and harness-dependency downloads,
-Web Search/Research and the optional DeepSeek API backend are the documented
-outbound paths, used only when you request or configure them.
+## Can my Mac run it?
+
+The memory a model needs follows from its engine: llama.cpp and MLX keep the
+whole model in memory, so pick a file comfortably smaller than your RAM, with
+room left for context and macOS. Only a 96 GB M2 Max has been tested.
+
+| Starting point | Engine | Download | Memory | Status on the 96 GB test Mac |
+| --- | --- | ---: | --- | --- |
+| Qwen3.8-27B Q6_K_XL + projector | llama.cpp | 26.2 GB | Whole model in memory | Real workflow checks 6/6 on the previous llama.cpp pin, not yet rerun on `b11836`; Design is slow |
+| Qwen3.6-35B-A3B Q6_K_XL | llama.cpp | 31.8 GB | Whole model in memory | Real workflow checks 6/6 |
+| Qwen3.6-35B-A3B MXFP8 (macOS 26) | MLX | 36.7 GB | Whole model in memory | Real workflow checks 6/6 |
+| Laguna S 2.1 Q4_K_M | ds4 | ~68 GB | Must fit entirely (no SSD streaming) | Experimental; engine acceptance 10/12 (September) |
+| DeepSeek V4 Flash Q2 | ds4 | ~87 GB | ~96–128 GB RAM | Engine acceptance 11/12 (September); most agent benchmarks ran on it |
+| GLM 5.3 Flash Q2 | ds4 | ~96.5 GB | Runs only with SSD streaming on 96 GB | Qualification blocked on this Mac |
+
+Smaller Qwen quantizations (from 7.1 GB for the 27B and 10.0 GB for Qwen3.6)
+can be downloaded but have not been individually verified. Qwen3.8-Flash-Next
+(147–177 GB), DeepSeek V4.1 Flash and DeepSeek V4 Pro (~430 GB, ~512 GB RAM)
+are experimental or not validated on the test Mac. Details and limits:
+[Supported models](#supported-models-and-limitations) ·
+[Requirements](#requirements).
 
 ## Current status (October 3, 2026)
 
@@ -72,6 +139,9 @@ downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/rele
 
 **What changed since that release**
 
+- **Breaking for existing source installs (October 27).** Older installations
+  are not upgraded: reinstall the bundled engines and restart unfinished Qwen
+  downloads. [Details](#wip-checklist--october-27-2026).
 - **Qwen moved to bundled engines.** Qwen3.6-35B-A3B and Qwen3.8-27B run on
   llama.cpp `b11836`; Qwen3.6 also runs on MLX on Apple Silicon. The former
   Qwen side engines (vagrillo/ds4 and Ninnix/q36) are retired. Qwen3.8-Flash-Next
@@ -149,6 +219,13 @@ These are focused development checks, not a quality score or a ranking.
 
 ## Install
 
+On macOS DStudio ships as **DStudio.app** (double-click, no Terminal); on
+Windows as a portable folder. The UI is a single vanilla `index.html`
+embedded in a small C launcher: no Electron, no framework build, no CDN and no
+telemetry. Network access is explicit: model and harness-dependency downloads,
+Web Search/Research and the optional DeepSeek API backend are the documented
+outbound paths, used only when you request or configure them.
+
 ### macOS release
 
 Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erboi17/DStudio/releases), extract it and move **DStudio.app** to Applications. The app is ad-hoc signed but not Apple-notarized (notarization requires a paid Apple Developer account), so Gatekeeper may warn that Apple cannot verify it. To open it the first time:
@@ -201,293 +278,6 @@ DStudio offers only the publishers' official weights. Abliterated,
 the app and are not selectable even if such a file is already in the model
 folder; DStudio leaves that file untouched.
 
-## Supported models and limitations
-
-**Listed here means integrated, not equally tested.** “All four modes” means
-Chat, Agent, Cowork and Design. You pick a model; DStudio picks its engine.
-There is no engine or branch selector.
-
-| Model | Engine | Modes | Size and important limits |
-| --- | --- | --- | --- |
-| DeepSeek V4 Flash | ds4 main | All four | ~87 GB. Standard checkpoints are text-only. |
-| DeepSeek V4 Flash Vision-Exp | ds4 main | All four, with images | Experimental; needs its matching vision encoder. |
-| DeepSeek V4 Pro | ds4 main | All four (integrated) | About 430 GB; not validated on the reference 96 GB Mac. |
-| DeepSeek V4.1 Flash | ds4 main | Experimental; qualification in progress | macOS Metal, full power. Q2 is 365.7 GB on SSD including disk-backed Engram tables; no DSpark or non-Metal qualification. |
-| GLM 5.3 Flash | ds4 main | All four; images with its encoder | ~96.5 GB Q2. Full-model QA of the M2 optimization remains open. |
-| Laguna S 2.1 | ds4 `laguna-s2.1` | All four, text only | Experimental, macOS Metal; needs resident weights (no forced SSD streaming). |
-| Qwen3.8-Flash-Next | ds4 main | Experimental Chat, Agent, Cowork | Single-file Q2 (147.2 GB) or Q4 (177.3 GB); old base + PLE files are incompatible. Design and vision unqualified. |
-| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). The other 23 published GGUF quantizations (10.0–69.4 GB) are downloadable but [not individually verified](#every-qwen36-and-qwen38-27b-quantization). |
-| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). 4/5/6/8-bit, BF16, MXFP4 and NVFP4 folders are downloadable but not individually verified. |
-| Qwen3.8-27B | llama.cpp | All four; images in Chat, Agent and Cowork | 25.3 GB Q6_K_XL + 0.93 GB projector. Real workflows pass; Design is slow (37 min on an M2 Max with thinking on). Learn and PDF workflows unqualified. The other 24 published GGUF quantizations (7.1–55.6 GB with the projector) are downloadable but not individually verified. |
-| Qwen3.8-27B (MLX) | MLX | All four, text only (images refused) | New engine combination: 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 folders (15.2–54.7 GB); Apple Silicon with macOS 26. Not yet run on real weights. |
-
-Separate media workers provide **Ideogram 4** image generation,
-**HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat
-models. A remote OpenAI-compatible or DeepSeek API endpoint can replace local
-inference while every tool keeps running locally.
-
-**Memory modes.** ds4 launches default to expert **SSD streaming Off**; Metal
-keeps the whole model resident when it fits and otherwise uses the engine's lazy
-memory-mapped path. DStudio never lowers your context to force residency. **On**
-remains an explicit option for compatible models. llama.cpp and MLX keep all
-weights in memory and have no expert streaming; Qwen3.8-Flash-Next keeps its
-backbone in RAM and reads its BF16 n-grams from SSD. Image, editing and video
-workers are one-shot: DStudio evacuates the chat model before loading one and
-restores it afterwards.
-
-### Qwen3.6 and Qwen3.8-27B on llama.cpp
-
-Both checkpoints run on **llama.cpp** `b11836` (`f5027fb`), shipped in
-[`src/engines/llama.cpp`](src/engines/llama.cpp/). DStudio builds `llama-server`
-from those sources the first time you start one of them, without the network,
-and reuses the build afterwards. The weights live in the shared `ds4/gguf/`
-folder.
-
-DStudio starts the server, checks that it really loaded the model you chose
-(path, context, build and image projector) before marking it ready, and stops
-it when you switch models, press Stop or quit. If DStudio crashes, a small
-guard process stops the server too, so tens of GB are not left in memory.
-Chat, Agent, Cowork and Design share the loaded model: switching between them
-does not reload it.
-
-- **Thinking** is one switch, on or off; there is no separate Max level.
-  Agent and Cowork use Qwen's published sampling (thinking on: temperature 0.6,
-  top_p 0.95; off: 0.7, 0.8).
-- **Design** receives its tools as structured function calls; Qwen did not
-  follow Design's DSML text protocol reliably.
-- **Not available:** power throttling, expert SSD streaming, DSpark, prompt
-  lookup, and KV disk checkpoints (the tools reach the model through DStudio's
-  model RPC and hold no engine session to save). Agent, Cowork and Design save
-  their transcript after every turn and restore it after a restart; the server
-  then reads the conversation again. Chat history is saved and the running
-  server reuses its live prompt cache.
-- **The 27B** needs its matching F16 projector; DStudio downloads and checks
-  both files and admits images in Chat, Agent and Cowork.
-
-On October 3, 2026, on llama.cpp `b11371`, a real run through the production
-host passed **6/6 on each model**: an Agent turn computes a generated CSV total with real tool calls and
-writes it, recalls a fact from a workspace file, Cowork writes a document,
-Design saves a page with the exact requested heading, Chat answers with thinking
-on and off, and a killed DStudio leaves no server behind. Retained failures
-include a thinking-off arithmetic error (Qwen3.6) and the 27B Design run that
-hit the test's former one-hour bound before finishing.
-After the move to `b11836` on October 23, Qwen3.6 passed the same six checks
-again; Qwen3.8-27B has not been rerun on `b11836` yet.
-
-### Qwen3.6 on MLX (Apple Silicon)
-
-On Apple Silicon with macOS 26, Qwen3.6-35B-A3B can also run on **MLX**,
-Apple's machine-learning framework, from the MXFP8 folder
-`mlx-community/Qwen3.6-35B-A3B-mxfp8`. MLX ships as verified PyPI wheels
-(mlx 0.32.4, mlx-lm 0.32.2) in [`src/engines/mlx`](src/engines/mlx/): nothing is
-compiled or fetched. The first start installs them offline into a private
-Python environment (Python 3.12–3.14 must be installed, for example from
-Homebrew); a later Python upgrade that removes the old version triggers a
-reinstall instead of a broken launch.
-
-Download the weights from **Settings → Models** (*Qwen3.6-35B-A3B · MLX
-MXFP8*, 36.7 GB) or with `./download-model.sh qwen36-mlx`; each of the 20 files
-is checked against its pinned SHA-256 and transfers resume after Stop. If you
-already have this folder, link it as `ds4/mlx/Qwen3.6-35B-A3B-mxfp8`; DStudio
-checks it and never copies or moves it.
-
-It behaves like the llama.cpp models: one server owned by DStudio, shared by all
-four modes, ready only when it reports exactly the folder you chose, stopped on
-Stop, model switch, quit or crash. Two small versioned patches make the MLX
-server serve only that model and report its reasoning in the field DStudio
-reads ([patch notes](patch/README.md)). MLX has no expert streaming and no disk
-KV cache. It is not available on Intel Macs, older macOS, Linux or Windows; use
-the GGUF there.
-
-The October 3 real run passed **6/6**. Three earlier failed runs are kept with
-their fixes (a folder not recognized as a model, an HTTP/1.0 readiness reply,
-and a 512-token default reply limit plus a renamed reasoning field) in
-[tests/README.md](tests/README.md#qwen36-on-mlx-apple-silicon).
-
-### Every Qwen3.6 and Qwen3.8-27B quantization
-
-Besides the defaults above, every standard quantization the publishers released
-can be downloaded from **Settings → Models** or with `./download-model.sh`:
-all 24 unsloth GGUFs of Qwen3.6-35B-A3B and all 25 of Qwen3.8-27B on llama.cpp
-(UD-IQ1 … UD-Q8_K_XL, Q4_0/Q4_1/Q8_0, MXFP4_MOE for 3.6, and BF16), and the
-standard mlx-community MLX folders: 4-bit, 5-bit, 6-bit, 8-bit, BF16, MXFP4,
-MXFP8 and NVFP4 for Qwen3.6, and 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 for
-Qwen3.8-27B. Modified repositories (abliterated, uncensored, fine-tunes,
-pruned/REAP, MTP or other draft builds, DWQ, OptiQ and similar) are not offered.
-
-- **Pinned like the defaults.** One catalog,
-  [`scripts/qwen-variants.json`](scripts/qwen-variants.json), records each
-  variant's repository revision and every file's size and SHA-256 (63 variants,
-  about 1.4 TB in total). It ships with DStudio and is never fetched; a
-  maintainer regenerates it with `scripts/update-qwen-variants.py`, which reads
-  only Hugging Face metadata at explicit revisions. Each file is resumable and
-  verified before it is published; nothing existing is overwritten.
-- **What each variant needs.** Every 27B GGUF downloads with the same pinned F16
-  projector, which images on llama.cpp require. The split BF16 GGUFs are two
-  files in `ds4/gguf/`; only the first appears in the model picker, and both
-  must be present. MLX folders live in `ds4/mlx/` and are Apple Silicon only.
-- **27B on MLX is text only.** MLX loads its language model without the vision
-  tower; DStudio refuses image attachments with that model rather than dropping
-  them.
-- **Verification.** Q6_K_XL (both models) and MXFP8 (Qwen3.6 on MLX) remain the
-  qualified selections. The other variants share the engine, tokenizer, chat
-  template and tool format of a checked variant but use other quantization
-  kernels (and the split BF16 another loading path and about 69 GB of memory):
-  they are downloadable but not individually verified. Five representative
-  real-weight checks are planned (UD-Q4_K_M, UD-IQ4_XS and MXFP4_MOE GGUFs of
-  Qwen3.6, Qwen3.6 MLX NVFP4 and Qwen3.8-27B MLX 4-bit); they have **not run**
-  yet; see [the remaining work](docs/WORK_IN_PROGRESS.md).
-
-The existing ids (`qwen36-q6`, `qwen27-q6`, `qwen36-mlx`), file names and
-partial downloads are unchanged.
-
-### Qwen3.8-Flash-Next on ds4 main
-
-Flash Next shares ds4 main (pinned at
-[`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac));
-there is no separate engine to install. Download the single-file **Q2
-(147.2 GB)** or **Q4 (177.3 GB)**: each includes the original BF16 n-grams read
-from SSD, with the backbone resident in Metal memory. The older base + PLE
-files are not supported, recognized or converted. It exposes
-experimental Chat, Agent and Cowork with its native tool format; Design and
-vision remain unavailable. The Q4 baseline answered 75/100 corpus questions and
-8/8 long-context cases; wrong answers stay in the denominator. See the
-[migration report](docs/QWEN_NEXT_MAIN_MIGRATION.md) and the
-[Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
-
-### DeepSeek Vision-Exp, GLM 5.3 and Laguna
-
-- **DeepSeek V4 Flash Vision-Exp** is a separate language checkpoint, not an
-  encoder for the older 0731 GGUF. Choose *Vision-Exp · IQ2_XXS* (~86.7 GB plus
-  its 0.93 GB encoder), mixed Q2/Q4 (~97.6 GB) or MXFP4 (~156 GB). DStudio
-  passes `--vision` automatically; Chat sends image blocks directly, Agent and
-  Cowork use ds4's `view_image`, Design inspects pixels natively. Its own DSpark
-  support file is `ds4f-vision-dspark`; if model, DSpark and context exceed the
-  estimated Metal budget, DStudio explains the risk and asks before launch.
-- **GLM 5.3 Flash** runs on ds4 main with the same binaries and model store.
-  The optional native encoder (`glm53-vision`, ~1.13 GB) enables images in all
-  modes. `--power` is dropped (unsupported by GLM). With SSD streaming on,
-  DStudio uses the full-layer prefill path and a 32 GB expert cache; the macOS
-  build includes the [M2 Max decode patch](patch/ds4-glm53-m2max/README.md),
-  whose full-model QA is still open.
-- **Laguna S 2.1** runs on ds4's pinned `laguna-s2.1` branch in
-  `./ds4-laguna-s21`, sharing `./ds4/gguf`. The ~68 GB Q4_K_M download has
-  Stop/Resume and **Delete partial**. It is macOS Metal-only, text-only and
-  needs full residency; image drops are rejected rather than routed elsewhere.
-
-### Downloading models
-
-Every download is real, large and resumable, and every model lands in the
-shared `./ds4/gguf/` store (the MLX folder in `./ds4/mlx/`). Settings → Models
-shows engine preparation, transfer and verification separately; Stop keeps
-partial data for Resume, and a download never changes your selected model.
-From the project root:
-
-```sh
-./download-model.sh --help
-./download-model.sh ds4f-q2        # DeepSeek V4 Flash
-./download-model.sh ds4f-vision-q2 # DeepSeek V4 Flash Vision-Exp + encoder
-./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash 1017 Q2 (needs hf with Xet)
-./download-model.sh ds41f-1017-vision # its 1017 vision encoder
-./download-model.sh glm53-q2       # GLM 5.3 Flash (glm53-vision for its encoder)
-./download-model.sh laguna-q4      # Laguna S 2.1
-./download-model.sh qwen38-q2      # Qwen3.8-Flash-Next Q2 (qwen38-q4k for Q4)
-./download-model.sh qwen36-q6      # Qwen3.6 Q6_K_XL, 31.8 GB, llama.cpp
-./download-model.sh qwen27-q6      # Qwen3.8-27B + projector, 26.2 GB, llama.cpp
-./download-model.sh qwen36-mlx     # Qwen3.6 MXFP8 folder, 36.7 GB, MLX
-./download-model.sh qwen36-q4_k_m  # any other pinned Qwen quantization, e.g. UD-Q4_K_M
-./download-model.sh qwen27-mlx-4bit # Qwen3.8-27B 4-bit MLX folder (text only)
-./download-model.sh --list-qwen    # every pinned Qwen variant, engine and size
-```
-
-DeepSeek V4, GLM and Laguna show a visible `<model>.gguf.part` while a transfer
-is incomplete. The pinned Qwen downloads verify size and SHA-256 per file before
-the model becomes selectable. Hugging Face/Xet transfers (Qwen3.8, V4.1) keep
-partial data in the Hugging Face cache until they are verified in full.
-
-### Linux and Windows (prepared, not tested)
-
-On Linux and Windows DStudio builds llama.cpp the way Ollama does: one server
-plus a loadable module per backend. Every CPU variant is built and llama.cpp
-picks the best one for the processor; CUDA, ROCm and Vulkan modules are added
-when their toolkit is installed (`DSTUDIO_LLAMA_BACKENDS` can request or limit
-them). Layers go to the GPU memory that is actually free, the rest to the CPU;
-your context setting is never lowered. On Windows the server runs inside a Job
-Object, so it stops with DStudio. This code is cross-compiled for Linux and
-Windows, and the same dynamic build layout was built and run for real on macOS
-with a correct Qwen3.6 answer, but it has **not** been run on Linux, Windows,
-CUDA, ROCm or Vulkan. ds4 itself must be built for your platform; MLX and the
-pi/OpenCode harnesses are not available on Windows.
-
-## Harnesses: every engine with every agent loop
-
-A *harness* is the agent loop around a model: it decides which tool to call,
-runs it and feeds the result back. DStudio's own harnesses (Agent, Cowork,
-Design, GSA and RSA) live in [`src/harness/`](src/harness/), next to pinned
-source snapshots of **pi**, **OpenCode** and **pi-ds4**.
-
-Choose **Settings → Harnesses → Agent harness**: *DStudio*, *pi* or *OpenCode*.
-The next Agent launch keeps the same model, engine, context and workspace; only
-the loop changes. The transcript, diff cards, Stop, Task Graph receipts and the
-saved conversation work as before. pi comes in two forms, chosen from the
-model: **pi-ds4** when ds4 serves it (DeepSeek, GLM, Qwen Next, Laguna) and
-plain **pi** with llama.cpp, MLX or a remote endpoint.
-
-| Harness | DeepSeek and other ds4 models | Qwen3.6 / 27B (llama.cpp) | Qwen3.6 (MLX) | Remote endpoint |
-| --- | --- | --- | --- | --- |
-| DStudio Agent, Cowork, Design | yes | yes | yes | yes |
-| pi | yes, through pi-ds4 | yes | yes | yes (not run live) |
-| OpenCode | yes | yes | yes | yes (not run live) |
-
-- **Install.** Settings → Harnesses → **Install** (or
-  `python3 scripts/install-harness.py --root <install root> --harness pi|opencode`).
-  The sources ship with DStudio; their JavaScript dependencies do not. This one
-  explicit step downloads them, pinned by each project's lockfile (Node and npm
-  required; OpenCode also uses a private Bun 1.3.14), applies DStudio's
-  versioned patches and builds in a private folder. About 3 minutes for pi and
-  6 for OpenCode on an M2 Max. Launching afterwards is offline.
-- **How it connects.** A small bridge speaks DStudio's runtime protocol and
-  gives the harness one loopback model endpoint protected by a per-process
-  token. Behind it: the host's model RPC for llama.cpp, MLX and remote models
-  (the harness never sees an API key), or a `ds4-server` the bridge starts for
-  ds4 models. The endpoint applies DStudio's model identity, sampling and
-  thinking choice.
-- **Confinement.** pi always loads a guard that blocks file tools outside the
-  workspace (real paths, so a symlink cannot escape); OpenCode runs with
-  external directories denied and a patch that makes the workspace itself, not
-  its enclosing git repository, the boundary. Shell commands are not sandboxed
-  in any harness, including DStudio's own.
-- **Streaming.** Text, reasoning and tool calls stream as they are generated:
-  a file being written appears in the transcript and in Open IDE while the
-  model writes it, in every harness and on every engine. The executed call is
-  still the validated complete one.
-- **Offline and private.** pi runs with `--offline` and no telemetry; OpenCode
-  runs with its model-catalog fetch, auto-update, sharing, LSP downloads and
-  external skills disabled, in a private config directory.
-- **Limits.** pi and OpenCode replace Agent mode only; Cowork and Design keep
-  DStudio's tools. Mid-turn steering is not forwarded to them, their sessions
-  live in memory while the Agent runs (DStudio still saves the transcript), and
-  very long sessions can exceed the model RPC's 32,768-token request validation.
-
-Results, process ownership, patches and the full list of what was not run:
-[docs/HARNESSES.md](docs/HARNESSES.md).
-
-## What DStudio can do
-
-- Run **DeepSeek V4/V4.1, GLM 5.3 Flash, Laguna S 2.1 and Qwen** locally through one native interface and model picker; DStudio selects ds4, llama.cpp or MLX for you.
-- Use a **private AI chat** with reasoning display, prefix-cache reuse, citations from optional Web Search and local history.
-- Use **Learn** to build an interactive learning path from a goal, PDFs and links, and open a dedicated **Tutor** for any block.
-- Run **Web Search or Deep Research** through DStudio's local browser helper, with read-page evidence and source cards.
-- **Check PDF sources**: open the cited page with the quoted words highlighted and recheck simple calculations.
-- Send image pixels directly to **DeepSeek V4 Flash Vision-Exp**, **GLM 5.3 native vision** or **Qwen3.8-27B**; generate images with **Ideogram 4 FP8**, edit them with **HunyuanImage 3 NF4**, and create video with the optional **MiniMax H3** pipeline.
-- Use a **local coding agent** that reads, edits and verifies files in a folder you choose, with an **Open IDE** view, **Open Blueprint** code maps and automatic Task Graph checks; or run **pi** or **OpenCode** as the agent loop.
-- Use **Cowork** for source-grounded spreadsheet, PDF, document and presentation work with native Office tools and no arbitrary shell.
-- Toggle **Plan** for a Markdown execution plan, keep working towards a saved **/goal**, and add context while a turn runs.
-- Create **Skills**: private instruction packs for Agent, Cowork and Design.
-- Run **Guided Security Analysis (GSA)** for authorized reviews or **Reverse Structure Analysis (RSA)** for public websites.
-- Generate and refine complete interfaces in **Design**, with 25 offline design systems, measured layout checks and export.
-- Use an optional **DeepSeek API** or remote endpoint for inference while all tools keep running locally, and reach the UI from another device on your LAN.
-
 ## Modes
 
 A sidebar switches between Chat, Agent, Cowork, Design and Learn. Plan, GSA and
@@ -497,12 +287,6 @@ history. Restorable on-disk engine sessions depend on the engine: ds4 models
 have them, the llama.cpp and MLX Qwen models do not yet.
 
 ### Chat
-
-<div align="center">
-
-<img src="assets/demo.gif" width="820" alt="DStudio Chat demo showing local DeepSeek V4 chat, file generation and canvas preview">
-
-</div>
 
 Streaming chat backed by the selected local model: context lives in the
 engine's cache (prefix reuse is shown as *cached* tokens) and every message is
@@ -1016,6 +800,291 @@ be restored. [Implementation and local API](extension/task-graph/README.md).
 | Interruption | Continue manually | Pause, resume and recover from the saved journal |
 | Undo | Depends on what the agent changed | Exact writes get checkpoints; uncertain effects are reported |
 
+## Supported models and limitations
+
+Under the interface DStudio owns three inference engines and picks the right
+one for the model you choose:
+
+- **[ds4](https://github.com/antirez/ds4)**, antirez's native engine, for
+  DeepSeek V4/V4.1, GLM 5.3 Flash, Laguna S 2.1 and Qwen3.8-Flash-Next;
+- **[llama.cpp](https://github.com/ggml-org/llama.cpp)** for Qwen3.6-35B-A3B
+  and Qwen3.8-27B;
+- **[MLX](https://github.com/ml-explore/mlx)** for Qwen3.6-35B-A3B on Apple
+  Silicon.
+
+Their sources ship inside this repository and are built or installed offline;
+setup never clones an engine. Agent mode can use DStudio's own agent or the
+third-party **pi** and **OpenCode** harnesses, with any of those engines.
+
+**Listed here means integrated, not equally tested.** “All four modes” means
+Chat, Agent, Cowork and Design. You pick a model; DStudio picks its engine.
+There is no engine or branch selector.
+
+| Model | Engine | Modes | Size and important limits |
+| --- | --- | --- | --- |
+| DeepSeek V4 Flash | ds4 main | All four | ~87 GB. Standard checkpoints are text-only. |
+| DeepSeek V4 Flash Vision-Exp | ds4 main | All four, with images | Experimental; needs its matching vision encoder. |
+| DeepSeek V4 Pro | ds4 main | All four (integrated) | About 430 GB; not validated on the reference 96 GB Mac. |
+| DeepSeek V4.1 Flash | ds4 main | Experimental; qualification in progress | macOS Metal, full power. Q2 is 365.7 GB on SSD including disk-backed Engram tables; no DSpark or non-Metal qualification. |
+| GLM 5.3 Flash | ds4 main | All four; images with its encoder | ~96.5 GB Q2. Full-model QA of the M2 optimization remains open. |
+| Laguna S 2.1 | ds4 `laguna-s2.1` | All four, text only | Experimental, macOS Metal; needs resident weights (no forced SSD streaming). |
+| Qwen3.8-Flash-Next | ds4 main | Experimental Chat, Agent, Cowork | Single-file Q2 (147.2 GB) or Q4 (177.3 GB); old base + PLE files are incompatible. Design and vision unqualified. |
+| Qwen3.6-35B-A3B | llama.cpp | All four, text only | 31.8 GB Q6_K_XL. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). The other 23 published GGUF quantizations (10.0–69.4 GB) are downloadable but [not individually verified](#every-qwen36-and-qwen38-27b-quantization). |
+| Qwen3.6-35B-A3B (MLX) | MLX | All four, text only | 36.7 GB MXFP8 folder; Apple Silicon with macOS 26. Real workflows and a Design page pass. Sessions restore from their transcript (no KV snapshot). 4/5/6/8-bit, BF16, MXFP4 and NVFP4 folders are downloadable but not individually verified. |
+| Qwen3.8-27B | llama.cpp | All four; images in Chat, Agent and Cowork | 25.3 GB Q6_K_XL + 0.93 GB projector. Real workflows pass; Design is slow (37 min on an M2 Max with thinking on). Learn and PDF workflows unqualified. The other 24 published GGUF quantizations (7.1–55.6 GB with the projector) are downloadable but not individually verified. |
+| Qwen3.8-27B (MLX) | MLX | All four, text only (images refused) | New engine combination: 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 folders (15.2–54.7 GB); Apple Silicon with macOS 26. Not yet run on real weights. |
+
+Separate media workers provide **Ideogram 4** image generation,
+**HunyuanImage 3** image editing and **MiniMax H3** video; they are not chat
+models. A remote OpenAI-compatible or DeepSeek API endpoint can replace local
+inference while every tool keeps running locally.
+
+**Memory modes.** ds4 launches default to expert **SSD streaming Off**; Metal
+keeps the whole model resident when it fits and otherwise uses the engine's lazy
+memory-mapped path. DStudio never lowers your context to force residency. **On**
+remains an explicit option for compatible models. llama.cpp and MLX keep all
+weights in memory and have no expert streaming; Qwen3.8-Flash-Next keeps its
+backbone in RAM and reads its BF16 n-grams from SSD. Image, editing and video
+workers are one-shot: DStudio evacuates the chat model before loading one and
+restores it afterwards.
+
+### Qwen3.6 and Qwen3.8-27B on llama.cpp
+
+Both checkpoints run on **llama.cpp** `b11836` (`f5027fb`), shipped in
+[`src/engines/llama.cpp`](src/engines/llama.cpp/). DStudio builds `llama-server`
+from those sources the first time you start one of them, without the network,
+and reuses the build afterwards. The weights live in the shared `ds4/gguf/`
+folder.
+
+DStudio starts the server, checks that it really loaded the model you chose
+(path, context, build and image projector) before marking it ready, and stops
+it when you switch models, press Stop or quit. If DStudio crashes, a small
+guard process stops the server too, so tens of GB are not left in memory.
+Chat, Agent, Cowork and Design share the loaded model: switching between them
+does not reload it.
+
+- **Thinking** is one switch, on or off; there is no separate Max level.
+  Agent and Cowork use Qwen's published sampling (thinking on: temperature 0.6,
+  top_p 0.95; off: 0.7, 0.8).
+- **Design** receives its tools as structured function calls; Qwen did not
+  follow Design's DSML text protocol reliably.
+- **Not available:** power throttling, expert SSD streaming, DSpark, prompt
+  lookup, and KV disk checkpoints (the tools reach the model through DStudio's
+  model RPC and hold no engine session to save). Agent, Cowork and Design save
+  their transcript after every turn and restore it after a restart; the server
+  then reads the conversation again. Chat history is saved and the running
+  server reuses its live prompt cache.
+- **The 27B** needs its matching F16 projector; DStudio downloads and checks
+  both files and admits images in Chat, Agent and Cowork.
+
+On October 3, 2026, on llama.cpp `b11371`, a real run through the production
+host passed **6/6 on each model**: an Agent turn computes a generated CSV total with real tool calls and
+writes it, recalls a fact from a workspace file, Cowork writes a document,
+Design saves a page with the exact requested heading, Chat answers with thinking
+on and off, and a killed DStudio leaves no server behind. Retained failures
+include a thinking-off arithmetic error (Qwen3.6) and the 27B Design run that
+hit the test's former one-hour bound before finishing.
+After the move to `b11836` on October 23, Qwen3.6 passed the same six checks
+again; Qwen3.8-27B has not been rerun on `b11836` yet.
+
+### Qwen3.6 on MLX (Apple Silicon)
+
+On Apple Silicon with macOS 26, Qwen3.6-35B-A3B can also run on **MLX**,
+Apple's machine-learning framework, from the MXFP8 folder
+`mlx-community/Qwen3.6-35B-A3B-mxfp8`. MLX ships as verified PyPI wheels
+(mlx 0.32.4, mlx-lm 0.32.2) in [`src/engines/mlx`](src/engines/mlx/): nothing is
+compiled or fetched. The first start installs them offline into a private
+Python environment (Python 3.12–3.14 must be installed, for example from
+Homebrew); a later Python upgrade that removes the old version triggers a
+reinstall instead of a broken launch.
+
+Download the weights from **Settings → Models** (*Qwen3.6-35B-A3B · MLX
+MXFP8*, 36.7 GB) or with `./download-model.sh qwen36-mlx`; each of the 20 files
+is checked against its pinned SHA-256 and transfers resume after Stop. If you
+already have this folder, link it as `ds4/mlx/Qwen3.6-35B-A3B-mxfp8`; DStudio
+checks it and never copies or moves it.
+
+It behaves like the llama.cpp models: one server owned by DStudio, shared by all
+four modes, ready only when it reports exactly the folder you chose, stopped on
+Stop, model switch, quit or crash. Two small versioned patches make the MLX
+server serve only that model and report its reasoning in the field DStudio
+reads ([patch notes](patch/README.md)). MLX has no expert streaming and no disk
+KV cache. It is not available on Intel Macs, older macOS, Linux or Windows; use
+the GGUF there.
+
+The October 3 real run passed **6/6**. Three earlier failed runs are kept with
+their fixes (a folder not recognized as a model, an HTTP/1.0 readiness reply,
+and a 512-token default reply limit plus a renamed reasoning field) in
+[tests/README.md](tests/README.md#qwen36-on-mlx-apple-silicon).
+
+### Every Qwen3.6 and Qwen3.8-27B quantization
+
+Besides the defaults above, every standard quantization the publishers released
+can be downloaded from **Settings → Models** or with `./download-model.sh`:
+all 24 unsloth GGUFs of Qwen3.6-35B-A3B and all 25 of Qwen3.8-27B on llama.cpp
+(UD-IQ1 … UD-Q8_K_XL, Q4_0/Q4_1/Q8_0, MXFP4_MOE for 3.6, and BF16), and the
+standard mlx-community MLX folders: 4-bit, 5-bit, 6-bit, 8-bit, BF16, MXFP4,
+MXFP8 and NVFP4 for Qwen3.6, and 4-bit, 8-bit, BF16, MXFP4, MXFP8 and NVFP4 for
+Qwen3.8-27B. Modified repositories (abliterated, uncensored, fine-tunes,
+pruned/REAP, MTP or other draft builds, DWQ, OptiQ and similar) are not offered.
+
+- **Pinned like the defaults.** One catalog,
+  [`scripts/qwen-variants.json`](scripts/qwen-variants.json), records each
+  variant's repository revision and every file's size and SHA-256 (63 variants,
+  about 1.4 TB in total). It ships with DStudio and is never fetched; a
+  maintainer regenerates it with `scripts/update-qwen-variants.py`, which reads
+  only Hugging Face metadata at explicit revisions. Each file is resumable and
+  verified before it is published; nothing existing is overwritten.
+- **What each variant needs.** Every 27B GGUF downloads with the same pinned F16
+  projector, which images on llama.cpp require. The split BF16 GGUFs are two
+  files in `ds4/gguf/`; only the first appears in the model picker, and both
+  must be present. MLX folders live in `ds4/mlx/` and are Apple Silicon only.
+- **27B on MLX is text only.** MLX loads its language model without the vision
+  tower; DStudio refuses image attachments with that model rather than dropping
+  them.
+- **Verification.** Q6_K_XL (both models) and MXFP8 (Qwen3.6 on MLX) remain the
+  qualified selections. The other variants share the engine, tokenizer, chat
+  template and tool format of a checked variant but use other quantization
+  kernels (and the split BF16 another loading path and about 69 GB of memory):
+  they are downloadable but not individually verified. Five representative
+  real-weight checks are planned (UD-Q4_K_M, UD-IQ4_XS and MXFP4_MOE GGUFs of
+  Qwen3.6, Qwen3.6 MLX NVFP4 and Qwen3.8-27B MLX 4-bit); they have **not run**
+  yet; see [the remaining work](docs/WORK_IN_PROGRESS.md).
+
+The existing ids (`qwen36-q6`, `qwen27-q6`, `qwen36-mlx`), file names and
+partial downloads are unchanged.
+
+### Qwen3.8-Flash-Next on ds4 main
+
+Flash Next shares ds4 main (pinned at
+[`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac));
+there is no separate engine to install. Download the single-file **Q2
+(147.2 GB)** or **Q4 (177.3 GB)**: each includes the original BF16 n-grams read
+from SSD, with the backbone resident in Metal memory. The older base + PLE
+files are not supported, recognized or converted. It exposes
+experimental Chat, Agent and Cowork with its native tool format; Design and
+vision remain unavailable. The Q4 baseline answered 75/100 corpus questions and
+8/8 long-context cases; wrong answers stay in the denominator. See the
+[migration report](docs/QWEN_NEXT_MAIN_MIGRATION.md) and the
+[Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
+
+### DeepSeek Vision-Exp, GLM 5.3 and Laguna
+
+- **DeepSeek V4 Flash Vision-Exp** is a separate language checkpoint, not an
+  encoder for the older 0731 GGUF. Choose *Vision-Exp · IQ2_XXS* (~86.7 GB plus
+  its 0.93 GB encoder), mixed Q2/Q4 (~97.6 GB) or MXFP4 (~156 GB). DStudio
+  passes `--vision` automatically; Chat sends image blocks directly, Agent and
+  Cowork use ds4's `view_image`, Design inspects pixels natively. Its own DSpark
+  support file is `ds4f-vision-dspark`; if model, DSpark and context exceed the
+  estimated Metal budget, DStudio explains the risk and asks before launch.
+- **GLM 5.3 Flash** runs on ds4 main with the same binaries and model store.
+  The optional native encoder (`glm53-vision`, ~1.13 GB) enables images in all
+  modes. `--power` is dropped (unsupported by GLM). With SSD streaming on,
+  DStudio uses the full-layer prefill path and a 32 GB expert cache; the macOS
+  build includes the [M2 Max decode patch](patch/ds4-glm53-m2max/README.md),
+  whose full-model QA is still open.
+- **Laguna S 2.1** runs on ds4's pinned `laguna-s2.1` branch in
+  `./ds4-laguna-s21`, sharing `./ds4/gguf`. The ~68 GB Q4_K_M download has
+  Stop/Resume and **Delete partial**. It is macOS Metal-only, text-only and
+  needs full residency; image drops are rejected rather than routed elsewhere.
+
+### Downloading models
+
+Every download is real, large and resumable, and every model lands in the
+shared `./ds4/gguf/` store (the MLX folder in `./ds4/mlx/`). Settings → Models
+shows engine preparation, transfer and verification separately; Stop keeps
+partial data for Resume, and a download never changes your selected model.
+From the project root:
+
+```sh
+./download-model.sh --help
+./download-model.sh ds4f-q2        # DeepSeek V4 Flash
+./download-model.sh ds4f-vision-q2 # DeepSeek V4 Flash Vision-Exp + encoder
+./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash 1017 Q2 (needs hf with Xet)
+./download-model.sh ds41f-1017-vision # its 1017 vision encoder
+./download-model.sh glm53-q2       # GLM 5.3 Flash (glm53-vision for its encoder)
+./download-model.sh laguna-q4      # Laguna S 2.1
+./download-model.sh qwen38-q2      # Qwen3.8-Flash-Next Q2 (qwen38-q4k for Q4)
+./download-model.sh qwen36-q6      # Qwen3.6 Q6_K_XL, 31.8 GB, llama.cpp
+./download-model.sh qwen27-q6      # Qwen3.8-27B + projector, 26.2 GB, llama.cpp
+./download-model.sh qwen36-mlx     # Qwen3.6 MXFP8 folder, 36.7 GB, MLX
+./download-model.sh qwen36-q4_k_m  # any other pinned Qwen quantization, e.g. UD-Q4_K_M
+./download-model.sh qwen27-mlx-4bit # Qwen3.8-27B 4-bit MLX folder (text only)
+./download-model.sh --list-qwen    # every pinned Qwen variant, engine and size
+```
+
+DeepSeek V4, GLM and Laguna show a visible `<model>.gguf.part` while a transfer
+is incomplete. The pinned Qwen downloads verify size and SHA-256 per file before
+the model becomes selectable. Hugging Face/Xet transfers (Qwen3.8, V4.1) keep
+partial data in the Hugging Face cache until they are verified in full.
+
+### Linux and Windows (prepared, not tested)
+
+On Linux and Windows DStudio builds llama.cpp the way Ollama does: one server
+plus a loadable module per backend. Every CPU variant is built and llama.cpp
+picks the best one for the processor; CUDA, ROCm and Vulkan modules are added
+when their toolkit is installed (`DSTUDIO_LLAMA_BACKENDS` can request or limit
+them). Layers go to the GPU memory that is actually free, the rest to the CPU;
+your context setting is never lowered. On Windows the server runs inside a Job
+Object, so it stops with DStudio. This code is cross-compiled for Linux and
+Windows, and the same dynamic build layout was built and run for real on macOS
+with a correct Qwen3.6 answer, but it has **not** been run on Linux, Windows,
+CUDA, ROCm or Vulkan. ds4 itself must be built for your platform; MLX and the
+pi/OpenCode harnesses are not available on Windows.
+
+## Harnesses: every engine with every agent loop
+
+A *harness* is the agent loop around a model: it decides which tool to call,
+runs it and feeds the result back. DStudio's own harnesses (Agent, Cowork,
+Design, GSA and RSA) live in [`src/harness/`](src/harness/), next to pinned
+source snapshots of **pi**, **OpenCode** and **pi-ds4**.
+
+Choose **Settings → Harnesses → Agent harness**: *DStudio*, *pi* or *OpenCode*.
+The next Agent launch keeps the same model, engine, context and workspace; only
+the loop changes. The transcript, diff cards, Stop, Task Graph receipts and the
+saved conversation work as before. pi comes in two forms, chosen from the
+model: **pi-ds4** when ds4 serves it (DeepSeek, GLM, Qwen Next, Laguna) and
+plain **pi** with llama.cpp, MLX or a remote endpoint.
+
+| Harness | DeepSeek and other ds4 models | Qwen3.6 / 27B (llama.cpp) | Qwen3.6 (MLX) | Remote endpoint |
+| --- | --- | --- | --- | --- |
+| DStudio Agent, Cowork, Design | yes | yes | yes | yes |
+| pi | yes, through pi-ds4 | yes | yes | yes (not run live) |
+| OpenCode | yes | yes | yes | yes (not run live) |
+
+- **Install.** Settings → Harnesses → **Install** (or
+  `python3 scripts/install-harness.py --root <install root> --harness pi|opencode`).
+  The sources ship with DStudio; their JavaScript dependencies do not. This one
+  explicit step downloads them, pinned by each project's lockfile (Node and npm
+  required; OpenCode also uses a private Bun 1.3.14), applies DStudio's
+  versioned patches and builds in a private folder. About 3 minutes for pi and
+  6 for OpenCode on an M2 Max. Launching afterwards is offline.
+- **How it connects.** A small bridge speaks DStudio's runtime protocol and
+  gives the harness one loopback model endpoint protected by a per-process
+  token. Behind it: the host's model RPC for llama.cpp, MLX and remote models
+  (the harness never sees an API key), or a `ds4-server` the bridge starts for
+  ds4 models. The endpoint applies DStudio's model identity, sampling and
+  thinking choice.
+- **Confinement.** pi always loads a guard that blocks file tools outside the
+  workspace (real paths, so a symlink cannot escape); OpenCode runs with
+  external directories denied and a patch that makes the workspace itself, not
+  its enclosing git repository, the boundary. Shell commands are not sandboxed
+  in any harness, including DStudio's own.
+- **Streaming.** Text, reasoning and tool calls stream as they are generated:
+  a file being written appears in the transcript and in Open IDE while the
+  model writes it, in every harness and on every engine. The executed call is
+  still the validated complete one.
+- **Offline and private.** pi runs with `--offline` and no telemetry; OpenCode
+  runs with its model-catalog fetch, auto-update, sharing, LSP downloads and
+  external skills disabled, in a private config directory.
+- **Limits.** pi and OpenCode replace Agent mode only; Cowork and Design keep
+  DStudio's tools. Mid-turn steering is not forwarded to them, their sessions
+  live in memory while the Agent runs (DStudio still saves the transcript), and
+  very long sessions can exceed the model RPC's 32,768-token request validation.
+
+Results, process ownership, patches and the full list of what was not run:
+[docs/HARNESSES.md](docs/HARNESSES.md).
+
 ## Latest measured results
 
 These are separate experiments, not one product score. All charts use
@@ -1437,9 +1506,16 @@ Ideas, not promises:
 ## Contributing
 
 DStudio is early, hardware-hungry and built for the local-AI crowd. The most
-useful contributions are setup and hardware reports (especially Linux, Windows,
-CUDA, ROCm and Vulkan, which are prepared but untested), reproducible agent
-failures, design-output examples and small PRs that reduce first-run friction.
+useful contributions:
+
+- **Hardware reports.** [Open an issue](https://github.com/sk8erboi17/DStudio/issues)
+  with your machine and memory, the model and quantization, the mode and what
+  happened. Failures are as useful as passes, especially on Linux, Windows,
+  CUDA, ROCm and Vulkan (prepared but not yet run), and from any Apple Silicon
+  Mac that can qualify GLM 5.3 and DeepSeek V4.1 ([how to help](PLAN.MD#contributors)).
+- **Reproducible agent failures** and Design output examples.
+- **Small PRs** that reduce first-run friction.
+
 Read [AGENTS.md](AGENTS.md) for the contribution rules. If you want open-source
 local AI tools outside cloud subscriptions, a ⭐ helps the project reach the
 right testers.
