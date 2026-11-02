@@ -16,9 +16,9 @@
 
 </div>
 
-> **Status: work in progress, tested on one Apple M2 Max (96 GB).** The latest
-> release, 1.1.0, predates most of this page: [build from source](#build-from-source)
-> to use it. [What works today and what does not](#current-status-october-3-2026).
+> **Status: work in progress, tested on one Apple M2 Max (96 GB).** There is no
+> downloadable build: [build from source](#build-from-source) to use it.
+> [What works today and what does not](#current-status-october-3-2026).
 
 DStudio is one desktop application for local AI. It runs large open-weight
 models on your own machine behind a single interface: private **Chat**,
@@ -132,12 +132,10 @@ are experimental or not validated on the test Mac. Details and limits:
 
 ## Current status (October 3, 2026)
 
-**This is an in-progress source tree, not a qualified release.** The latest
-downloadable release, [DStudio 1.1.0](https://github.com/sk8erboi17/DStudio/releases)
-(September 1, 2026), predates everything in this section. To use it today,
-[build from source](#build-from-source).
+**This is an in-progress source tree, not a qualified release.** There is no
+downloadable build; to use it today, [build from source](#build-from-source).
 
-**What changed since that release**
+**Recent changes**
 
 - **Breaking for existing source installs (October 27).** Older installations
   are not upgraded: reinstall the bundled engines and restart unfinished Qwen
@@ -219,32 +217,13 @@ These are focused development checks, not a quality score or a ranking.
 
 ## Install
 
-On macOS DStudio ships as **DStudio.app** (double-click, no Terminal); on
-Windows as a portable folder. The UI is a single vanilla `index.html`
-embedded in a small C launcher: no Electron, no framework build, no CDN and no
-telemetry. Network access is explicit: model and harness-dependency downloads,
-Web Search/Research and the optional DeepSeek API backend are the documented
-outbound paths, used only when you request or configure them.
-
-### macOS release
-
-Download the Apple Silicon zip from [GitHub Releases](https://github.com/sk8erboi17/DStudio/releases), extract it and move **DStudio.app** to Applications. The app is ad-hoc signed but not Apple-notarized (notarization requires a paid Apple Developer account), so Gatekeeper may warn that Apple cannot verify it. To open it the first time:
-
-1. **Right-click** DStudio.app → **Open** → **Open** in the confirmation dialog, or
-2. [**System Settings → Privacy & Security → Open Anyway**](https://support.apple.com/guide/mac-help/mh40616/mac), or
-3. from Terminal: `xattr -cr /Applications/DStudio.app` (clears the download quarantine).
-
-**Easiest install** — downloads the release, verifies its SHA-256, removes the
-download quarantine and installs to `~/Applications`:
-
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/sk8erboi17/DStudio/main/scripts/install-macos.sh)
-```
-
-Or open the DMG from the release and drag **DStudio.app** into Applications.
-
-> The current release (1.1.0) does not include the llama.cpp, MLX and harness
-> changes described above. Build from source for those.
+DStudio is installed from source; there is no downloadable build. On macOS the
+build produces **DStudio.app** (double-click to open); on Windows a portable
+folder. The UI is a single vanilla `index.html` embedded in a small C launcher:
+no Electron, no framework build, no CDN and no telemetry. Network access is
+explicit: model and harness-dependency downloads, Web Search/Research and the
+optional DeepSeek API backend are the documented outbound paths, used only when
+you request or configure them.
 
 ### Build from source
 
@@ -1294,7 +1273,7 @@ Engine pins: ds4 main `0aaea5a`, Laguna `448d569`, llama.cpp `b11836`
 
 ### Windows notes
 
-For normal use, extract the portable zip and run `DStudio.exe`. Keep
+For normal use, run `DStudio.exe` from the folder `make windows` produces. Keep
 `DStudio.exe`, `ds4-server.exe`, `ds4-agent-jsonl.exe`, `ds4-cowork.exe`,
 `ds4-agent-jsonl.ver`, `ds4-design.exe` and the packaged `src/harness/cowork`
 helper together. Cowork also needs a reachable Python 3.
@@ -1313,7 +1292,7 @@ not been rerun.
 make run        # build + start on http://127.0.0.1:5500
 make check-fast # deterministic unit, HTTP, UI and fixture checks; no model
 make check      # check-fast plus explicitly configured real-model suites
-make dist-macos VERSION=1.1.0  # bundle smoke + upstream admission + release zip/checksum
+make dist-macos VERSION=x.y.z  # bundle smoke + upstream admission + release zip/checksum
 ```
 
 `make run PORT=8080 DS4_DIR=/path/to/ds4` or `./dstudio [web_port] [ds4_dir]`
