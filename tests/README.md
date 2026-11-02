@@ -2136,6 +2136,11 @@ Focused regressions exercise URL-heavy page excerpts, overlapping windows,
 Unicode offsets, preserved original language/length constraints, evidence-ID
 selection and cancellation during synthesis. They run production functions
 with synthetic source/model data, not real-model quality measurements.
+`research_synthesis_runtime_test.mjs` streams long initial drafts and reviewed
+repairs without an application output-token cap, retaining complete rejected
+attempts and delivering the exact reviewed text. The research-progress browser
+test checks that actual writer requests omit `max_tokens` in WebKit and Chromium.
+Engine output limits, the 65,536 UTF-16 code-unit draft bound and Stop remain enforced.
 `research_answer_review_test.mjs` exercises omitted counter-evidence, bounded
 writer/reviewer corrections, actual word counts (including exclusive bounds),
 malformed/unknown review IDs, transport failure and cancellation. Additional

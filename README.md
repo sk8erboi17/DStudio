@@ -753,8 +753,9 @@ for Deep Research, including learning-path research. Each mode accepts 1–512
 page reads and 1–4096 candidates; changes apply to new runs. These are ceilings,
 not targets: sufficient evidence can end discovery earlier. Query/action budgets
 also remain bounded: Search admits up to 6 queries; Deep Research up to 18 queries
-and 12 follow-up actions. Source selection has no application output-token cap;
-the engine's context and output limits still apply.
+and 12 follow-up actions. Source selection and report writing, including reviewed
+revisions, omit application output-token caps. The engine's context/output limits
+and retained-draft size bounds still apply.
 There is no application elapsed-time cutoff on discovery, writing or review: a
 slow valid local-model request continues until it completes, fails or you press
 Stop. [Measured scope and limits](extension/search/bench/README.md).

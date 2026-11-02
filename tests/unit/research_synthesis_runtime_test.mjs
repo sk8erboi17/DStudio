@@ -89,6 +89,36 @@ await check('slow synthesis and review survive both the old four-minute and fift
     assert.equal(state.facts, facts, 'Synthesis does not replace the source-evidence owner');
   } finally { writerFinish.resolve(); reviewFinish.resolve(); await pending; }
 });
+await check('long streamed drafts and repairs omit the application output-token cap', async () => {
+  const longAnswer = first.repeat(400) + answer.slice(first.length);
+  const rejectedDraft = longAnswer + '\n\nLa controversia è contestata [F2].';
+  const writerRequests = [];
+  let reviews = 0;
+  const { tools } = harness({
+    async *streamChat(payload) {
+      writerRequests.push(payload);
+      const text = writerRequests.length === 1 ? rejectedDraft : longAnswer;
+      for (let offset = 0; offset < text.length; offset += 1000)
+        yield { type: 'content', text: text.slice(offset, offset + 1000) };
+      yield { type: 'finish', reason: 'stop' };
+    },
+    async completeText() {
+      return reviews++ ? clean : JSON.stringify({ claimsSupported: true,
+        requestedPartsCovered: true, conflictsHandled: true, instructionsFollowed: false,
+        issues: [{ detail: 'Remove the duplicated final sentence.', factIds: ['F2'] }] });
+    },
+  });
+  const result = await tools.synthesizeResearchReport(query, state, {});
+  assert.equal(writerRequests.length, 2, 'Exercise both the initial synthesis and a reviewed repair');
+  for (const request of writerRequests)
+    assert.equal(request.maxTokens, 0, 'Both writer requests must omit the application token cap');
+  assert.equal(result.attempts[0].report, rejectedDraft, 'Keep the complete rejected draft');
+  assert.equal(result.report, longAnswer, 'Preserve every streamed byte of the long repaired answer');
+  assert.equal(result.quality.ok, true); assert.equal(result.fallback, false);
+  const delivered = tools.researchReportForDelivery({ mode: 'research', report: result.report,
+    reportQuality: result.quality }, query);
+  assert.equal(delivered.complete, true); assert.equal(delivered.content, longAnswer);
+});
 await check('news evidence mentioning a model cannot select technical report sections', async () => {
   const { tools } = harness({});
   assert.equal(tools.researchReportWantsTechnical(query, facts, sources), false);

@@ -2008,7 +2008,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             report = (await completeWebPipelineText({
               model: settings.model,
               messages: [...messages, ...repair],
-              temperature: 0, maxTokens: 2200, thinkLevel: 'off',
+              // Let initial drafts and reviewed repairs finish within the
+              // engine budget; Stop and retained-draft size bounds still apply.
+              temperature: 0, maxTokens: 0, thinkLevel: 'off',
             }, Infinity, 'Deep Research report synthesis', settings.webSignal, {
               onProgress: chars => onProgress?.(`Writing the answer from source evidence · ${chars.toLocaleString()} characters received.`),
             })).trim();
