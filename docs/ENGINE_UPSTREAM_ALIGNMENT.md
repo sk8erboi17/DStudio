@@ -20,14 +20,15 @@ scope; no new release receipt was created by the documentation cleanup.
 
 ## Recorded sources
 
-Main's pin was updated to upstream's September 20 revision and rechecked as
-main's tip on September 29, 2026; the other recorded tips retain their
+Main's pin was updated to upstream's November 2 revision `890898c` on
+November 3, 2026 (before that, `0aaea5a`, rechecked as main's tip on
+September 29, 2026); the other recorded tips retain their
 September 12 review. `recordedTip` means observed, not qualified.
 The command rechecks each relevant branch over the network.
 
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
-| ds4 main, including Qwen3.8 Next | [`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. New single-file Q4 has a complete 75/100 corpus receipt, including 8/8 long cases; Q2 and complete numerical/mode/desktop qualification remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
+| ds4 main, including Qwen3.8 Next | [`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. The results below were recorded on `0aaea5a` and do not transfer to `890898c`. New single-file Q4 has a complete 75/100 corpus receipt, including 8/8 long cases; Q2 and complete numerical/mode/desktop qualification remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
 | Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits at the last recorded review; applicable main changes and complete macOS mode coverage remain open. Other backends are outside this campaign. |
 | llama.cpp, Qwen3.6-35B-A3B and Qwen3.8-27B | [`f5027fb`](https://github.com/ggml-org/llama.cpp/commit/f5027fb21307eb264aed483242603d68c87b0fe3) (`b11836`, since October 23; `b11371` before) | Bundled unmodified in `src/engines/llama.cpp`; built offline with CMake on first use. Chat, Agent and Cowork passed the live gate on both models on `b11371` (Metal); on `b11836` only Qwen3.6 has been rerun (6/6); Design runs with structured tool calls (real page on Qwen3.6). No DStudio patch is applied. Full-model quality, long context and other backends remain open. |
 

@@ -9,27 +9,27 @@
     {
       "name": "main-latest",
       "repository": "https://github.com/antirez/ds4",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
-      "sourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
-      "rawSourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "sourceSHA256": "48900a900db51b0060af0767f7b7dd38c9049b4ad94bc83297b6b0dfffdceab2",
+      "rawSourceSHA256": "48900a900db51b0060af0767f7b7dd38c9049b4ad94bc83297b6b0dfffdceab2",
       "prerequisites": [],
       "patch": "main-latest.patch",
-      "patchSHA256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868",
-      "derivedSHA256": "cc22b83e3b63ac442f42b3ca40c4005c8edacd33067e336fe25afd8b7b6cd98d",
+      "patchSHA256": "ae91de5a62db39f91938315198c83e179ccea440d4901314f077b6e8fe1ee054",
+      "derivedSHA256": "dbd3f3c62d2d97b9aa88fc00fbc2e113f1e087cb249a586f2701cf5e8cdddf6a",
       "oracle": "Latest unified main keeps upstream Qwen batched MTP/server scheduling intact; the DStudio PLD overlay is admitted only on its existing serial greedy path. This is patch/runtime behavior evidence, not a model-quality or throughput claim."
     },
     {
       "name": "main-latest-metrics",
       "repository": "https://github.com/antirez/ds4",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
-      "sourceSHA256": "e00b610fbf24640b5ec27928d00451375e555465fc62f6c02d420176ac6d288a",
-      "rawSourceSHA256": "9324cd8bd87b52abd8fe2848ba029a207e4e3371f43f07c8d04a26fcc8977071",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "sourceSHA256": "a558631aa628f84093c127709177464d803e7cbbfd20d15739e224fdd8c8d319",
+      "rawSourceSHA256": "48900a900db51b0060af0767f7b7dd38c9049b4ad94bc83297b6b0dfffdceab2",
       "prerequisites": [
         "patch/ds4-server-metrics/usage-metrics.patch"
       ],
       "patch": "main-latest.patch",
-      "patchSHA256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868",
-      "derivedSHA256": "c726184a8ea7b8c2071cecc97852c1a273a109c98ca7cc3075d9fee94fb25f66",
+      "patchSHA256": "ae91de5a62db39f91938315198c83e179ccea440d4901314f077b6e8fe1ee054",
+      "derivedSHA256": "4101da416d041157947712b2b1354e0567e35033032cc0b5c72774e91763f7dd",
       "oracle": "Latest unified main keeps upstream Qwen batched MTP/server scheduling intact; the DStudio PLD overlay is admitted only on its existing serial greedy path. This is patch/runtime behavior evidence, not a model-quality or throughput claim."
     }
   ]

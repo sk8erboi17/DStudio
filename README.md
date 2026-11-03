@@ -137,6 +137,11 @@ downloadable build; to use it today, [build from source](#build-from-source).
 
 **Recent changes**
 
+- **ds4 main moved to `890898c` (November 3).** The bundled main engine follows
+  upstream's November 2 revision; DStudio's patches were rebased and the native
+  runtimes rebuilt on it (no real-model runs yet). An installed `ds4/` at
+  `0aaea5a` must be reinstalled; move it aside rather than deleting it, because
+  its `gguf/` folder holds your models. [Steps](docs/BUNDLED_ENGINES.md#main-refresh-to-890898c-november-3-2026).
 - **Breaking for existing source installs (October 27).** Older installations
   are not upgraded: reinstall the bundled engines and restart unfinished Qwen
   downloads. [Details](#wip-checklist--october-27-2026).
@@ -936,7 +941,7 @@ partial downloads are unchanged.
 ### Qwen3.8-Flash-Next on ds4 main
 
 Flash Next shares ds4 main (pinned at
-[`0aaea5a`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac));
+[`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53));
 there is no separate engine to install. Download the single-file **Q2
 (147.2 GB)** or **Q4 (177.3 GB)**: each includes the original BF16 n-grams read
 from SSD, with the backbone resident in Metal memory. The older base + PLE
@@ -1266,7 +1271,7 @@ DStudio removes product friction, not physics: the local models are large.
   free for MiniMax H3 video (Apple Silicon only); Node and Playwright only for
   browser tests.
 
-Engine pins: ds4 main `0aaea5a`, Laguna `448d569`, llama.cpp `b11836`
+Engine pins: ds4 main `890898c`, Laguna `448d569`, llama.cpp `b11836`
 (`f5027fb`), mlx 0.32.4 / mlx-lm 0.32.2, with per-file provenance in
 [docs/BUNDLED_ENGINES.md](docs/BUNDLED_ENGINES.md). DeepSeek V4.1 status:
 [update checkpoint](docs/DS41_UPDATE_CHECKPOINT.md).

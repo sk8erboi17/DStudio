@@ -13,7 +13,7 @@ runtime checkouts, user changes, settings and model paths are preserved.
 
 | Engine | Source snapshot | Upstream revision |
 | --- | --- | --- |
-| Main: DeepSeek, GLM and current Qwen Next | [ds4](../src/engines/ds4/) | `0aaea5a238fb41a35106a551e73c8409dfb751ac` |
+| Main: DeepSeek, GLM and current Qwen Next | [ds4](../src/engines/ds4/) | `890898cfb437ed256be58ebcf7c58a6dfa8f2f53` (since November 3, 2026; `0aaea5a` before) |
 | Laguna S 2.1 | [ds4-laguna-s21](../src/engines/ds4-laguna-s21/) | `448d5695d1c86401a4e9447c440feb983b73e6de` |
 | Qwen3.6-35B-A3B and Qwen3.8-27B (llama-server) | [llama.cpp](../src/engines/llama.cpp/) | `f5027fb21307eb264aed483242603d68c87b0fe3` (tag `b11836`) |
 | Qwen3.6-35B-A3B MXFP8 on Apple Silicon (MLX server) | [mlx wheels](../src/engines/mlx/) | mlx 0.32.4 (`36969c0`), mlx-lm 0.32.2 (`93e6d4a`); [see below](#mlx-runtime-apple-silicon) |
@@ -27,7 +27,7 @@ llama.cpp; see [their retirement](#retired-qwen-side-engines).
 
 ## Source identity and installation
 
-The three distributed snapshots contain 4510 files (main 457, Laguna 194,
+The three distributed snapshots contain 4551 files (main 498, Laguna 194,
 llama.cpp 3859) matching their pinned archives byte for byte. Their upstream
 formatting is retained. The original five-snapshot import was independently repeated; its staged scan recorded
 2902 inherited findings across 35 unchanged upstream files; authored changes
@@ -189,6 +189,54 @@ materialized only their source snapshots with pins matching its native metadata.
 The retired source cannot be copied or installed, and its old HTTP installer
 remains unavailable. These checks do not rerun inference or the full quality
 suite.
+
+## Main refresh to `890898c` (November 3, 2026)
+
+Main moved from `0aaea5a` to upstream `890898c`, 160 commits that are mostly
+DeepSeek V4.1 Metal, CUDA and tensor-parallel work, plus Qwen PLE read
+prefetch, server fixes (blank reasoning, up to 256 images, advertised input
+modalities) and V4.1 MXFP4/1017 downloads. The snapshot was imported with
+`scripts/vendor-engine-sources.py` from a local `git archive` of that commit:
+498 files, 41 added and 84 changed, none removed; the omitted datasets are
+unchanged. Laguna and llama.cpp did not change.
+
+The DStudio adaptations were rebuilt as one commit each on `0aaea5a` and
+rebased onto `890898c` with Git's three-way merge. Visible downloads, server
+metrics, GLM runtime, the M2 build and hot-list hunks, vision streaming and V4.1
+vision pairing apply unchanged and give the same result as the rebase. The
+media-memory, M2 runtime, Qwen candidate-preparation and Chat PLD deltas were
+regenerated; their resolved conflicts are described in each patch's notes.
+`ds4_agent.c` and `ds4_web.c` are byte-identical, so the Agent/Cowork and
+browser overlays are unchanged. DStudio's PLD core follows a new upstream
+verifier argument. The DeepSeek V4.1 download pin moved to Hugging Face
+revision `9dcee516`, because upstream's `ds41f-q2` now names the 1017 file,
+which the former `dd8a266f` pin lacks.
+
+An installed `ds4/` at `0aaea5a` is not upgraded in place: its patches no
+longer match and are refused as drift, so the main engine must be reinstalled.
+**Do not delete the old `ds4/` folder:** the shared model store `ds4/gguf/` (and
+`ds4/mlx/`) lives inside it, and Laguna's `gguf` links to it. Quit DStudio,
+rename the folder (for example to `ds4-0aaea5a`), let setup install and build
+the bundled engine into a new `ds4/`, then move `gguf/` and `mlx/` back from the
+renamed folder (replacing the new, empty ones) before choosing a model. A rename
+on the same disk moves no model bytes. Remove the renamed folder only after the
+new engine works.
+
+The refresh was checked on an M2 Max without weights or inference: the source,
+pin and update tests; patch lifecycle, migration and round-trip tests on main
+and Laguna; real Metal builds of the patched engine and of the Agent, Cowork,
+Chat PLD and Design runtimes with simulated model responses
+(`make test-agent-native-build`, 39/39 stages); upstream's own `make` and all
+50 of its macOS test binaries, which compile identically with and without the
+patches (six fail in both because their upstream rules lack `-I.`); the M2
+stream-index Metal fixture; and the offline empty-profile first launch through
+the signed app (`make test-first-launch-e2e`, 8/8, after fixing three harness
+defects: the port sentinel crashed on a client reset, the System check dialog
+could open over a setup button after the test's one-time check, and a failed
+click left an unhandled promise that skipped process cleanup). The four earlier
+failed attempts are kept in `tests/.artifacts/`. Real-model inference was
+not run; CUDA and other platforms were not built. Earlier real-model results on
+`0aaea5a` do not transfer to `890898c`.
 
 ## Retired Qwen side engines
 

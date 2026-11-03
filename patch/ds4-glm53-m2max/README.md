@@ -47,7 +47,7 @@ No commit, checkout, fetch or pull was performed during that original port.
 Unrelated ongoing Cowork/PDF/UI/PLD changes were preserved, not incorporated as
 new GLM optimizations.
 
-Current main support is `0aaea5a238fb41a35106a551e73c8409dfb751ac`, using
+Current main support is `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`, using
 [`native-decode-main-qwen.patch`](native-decode-main-qwen.patch),
 `build-main-current.patch` and
 [`hotlist-main-layout.patch`](hotlist-main-layout.patch).
@@ -56,6 +56,13 @@ Lossless uint16 expert IDs keep the cold hotlist scratch at 248,064 bytes under
 its unchanged 256 KiB bound, with full-width priorities and int32 GPU inputs.
 The independent ASan/UBSan layout oracle covers all 40,448 IDs; native Metal
 fixtures pass. This is not a new full-model quality or throughput result.
+
+The runtime delta was rebased onto `890898c` on November 3, 2026 with two
+resolved conflicts, both parallel additions: upstream's per-step decode logits
+hash in `ds4_bench.c` now precedes the patch's `cycle_start`, and the direct
+down-sum admission in `ds4_metal.m` accepts upstream's tensor-parallel full
+expert bind or the M2 GLM top-8 stream shape. The build and hot-list hunks were
+unchanged. The earlier M2 Max measurements were not rerun on the new base.
 
 The hook combines the runtime delta with `build-main-current.patch` and
 `hotlist-main-layout.patch` and applies or restores them as one atomic patch,

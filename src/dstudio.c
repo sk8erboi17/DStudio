@@ -347,7 +347,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* The primary managed checkout always follows the pinned upstream main. GLM
  * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
  * neither model needs a side checkout. */
-#define DS4_UPSTREAM_COMMIT "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+#define DS4_UPSTREAM_COMMIT "890898cfb437ed256be58ebcf7c58a6dfa8f2f53"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -6828,9 +6828,10 @@ static void api_model_download(int fd, const char *body) {
         if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
             !strcmp(target, "ds41f-1017-vision")) {
             /* DStudio-owned pinned downloader. The vendored download_model.sh
-             * (0aaea5a) still names the original Q2, and upstream 5379c1c, which
-             * renamed it to the 1017 file, kept the old SHA-256. The original
-             * Q2 is pinned here too, independent of the vendored script. */
+             * (890898c) names the 1017 Q2 with its published SHA-256, but it
+             * follows the repository head and has no 1017 vision sidecar.
+             * Here every file is pinned to a repository revision, and the
+             * original Q2 remains available independent of the vendored script. */
             char helper[DSTUDIO_PATH_MAX + 64];
             snprintf(helper, sizeof helper, "%s/scripts/download-ds41-1017.sh", g_web_dir);
             execl("/bin/sh", "sh", helper, target, (char *)NULL);

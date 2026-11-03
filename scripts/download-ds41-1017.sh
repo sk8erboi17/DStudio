@@ -1,9 +1,9 @@
 #!/bin/sh
 # DStudio-owned downloader for the DeepSeek V4.1 Flash 1017 checkpoint:
-#   ds41f-q2           antirez's official 1017 Q2, the file upstream ds4 5379c1c's
-#                      ds41f-q2 downloads (the vendored 0aaea5a download_model.sh
-#                      still names the original Q2, and 5379c1c kept that file's
-#                      SHA-256, so the digest here is the published 1017 one).
+#   ds41f-q2           antirez's official 1017 Q2, the file the vendored
+#                      download_model.sh (890898c) names for ds41f-q2, with the
+#                      same published 1017 SHA-256; here it is also pinned to a
+#                      repository revision.
 #   ds41f-1017-vision  the community 1017 vision sidecar (antirez publishes none);
 #                      source revision 1bae0e10, the same as the 1017 Q2.
 #   ds41f-q2-original  the original V4.1 Q2 (source revision df42c109), still

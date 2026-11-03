@@ -2,7 +2,7 @@
 
 Version 3 replaces the ordered edit manifest with complete exact-context
 deltas. [`main-latest.patch`](main-latest.patch) targets the active antirez/ds4
-main pin `0aaea5a238fb41a35106a551e73c8409dfb751ac`. It keeps upstream's native
+main pin `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`. It keeps upstream's native
 GLM/DSML tracker and batched Qwen MTP scheduling, and wraps only the existing
 serial greedy evaluation path. The deltas for earlier main revisions were
 removed on October 27, 2026 (Git history keeps them). [bases.json](bases.json)

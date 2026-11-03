@@ -1,7 +1,7 @@
 # Native GLM memory adaptation for the bundled main
 
 [`main-latest.patch`](main-latest.patch) targets MIT-licensed `antirez/ds4` at
-`0aaea5a238fb41a35106a551e73c8409dfb751ac`. Upstream now owns the GLM model
+`890898cfb437ed256be58ebcf7c58a6dfa8f2f53`. Upstream now owns the GLM model
 aliases, so this newest delta keeps only DStudio's mapped-span calculation and
 GLM host-memory-guard policy. It is the only variant: the deltas for earlier
 main revisions were removed on October 27, 2026 (Git history keeps them).

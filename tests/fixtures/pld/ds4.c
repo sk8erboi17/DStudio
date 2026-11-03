@@ -136,9 +136,11 @@ static ds4_gpu_tensor *ds4_gpu_tensor_alloc(uint64_t bytes) {
 static bool metal_graph_verify_suffix_tops(ds4_gpu_graph *g,
         const ds4_model *model, const ds4_weights *weights,
         const token_vec *tokens, uint32_t start, uint32_t count,
-        bool prefix, bool capture, int *tops, float *rows, void *timing) {
+        bool prefix, bool capture, bool head_split, int *tops, float *rows, void *timing) {
     (void)model; (void)weights; (void)prefix; (void)capture; (void)timing;
     fake_verify_calls++;
+    /* Upstream (890898c) rejects the vocab-split head outside a TP verify block. */
+    if (head_split) return false;
     ds4_session *s = g->owner;
     for (unsigned i = 0; i < count; i++) {
         fake_advance(s, tokens->v[start+i]);

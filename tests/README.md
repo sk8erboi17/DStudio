@@ -432,7 +432,7 @@ interaction or inference test.
 
 ## Qwen Next on unified main
 
-Flash Next now uses antirez/ds4 main `0aaea5a`, not a separate managed engine.
+Flash Next now uses antirez/ds4 main `890898c`, not a separate managed engine.
 The new Q2/Q4 GGUFs include original BF16 n-grams; historical base + PLE receipts
 do not qualify those weights. [Migration and verification scope](../docs/QWEN_NEXT_MAIN_MIGRATION.md).
 
@@ -1060,7 +1060,7 @@ node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --controls
 node tests/live/qwen38_host_smoke.mjs ENGINE MODEL_GGUF --reset-lifecycle
 ```
 
-Use an already-installed `ds4` at pin `0aaea5a`, with the single-file model
+Use an already-installed `ds4` at pin `890898c`, with the single-file model
 resolving to its shared model store. The former `--qwen35` variant on
 `ds4-qwen35` is rejected; its receipts below are retained history. This runs the real headless HTTP host in a
 private profile: asynchronous launch, the unmodified production Agent/Cowork

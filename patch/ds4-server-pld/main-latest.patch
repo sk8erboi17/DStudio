@@ -6,7 +6,7 @@
  #include "ds4_tool_text.h"
  #include "ds4_distributed.h"
  #include "ds4_gpu_args.h"
-@@ -13923,6 +13924,9 @@ decode_again:
+@@ -13966,6 +13967,9 @@ decode_again:
      dsml_decode_tracker dsml_tracker;
      dsml_decode_tracker_init(&dsml_tracker);
      dsml_tracker.model_syntax = j->req.model_syntax;
@@ -16,7 +16,7 @@
  
      server_generation_enter(s);
      while (!g_stop_requested && !job_cancelled(j) && completion < max_tokens &&
-@@ -13973,6 +13977,9 @@ decode_again:
+@@ -14016,6 +14020,9 @@ decode_again:
              break;
          }
  
@@ -26,7 +26,7 @@
          int toks[17];
          int ntok = 0;
          const int block_start = ds4_session_pos(slot->session);
-@@ -14006,12 +14013,7 @@ decode_again:
+@@ -14049,12 +14056,7 @@ decode_again:
                  break;
              }
          } else {
@@ -40,7 +40,7 @@
          }
  
          if (ntok == 0) {
-@@ -14024,7 +14026,7 @@ decode_again:
+@@ -14067,7 +14069,7 @@ decode_again:
          bool text_stop = false;
          int kept = 0;
          for (int ti = 0; ti < ntok && completion < max_tokens; ti++) {
@@ -49,7 +49,7 @@
                  stop_decode = true;
                  break;
              }
-@@ -14215,6 +14217,7 @@ decode_again:
+@@ -14258,6 +14260,7 @@ decode_again:
                  client_stop = true;
                  text.len = stop_pos;
                  text.ptr[text.len] = '\0';
@@ -57,8 +57,8 @@
                  pthread_mutex_lock(&s->inference_mu);
                  ds4_session_invalidate(slot->session);
                  pthread_mutex_unlock(&s->inference_mu);
-@@ -14253,9 +14256,17 @@ decode_again:
-                             kept, ntok - kept, resample);
+@@ -14297,9 +14300,17 @@ decode_again:
+                             kept, ntok - kept, resample, (now_sec() - rewind_t0) * 1000.0);
              }
          }
 +#include "pld_server_finish.inc"

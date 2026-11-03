@@ -27,7 +27,7 @@ try {
   const pins=JSON.parse(first.stdout);assert.equal(pins.schema,'dstudio.engine-pins.v1');
   const repositories={main:'antirez/ds4',laguna:'antirez/ds4',llama:'ggml-org/llama.cpp'};
   assert.deepEqual(pins.engines.map(e=>e.id).sort(),Object.keys(repositories).sort());
-  assert.equal(pins.engines.find(e=>e.id==='main').commit,'0aaea5a238fb41a35106a551e73c8409dfb751ac');
+  assert.equal(pins.engines.find(e=>e.id==='main').commit,'890898cfb437ed256be58ebcf7c58a6dfa8f2f53');
   assert(!pins.engines.some(e=>e.directory==='ds4-qwen38'),'retired Qwen Next engine must not be installable');
   assert.equal(new Set(pins.engines.map(e=>e.directory)).size,pins.engines.length);
   for(const engine of pins.engines) {

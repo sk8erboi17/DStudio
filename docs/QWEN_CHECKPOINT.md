@@ -27,7 +27,7 @@ For the complete scope use [PLAN.MD](../PLAN.MD); for source/binary admission us
 | --- | --- | --- |
 | Qwen3.8-27B / llama.cpp f5027fb | Design qualification (implemented; one development case); persistent KV/session reuse across engine restarts. | Common-100 on llama.cpp, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. Chat/Agent/Cowork and one image case pass the development gate. |
 | Qwen3.6-35B-A3B / llama.cpp f5027fb | Design qualification (implemented on llama.cpp and MLX; development cases only); persistent KV/session reuse across engine restarts; MLX qualification (implemented October 3). | Common-100 on llama.cpp, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. Chat/Agent/Cowork pass the development gate. |
-| Qwen3.8-Flash-Next / main 0aaea5a | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
+| Qwen3.8-Flash-Next / main 890898c (results so far on 0aaea5a) | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
 
 Complete Agent/Cowork build signatures, crash-safe pair publication and legacy
 recovery through P2/P5. Preserve each engine's native session state, tokenizer,

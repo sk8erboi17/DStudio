@@ -10,8 +10,11 @@ An installed checkout at another revision matches no variant and is refused.
 
 Version 103 contained eight explicit unified patch variants. The new
 [main-qwen.patch](main-qwen.patch) targets antirez/ds4
-`0aaea5a238fb41a35106a551e73c8409dfb751ac`, including Qwen Next and DeepSeek V4.1.
-It was rebased on the Qwen merge `9139e2a`; `ds4_agent.c` is identical at both.
+`890898cfb437ed256be58ebcf7c58a6dfa8f2f53`, including Qwen Next and DeepSeek V4.1.
+It was rebased on the Qwen merge `9139e2a`; `ds4_agent.c` is identical at both
+and at the earlier `0aaea5a` pin. At `890898c` upstream added a `head_split`
+argument to the internal verifier that [pld_core.c](pld_core.c) calls; it passes
+`false`, the full-vocabulary head that upstream's own non-TP callers use.
 It retains worker-owned cancellable preparation, native tool grammars, durable
 save, live input and v102 compaction semantics. Main already fixes native
 snapshot-allocation cleanup. See the [migration](../../docs/QWEN_NEXT_MAIN_MIGRATION.md)
@@ -314,7 +317,7 @@ separate qualification.
 
 | Source base | Patch |
 | --- | --- |
-| antirez/ds4 `0aaea5a238fb41a35106a551e73c8409dfb751ac` | [main-qwen.patch](main-qwen.patch), after [prepare-main.patch](../ds4-qwen38-prepare/prepare-main.patch) |
+| antirez/ds4 `890898cfb437ed256be58ebcf7c58a6dfa8f2f53` | [main-qwen.patch](main-qwen.patch), after [prepare-main.patch](../ds4-qwen38-prepare/prepare-main.patch) |
 | antirez/ds4 `9139e2ae58a41503968a500f36f75895c1ba63fc` (identical Agent source) | [main-qwen.patch](main-qwen.patch) |
 | antirez/ds4 Laguna `448d5695d1c86401a4e9447c440feb983b73e6de` | [laguna.patch](laguna.patch) |
 

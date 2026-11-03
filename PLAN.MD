@@ -22,16 +22,16 @@ in this campaign.
 
 | Selection | Engine pin | Execution order |
 | --- | --- | --- |
-| DeepSeek V4 Flash Vision-Exp IQ2XXS | main 0aaea5a | First group |
+| DeepSeek V4 Flash Vision-Exp IQ2XXS | main 890898c | First group |
 | Laguna S 2.1 Q4_K_M | laguna 448d569 | First group |
 | Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.8-27B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.6-35B-A3B MXFP8 | MLX: mlx 0.32.4 36969c0, mlx-lm 0.32.2 93e6d4a | First group (added October 25) |
-| Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
-| Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
-| DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
-| DeepSeek V4.1 Flash Q4 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
-| GLM 5.3 Flash Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
+| Qwen3.8-Flash-Next single-file Q4 | main 890898c | First group |
+| Qwen3.8-Flash-Next single-file Q2 | main 890898c | First group; not qualified |
+| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
+| DeepSeek V4.1 Flash Q4 | main 890898c | Contributor hardware ([below](#contributors)) |
+| GLM 5.3 Flash Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
 
 These are recorded pins, not a claim that remote tips were rechecked for this
 update. Exact revisions, patches and release targets live in
@@ -71,7 +71,7 @@ exist: GLM 5.3's 100 reference continuations on an earlier main revision and a
 complete qualification is left to contributors. The three selections stay in
 scope and in every denominator as BLOCKED, never as passed or excluded.
 A contributor with an Apple Silicon Mac that can run them is welcome to take
-them on: use the recorded pins (ds4 main `0aaea5a` with the versioned patches),
+them on: use the recorded pins (ds4 main `890898c` with the versioned patches),
 the frozen cases and the evidence contract below; keep every failed attempt;
 record the machine, unified memory, effective memory mode (resident, SSD
 expert streaming, Engram, disk KV), context and settings; and share only

@@ -147,7 +147,7 @@ diff --git a/ds4_metal.m b/ds4_metal.m
 diff --git a/ds4_server.c b/ds4_server.c
 --- a/ds4_server.c
 +++ b/ds4_server.c
-@@ -11729,6 +11729,46 @@ typedef struct {
+@@ -11729,4 +11729,44 @@ typedef struct {
      int fd;
  } client_arg;
  
@@ -192,8 +192,6 @@ diff --git a/ds4_server.c b/ds4_server.c
 +}
 +
  static void append_model_json_values(buf *b, const char *id, const char *name,
-                                      int ctx, int default_tokens) {
-     const int max_completion = default_tokens < ctx ? default_tokens : ctx;
 @@ -11829,6 +11869,19 @@ static void *client_main(void *arg) {
          goto done;
      }

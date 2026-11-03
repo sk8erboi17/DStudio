@@ -8,13 +8,13 @@
     "Each row has one explicit operating system. Since September 29, 2026 the campaign admits macOS on Apple Silicon only: Linux/Windows CPU, CUDA, ROCm and Vulkan rows and the CUDA-only q27 track were removed as out of scope, not qualified. Scalar CPU reference tests on the Mac remain part of Metal numerical verification. Of the DeepSeek V4 Flash checkpoints only the Vision-Exp row remains; the four non-Vision rows were removed on the same date as out of scope.",
     "Qwen3.6-35B-A3B and Qwen3.8-27B run on the bundled llama.cpp (b11836 since October 23, 2026; b11371 before) through the DStudio host; Chat, Agent and Cowork passed real inference on macOS Metal on October 3, 2026 on b11371, and Qwen3.6 passed again on b11836 on October 23 (tests/live/llama_resident_live_test.mjs). Design on llama.cpp models is not implemented. Linux and Windows llama.cpp builds are not qualified.",
     "The former Qwen side engines (vagrillo/ds4 qwen35moe-support, Ninnix/q36) were retired on October 3, 2026; their tracks, patch sets and targets were removed.",
-    "The main track includes the complete f4d03f6..bd66c40 campaign delta and all 79 subsequent commits through 0aaea5a, including Qwen Next. Managed upgrades have scoped receipts; full mode, numerical and earlier cross-fork qualification remains open.",
+    "The main track includes the complete f4d03f6..bd66c40 campaign delta and all 79 subsequent commits through 0aaea5a, including Qwen Next; on November 3, 2026 the pin moved to 890898c (160 further upstream commits, mainly DeepSeek V4.1 Metal/CUDA/TP work, Qwen PLE prefetch and server fixes), with the media-memory, M2 Max and Qwen candidate-preparation patches and Chat PLD rebased onto it. Installations at 0aaea5a are not upgraded in place. Managed upgrades have scoped receipts; full mode, numerical and earlier cross-fork qualification remains open.",
     "A recorded tip only freezes the observed revision. The per-target source review must classify every commit; empty arrays are not equivalence claims.",
     "Every declared target is macOS; the release command checks all of them.",
     "V4.1 adds Metal-only Q2/Q4 candidates. Its weights, native disk Engram and expert streaming require distinct real-load and correctness evidence; new rows do not imply qualification.",
     "q36's installer now targets 1305843 (upstream September 24): the reviewed 8362010 runtime rebased with three resolved conflicts, plus the unchanged monitor/monitor-owner/cache-usage patches; existing 8362010 and d67687e installs upgrade in place. Earlier 8362010 real-model receipts do not qualify the new binary. The Qwen3.6 fork additionally carries a Q6_K MoE shader correction.",
-    "Since upstream's September 14 merge (9139e2a), Qwen3.8 Flash Next is part of antirez/ds4 main; the active 0aaea5a pin is upstream's September 20 revision. The retired fork and its separate Q4 PLE format are not active installer targets. New Q2/Q4 single-file BF16 n-gram releases need fresh real-model qualification; older fork receipts are historical, not relabeled.",
-    "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. DStudio's pin stays 0aaea5a, so scripts/download-ds41-1017.sh downloads it at a pinned revision with its published SHA-256 (5379c1c kept the original Q2's digest), together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights."
+    "Since upstream's September 14 merge (9139e2a), Qwen3.8 Flash Next is part of antirez/ds4 main; the active 890898c pin is upstream's November 2 revision. The retired fork and its separate Q4 PLE format are not active installer targets. New Q2/Q4 single-file BF16 n-gram releases need fresh real-model qualification; older fork receipts are historical, not relabeled.",
+    "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. The vendored 890898c download_model.sh names it with the same published SHA-256 but follows the repository head; scripts/download-ds41-1017.sh downloads it at a pinned revision, together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights."
   ],
   "tracks": [
     {
@@ -22,7 +22,7 @@
       "repository": "https://github.com/antirez/ds4",
       "ref": "refs/heads/main",
       "base": "f4d03f6cf9f11c1e7b630bcb160853acfba7c52a",
-      "recordedTip": "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+      "recordedTip": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53"
     },
     {
       "id": "laguna",
@@ -47,7 +47,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/bases.json",
-        "sha256": "32515e9559485d1884676961373a4d01e5e836d803811381017393b2854b9aaa"
+        "sha256": "93aee88049dd6c05da3a7180571c3294b836aff844f042cbf836e9c65c642f6e"
       },
       {
         "path": "patch/ds4-agent-jsonl/build.mk",
@@ -71,7 +71,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_core.c",
-        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+        "sha256": "fba051872ee4b511a9272c0abc5d310dac3e7d6ea041f50fcfa9cd6daa286a2c"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_engine.h",
@@ -99,7 +99,7 @@
       },
       {
         "path": "patch/ds4-web-runtime/bases.json",
-        "sha256": "5de4d687e21c6363cf1a70610af59bd9dbcb70e48aaee51ac18729f82be4f673"
+        "sha256": "d695b85310203314c53813bc6e98bcf88d9235865ac70258a75a3539e9531069"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
@@ -124,7 +124,7 @@
       },
       {
         "path": "patch/ds4-glm53-m2max/native-decode-main-qwen.patch",
-        "sha256": "331ae370fb39b751a0241cb282ffc93a0a4786965fee80eadfc2e0e528370efe"
+        "sha256": "77d9dedd288a588fbddd170f8c06b2bc6a8be922743b05d7b4bb511b3bc33967"
       },
       {
         "path": "patch/ds4-glm53-m2max/build-main-current.patch",
@@ -156,7 +156,7 @@
       },
       {
         "path": "patch/ds4-server-pld/bases.json",
-        "sha256": "f4c6e6655537a950d8a6955d2bf8320c320f989724337d173d35a6fa724c1c49"
+        "sha256": "14bb4fbe8c91af68f380d1322cf5fd3cabf0a53a34005e898b3405d7218b91a2"
       },
       {
         "path": "src/harness/design/ds4_design.c",
@@ -172,7 +172,7 @@
       },
       {
         "path": "patch/ds4-visible-downloads/main-qwen.patch",
-        "sha256": "cd1259e4df1890af927632882d9ccb94c71d3195be54596c6a01ddd8518180a0"
+        "sha256": "2a2ecceb383e7e7fbfa686cd4eb4e89aa20ed1e569886c7cb55d2310789c166f"
       },
       {
         "path": "scripts/apply-ds4-glm53-runtime.sh",
@@ -188,7 +188,7 @@
       },
       {
         "path": "patch/ds4-qwen38-prepare/prepare-main.patch",
-        "sha256": "c1fa496887d88703e88093ac567c61110abe50d69cb9c7cd776d1ff658aa0b9d"
+        "sha256": "0f560760af01b7cd766faf3a2d5160224f3e68b41d9f2d67854bb4a6389bd117"
       },
       {
         "path": "scripts/apply-ds4-qwen38-prepare.sh",
@@ -196,7 +196,7 @@
       },
       {
         "path": "patch/ds4-media-memory/residency-lease.patch",
-        "sha256": "1d8e8a4e8381a83cdf690b7de8de813680fa5cb9152fd11f881b984e40939f78"
+        "sha256": "f609c2515af1d493e1479d5bc98e26cf06da59a527e3a79f94b59f855591d30e"
       },
       {
         "path": "scripts/apply-ds4-media-memory.sh",
@@ -208,7 +208,7 @@
       },
       {
         "path": "patch/ds4-server-pld/main-latest.patch",
-        "sha256": "361e0f624ea59edd2ec0582127d8e0cb6ebdeae5146093333fd99dff58e83868"
+        "sha256": "ae91de5a62db39f91938315198c83e179ccea440d4901314f077b6e8fe1ee054"
       },
       {
         "path": "patch/ds4-v41-vision-pairing/vision-revision.patch",
@@ -220,7 +220,7 @@
       },
       {
         "path": "scripts/download-ds41-1017.sh",
-        "sha256": "6d331e80d4f33c1f7636b54c8ff4673eacb1f2c14758115ebe894b2077f1e50d"
+        "sha256": "8766d7bef7878ba149beecbcdfb1b36a4c15177e999606647a88809c9d15750a"
       }
     ],
     "laguna": [
@@ -230,7 +230,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/bases.json",
-        "sha256": "32515e9559485d1884676961373a4d01e5e836d803811381017393b2854b9aaa"
+        "sha256": "93aee88049dd6c05da3a7180571c3294b836aff844f042cbf836e9c65c642f6e"
       },
       {
         "path": "patch/ds4-agent-jsonl/compaction_text.h",
@@ -258,7 +258,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_core.c",
-        "sha256": "8788013b8c16a6224ec4c13d9837f52c4ea8e55ca8c649afabd1a93534533678"
+        "sha256": "fba051872ee4b511a9272c0abc5d310dac3e7d6ea041f50fcfa9cd6daa286a2c"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld_engine.h",
@@ -286,7 +286,7 @@
       },
       {
         "path": "patch/ds4-web-runtime/bases.json",
-        "sha256": "5de4d687e21c6363cf1a70610af59bd9dbcb70e48aaee51ac18729f82be4f673"
+        "sha256": "d695b85310203314c53813bc6e98bcf88d9235865ac70258a75a3539e9531069"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
@@ -311,7 +311,7 @@
       },
       {
         "path": "patch/ds4-glm53-m2max/native-decode-main-qwen.patch",
-        "sha256": "331ae370fb39b751a0241cb282ffc93a0a4786965fee80eadfc2e0e528370efe"
+        "sha256": "77d9dedd288a588fbddd170f8c06b2bc6a8be922743b05d7b4bb511b3bc33967"
       },
       {
         "path": "patch/ds4-glm53-m2max/build-main-current.patch",
@@ -368,7 +368,7 @@
       "id": "main/macos/metal/flash-vision",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "flash-vision",
       "tracks": [
@@ -398,7 +398,7 @@
       "id": "main/macos/metal/glm53",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "glm53",
       "tracks": [
@@ -460,7 +460,7 @@
       "id": "main/macos/metal/qwen38-next-q2",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "qwen38-next-q2",
       "tracks": [
@@ -496,7 +496,7 @@
       "id": "main/macos/metal/qwen38-next-q4",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "qwen38-next-q4",
       "tracks": [
@@ -532,7 +532,7 @@
       "id": "main/macos/metal/flash41-q2",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "flash41-q2",
       "tracks": [
@@ -570,7 +570,7 @@
       "id": "main/macos/metal/flash41-q4",
       "sourceTrack": "main",
       "installerId": "main",
-      "revision": "0aaea5a238fb41a35106a551e73c8409dfb751ac",
+      "revision": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
       "backend": "metal",
       "checkpoint": "flash41-q4",
       "tracks": [

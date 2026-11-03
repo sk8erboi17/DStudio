@@ -4,7 +4,9 @@ Qwen3.8-Flash-Next no longer needs a separate DStudio engine. Upstream merged it
 into antirez/ds4 main on September 14, 2026 (`9139e2a`). DStudio pins main to
 [`0aaea5a238fb41a35106a551e73c8409dfb751ac`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac),
 committed upstream on September 20, 2026 and still main's tip when rechecked on
-September 29. The installer, model catalog, Chat, Agent and Cowork
+September 29. Since November 3, 2026 the pin is
+[`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53); the results in this
+record were measured on `0aaea5a` and do not transfer. The installer, model catalog, Chat, Agent and Cowork
 routing use `ds4`. Qwen3.6 MoE, Qwen27B and Laguna retain their own engines.
 
 ## Existing users need the new model format
@@ -114,7 +116,7 @@ real CUDA/ROCm compilation were not rerun.
 ## Verification and remaining qualification
 
 The scoped verification uses an M2 Max with 96 GiB RAM. On September 29, 2026
-the model-free set below was rerun against the active `0aaea5a` pin and current
+the model-free set below was rerun against the then-active `0aaea5a` pin and
 patch stack. Earlier September 14 runs used the `9139e2a` merge pin; they remain
 separate receipts and are not relabeled. Native builds and GPU fixtures are
 distinct from full-model inference:

@@ -1,7 +1,7 @@
 # Reproducible browser helper patch
 
-For antirez/ds4 main `0aaea5a238fb41a35106a551e73c8409dfb751ac` (and the
-identical `ds4_web.c` at the Qwen merge `9139e2a`),
+For antirez/ds4 main `890898cfb437ed256be58ebcf7c58a6dfa8f2f53` (and the
+identical `ds4_web.c` at the Qwen merge `9139e2a` and the earlier `0aaea5a` pin),
 [browser-main.patch](browser-main.patch) retains DStudio's aggregate message
 bound and visual evidence while using upstream's GET `/json/list`, PUT
 `/json/new` recovery and last-page retention. It does not install a duplicate

@@ -93,10 +93,13 @@ int ds4ui_pld_verify(ds4_session *s, const int *tokens, int count,
     if (!rows) { ds4ui_pld_release(tx); return 0; }
     int tops[DS4UI_PLD_DRAFT];
     for (int i = 0; i < count; i++) token_vec_push(&s->checkpoint, tokens[i]);
+    /* head_split=false: the full-vocabulary verifier head, as upstream's own
+     * non-TP callers use. The vocab-split head exists only inside a TP verify
+     * block, which ds4ui_pld_can_verify already excludes. */
     bool ok = metal_graph_verify_suffix_tops(&s->graph,
         &s->engine->model, &s->engine->weights, &s->checkpoint,
         (uint32_t)tx->start, (uint32_t)count,
-        false, false, tops, rows, NULL);
+        false, false, false, tops, rows, NULL);
     int keep = ok ? 1 : 0;
     while (keep > 0 && keep < count && tops[keep-1] == tokens[keep]) keep++;
     if (ok && keep == count) {

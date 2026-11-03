@@ -59,7 +59,7 @@ async function step(name, fn) {
   finally { row.seconds = (performance.now()-t)/1000; save(); console.log(`${row.status}: ${name} (${row.seconds.toFixed(1)}s)`); }
 }
 const configs = {
-  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: '0aaea5a238fb41a35106a551e73c8409dfb751ac' },
+  main: { dir: 'ds4', endpoint: '/api/ds4/setup', commit: '890898cfb437ed256be58ebcf7c58a6dfa8f2f53' },
   laguna: { dir: 'ds4-laguna-s21', endpoint: '/api/laguna/setup', target: 'laguna-q4', commit: '448d5695d1c86401a4e9447c440feb983b73e6de' },
 };
 function verifyRuntime(id, response) {
@@ -95,7 +95,9 @@ try {
   report.sourceDiff = execFileSync('git', ['diff','--','src/dstudio_setup.c','src/dstudio.c'], { encoding:'utf8' });
   protectedPids = external();
   if (!protectedPids.length) {
-    sentinel = spawn(process.execPath, ['-e', "require('net').createServer(s=>s.end()).listen(28000,'127.0.0.1',()=>console.log('ready'))"],
+    // A client that resets its connection must not crash the sentinel: an
+    // unhandled socket ECONNRESET would look exactly like setup stopping it.
+    sentinel = spawn(process.execPath, ['-e', "require('net').createServer(s=>{s.on('error',()=>{});s.end();}).listen(28000,'127.0.0.1',()=>console.log('ready'))"],
       {detached:true,stdio:['ignore','pipe','pipe']});
     await new Promise((resolve,reject) => {
       sentinel.once('error',reject); sentinel.once('exit',code=>reject(Error(`sentinel exited: ${code}`)));
@@ -144,6 +146,11 @@ try {
     report.unexpectedModelLaunch = true; save(); await route.abort('blockedbyclient');
   });
   page = await context.newPage(); page.setDefaultTimeout(15000);
+  // The System check dialog opens asynchronously (for example when the engine
+  // port is occupied) and can cover a setup control after a one-time check.
+  // Dismiss it before each action, as a user would; nothing else is bypassed.
+  await page.addLocatorHandler(page.locator('#doctor-dialog[open]'),
+    async () => { await page.locator('#doctor-close').click(); });
   page.on('pageerror', e => { report.pageErrors.push(e.message); save(); });
   page.on('response', async response => {
     if (response.request().method() !== 'POST') return;
@@ -162,6 +169,7 @@ try {
   });
   await step('main: onboarding Install ds4 copies bundled sources, patches and compiles', async () => {
     const response = page.waitForResponse(r => r.url().endsWith(configs.main.endpoint) && r.request().method() === 'POST', {timeout:1200000});
+    response.catch(() => {}); // a failed click must not skip process cleanup
     const button = page.locator(setupSurface === 'onboarding' ? '#onboard-ds4dir-setup-btn' : '#ds4dir-setup');
     await button.click();
     assert.equal(await button.isDisabled(),true,'immediate busy feedback');
@@ -184,6 +192,7 @@ try {
     for (const target of ['qwen38-q2', 'qwen38-q4k']) {
       const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
       const boundary = page.waitForResponse(r => r.url().endsWith('/api/model/download') && r.request().method() === 'POST');
+      boundary.catch(() => {});
       await modelHost.locator('select').selectOption(target);
       await modelHost.getByRole('button', {name:'Download',exact:true}).click();
       await page.locator('#confirm-go').click();
@@ -207,6 +216,7 @@ try {
       const modelHost = page.locator(setupSurface === 'onboarding' ? '#onboard-models' : '#set-models');
       assert.equal(fs.existsSync(path.join(data,cfg.dir)),false);
       const response = page.waitForResponse(r => r.url().endsWith(cfg.endpoint) && r.request().method() === 'POST',{timeout:1200000});
+      response.catch(() => {});
       await modelHost.locator('select').selectOption(cfg.target);
       await modelHost.getByRole('button',{name:'Download',exact:true}).click();
       await page.locator('#confirm-go').click();

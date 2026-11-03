@@ -11,8 +11,8 @@ on demand and are not committed. See [bundled source provenance and limits](docs
 ## ds4 (managed local inference engine)
 
 - Source: https://github.com/antirez/ds4
-- Pinned main commit: `0aaea5a238fb41a35106a551e73c8409dfb751ac`
-- Source license: [MIT](https://github.com/antirez/ds4/blob/0aaea5a238fb41a35106a551e73c8409dfb751ac/LICENSE)
+- Pinned main commit: `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`
+- Source license: [MIT](https://github.com/antirez/ds4/blob/890898cfb437ed256be58ebcf7c58a6dfa8f2f53/LICENSE)
 - Copyright: 2026 The ds4.c authors; 2023–2026 The ggml authors.
 - Distributed sources: [`src/engines/ds4/`](src/engines/ds4/), retaining the
   [complete MIT notice](src/engines/ds4/LICENSE), including DeepSeek attribution.
@@ -52,8 +52,8 @@ Qwen3.8-Flash-Next. Laguna retains a separate engine pin; Qwen3.6 MoE and Qwen27
 the bundled llama.cpp below.
 
 DeepSeek V4.1 GGUFs are downloaded separately from
-[`antirez/deepseek-v4.1-flash-gguf`](https://huggingface.co/antirez/deepseek-v4.1-flash-gguf/tree/dd8a266f7145edc19e2334b46e19b6821f221dc7),
-revision `dd8a266f7145edc19e2334b46e19b6821f221dc7`; that pinned model card
+[`antirez/deepseek-v4.1-flash-gguf`](https://huggingface.co/antirez/deepseek-v4.1-flash-gguf/tree/9dcee51692e6540f697141fc98b097e3c96492a3),
+revision `9dcee51692e6540f697141fc98b097e3c96492a3`; that pinned model card
 declares MIT. The upstream engine retains the provenance of the DeepSeek
 tokenizer/Engram metadata and its source notices. Engram tables and any matching
 vision weights are model components, not DStudio-authored assets.
@@ -78,7 +78,7 @@ MIT-licensed `ivanfioravanti/ds4-metal` source below.
 - Historical separate-engine source: `ff4f0ff4fdff70d6b7c3941ef437b91dde960e14`,
   retained in Git history only; no file of it or of earlier fork revisions is
   distributed, as source, fixture or patch.
-- Active source: antirez/ds4 main at `0aaea5a238fb41a35106a551e73c8409dfb751ac`,
+- Active source: antirez/ds4 main at `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`,
   which includes the Qwen merge. The original contributors' attribution remains.
 - Source license: MIT, retaining upstream ds4.c and ggml notices in
   [the active bundled engine](src/engines/ds4/LICENSE). Historical patches and
