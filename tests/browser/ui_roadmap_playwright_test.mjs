@@ -40,6 +40,10 @@ const webSearchRequests = [];
 const webReadRequests = [];
 const missingRequests = [];
 const startRequests = [];
+let releaseSourcePicker;
+const sourcePickerGate = new Promise(resolve => { releaseSourcePicker = resolve; });
+let releaseResearchRead;
+const researchReadGate = new Promise(resolve => { releaseResearchRead = resolve; });
 let blockAttempts = 0;
 let roadmapAttempts = 0;
 let activeContext = 65536;
@@ -203,6 +207,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/web-read' && req.method === 'POST') {
     const payload = JSON.parse(await readBody(req) || '{}');
     webReadRequests.push(payload);
+    await researchReadGate;
     const index = Math.max(0, roadmapSources.indexOf(payload.url));
     const pages = [
       {
@@ -257,6 +262,7 @@ const server = http.createServer(async (req, res) => {
     const isBlock = system.includes('DStudio roadmap-block expansion protocol');
     const isClassifier = system.includes('DStudio search classifier');
     const isPicker = system.includes('DStudio source picker');
+    if (isPicker) await sourcePickerGate;
     const isBatchExtractor = system.includes('DStudio roadmap evidence extractor');
     const isExtractor = system.includes('DStudio evidence extractor');
     const isJudge = system.includes('DStudio research sufficiency judge');
@@ -421,7 +427,7 @@ try {
     // Quiesce the old document before injecting a recovery snapshot. Otherwise
     // a pending persistence write can overwrite it, or a background status
     // request can race the intentional navigation. Browser errors remain fatal.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 10_000);
     await page.waitForLoadState('networkidle');
   };
   const pageErrors = [];
@@ -484,11 +490,39 @@ try {
   await page.locator('#btn-send').click();
   const loadingTrace = page.locator('.roadmap-loading__trace');
   await loadingTrace.waitFor({ state: 'visible' });
-  assert.equal(await loadingTrace.locator('.roadmap-loading__step').count(), 3,
-    'Roadmap loading should show the three-step research trace from the approved design');
-  assert.equal(await page.locator('.roadmap-loading__phase').count(), 3,
-    'Roadmap loading should preview the upcoming vertical phases while the draft is being built');
-  assert.match(await page.locator('.roadmap-direct-loading__label').textContent() || '', /Deep researching your learning path|Building your roadmap/);
+  await page.waitForFunction(() => document.querySelector('.roadmap-loading__activity')?.textContent === 'Preparing the next research step');
+  assert.ok(webSearchRequests.length > 0 && webReadRequests.length === 0,
+    'between completed searches and the source-picker reply, Learn must not label a completed search as current work');
+  releaseSourcePicker();
+  await page.waitForFunction(() => document.querySelector('.roadmap-loading__activity')?.textContent === 'Read URL');
+  assert.ok(webReadRequests.length > 0, 'the fixture holds a real production read request in flight');
+  assert.ok((await loadingTrace.textContent()).includes(webReadRequests[0].url),
+    'Learn must display the actual URL being read while its request is still pending');
+  assert.equal(await page.locator('[data-act="cancel-roadmap"]').count(), 0,
+    'Learn keeps cancellation in the shared composer instead of a duplicate loading-panel button');
+  assert.equal(await page.locator('.roadmap-loading__phase').count(), 0,
+    'Learn should show actual activity rather than a fabricated draft skeleton');
+  assert.ok(await loadingTrace.locator('.roadmap-loading__step').count() > 0,
+    'Learn exposes the actual research trace');
+  await page.clock.runFor(20_000);
+  assert.match(await page.locator('.roadmap-loading__elapsed').textContent() || '', /0:(?:19|20) elapsed/);
+  assert.match(await page.locator('.roadmap-loading__heartbeat').textContent() || '', /Waiting for the next update/,
+    'a quiet model must show the lack of new activity without claiming a stall or invented progress');
+  await page.waitForFunction(() => !document.body.classList.contains('composer-raised'));
+  await page.screenshot({path: path.join(artifacts, 'learn-progress-dark.png')});
+  const rects = await page.evaluate(() => Object.fromEntries([
+    ['head', '.roadmap-loading__head'], ['current', '.roadmap-loading__current'],
+    ['steps', '.roadmap-loading__steps'], ['stop', '#btn-stop'],
+  ].map(([key, selector]) => {
+    const {x, y, width, height} = document.querySelector(selector).getBoundingClientRect();
+    return [key, {x: x / innerWidth * 100, y: y / innerHeight * 100, w: width / innerWidth * 100, h: height / innerHeight * 100}];
+  })));
+  writeArtifact(artifacts, 'progress-rects.json', rects);
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.screenshot({path: path.join(artifacts, 'learn-progress-light.png')});
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  releaseResearchRead();
+
 
   // The Roadmap keeps the shared Agent-sized composer visible at the bottom so
   // the learner can refine the plan without discovering a hidden drawer.
@@ -1136,6 +1170,48 @@ try {
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).modelEngineDir),
       activeEngineDir, 'The validated checkout repair must persist without invalidating the pending question');
   }
+  const launchPage = await browser.newPage({ viewport: { width: 1360, height: 960 } });
+  launchPage.on('pageerror', error => pageErrors.push(String(error)));
+  await launchPage.addInitScript(fixture => {
+    if (location.origin !== fixture.origin || window !== window.top) return;
+    if (!localStorage.getItem('ds4web.settings.v2')) localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
+      model: fixture.id, modelGguf: fixture.file, modelEngineDir: fixture.engine,
+      ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', qualityDefaultsVersion: 1,
+      webSearchBrowserAllowed: true,
+    }));
+    if (!localStorage.getItem('ds4web.chats.v2')) {
+      const now = Date.now();
+      localStorage.setItem('ds4web.chats.v2', JSON.stringify({ v: 2, deleted: [], chats: [{
+        id: 'interrupted-learning-request', mode: 'roadmap', title: 'Learn launch regression fixture', createdAt: now, updatedAt: now,
+        messages: [
+          { id: 'interrupted-user', role: 'user', content: 'Learn launch regression fixture', createdAt: now },
+          { id: 'interrupted-assistant', role: 'assistant', content: '', createdAt: now, finishReason: 'aborted', error: { message: 'Cancelled by the user' } },
+        ],
+      }] }));
+    }
+    // This is the value injected by the native --learn launch, on this origin only.
+    if (sessionStorage.getItem('ds4.learnLaunch') !== 'fixture-one-shot') {
+      window.__ds4LearnLaunch = { prompt: 'Learn launch regression fixture', token: 'fixture-one-shot' };
+    }
+  }, { ...modelFixture, engine: activeEngineDir, origin: `http://127.0.0.1:${port}` });
+  try {
+    await launchPage.goto(`http://127.0.0.1:${port}/`, {waitUntil: 'domcontentloaded'});
+    await launchPage.locator('.roadmap-loading__trace').waitFor({state: 'visible'});
+    assert.match(await launchPage.locator('.chat__title').textContent(), /Learn launch regression fixture/,
+      'an explicit native launch submits the requested topic to Learn');
+    await launchPage.locator('#btn-stop').click();
+    await launchPage.waitForFunction(() => document.querySelector('#btn-stop')?.hidden);
+    const beforeReload = chatRequests.length;
+    await launchPage.reload({waitUntil: 'networkidle'});
+    assert.equal(chatRequests.length, beforeReload, 'reloading must not submit the native launch a second time');
+    const saved = await launchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    assert.equal(saved.chats.filter(chat => chat.mode === 'roadmap' && chat.messages.length).length, 1,
+      'the cancelled learning request resumes in its original conversation');
+    assert.equal(saved.chats.flatMap(chat => chat.messages).filter(message =>
+      message.role === 'user' && message.content === 'Learn launch regression fixture').length, 1);
+  } finally { await launchPage.close(); }
+  assert.deepEqual(pageErrors, [], 'native learning launch must not cause browser errors');
   console.log(`ui_roadmap_playwright_test: ok (${modelFamily}, ${browserName}; simulated engine)`);
   receipt.status = 'PASS';
 } catch (error) {
@@ -1144,6 +1220,8 @@ try {
   await page?.screenshot({path: path.join(artifacts, 'failure.png')}).catch(() => {});
   throw error;
 } finally {
+  releaseSourcePicker();
+  releaseResearchRead();
   releaseBlockStart();
   releaseTutorFinish();
   writeArtifact(artifacts, 'results.json', {...receipt, chatRequests, startRequests, missingRequests});

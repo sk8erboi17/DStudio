@@ -1,13 +1,16 @@
 # Qwen Flash Next now uses the main engine
 
 Qwen3.8-Flash-Next no longer needs a separate DStudio engine. Upstream merged it
-into antirez/ds4 main on September 14, 2026 (`9139e2a`). DStudio pins main to
+into antirez/ds4 main on September 14, 2026 (`9139e2a`). DStudio's current pin,
+since November 3, is
+[`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53).
+The earlier pin was
 [`0aaea5a238fb41a35106a551e73c8409dfb751ac`](https://github.com/antirez/ds4/commit/0aaea5a238fb41a35106a551e73c8409dfb751ac),
-committed upstream on September 20, 2026 and still main's tip when rechecked on
-September 29. Since November 3, 2026 the pin is
-[`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53); the results in this
-record were measured on `0aaea5a` and do not transfer. The installer, model catalog, Chat, Agent and Cowork
-routing use `ds4`. Qwen3.6 MoE, Qwen27B and Laguna retain their own engines.
+committed upstream September 20 and rechecked September 29. The results in
+this record were measured on `0aaea5a` and do not transfer to `890898c`.
+The installer, model catalog, Chat, Agent and Cowork routing use `ds4`.
+Qwen3.6 and Qwen3.8-27B use bundled llama.cpp; Qwen3.6 also has a separate MLX
+path. Laguna uses its own pinned ds4 branch.
 
 ## Existing users need the new model format
 

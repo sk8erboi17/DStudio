@@ -1,6 +1,6 @@
 # Engine and DeepSeek V4.1 — remaining qualification
 
-Updated October 1, 2026. The wider macOS campaign is incomplete and paused.
+Updated November 4, 2026. The wider macOS campaign is incomplete and paused.
 DeepSeek V4.1 Q2/Q4 and GLM 5.3 are not in the maintainer's execution plan:
 on the maintainer's M2 Max (96 GB) they run only with SSD streaming, and their
 complete qualification is left to contributors. They remain BLOCKED and open
@@ -31,14 +31,26 @@ history and original failures are retained in
 
 | Selection | Work still required |
 | --- | --- |
-| V4.1 Q2 | Revalidate and address the retained strict-format failure on the final stack; complete 100-case, Chat/Agent/Learn/Cowork, Design, desktop, installation/recovery and native memory/Engram/SSD qualification. |
+| V4.1 Flash 1017 Q2 (`ds41f-q2`) | Complete its own current-stack 100-case, Chat/Agent/Learn/Cowork, Design, desktop, native vision, installation/recovery and memory/Engram/SSD qualification. The original Q2's retained format failure does not transfer to this checkpoint. |
 | V4.1 Q4 | Independent current-stack numerical, answer, mode, memory/Engram/SSD, installation/recovery and desktop qualification. Q2 does not establish Q4 results. |
 | GLM 5.3 | Matching 100 continuations and long-context numerics, complete common-answer/product matrix, compatible native-vision components and 30-PDF/20-image checks, installation/recovery, Design and desktop. |
 
-V4.1 Q2's retained small runs on bd66c40 and 0aaea5a each have **13/14**
+The original V4.1 Q2 (`ds41f-q2-original`), not the 1017 checkpoint, has
+retained small runs on `bd66c40` and `0aaea5a`, each with **13/14**
 conforming answers. The arithmetic value 56 is correct but unwanted prose
 violates the exact output requirement. This remains FAIL; do not loosen the
-grader or report those runs as complete qualification.
+grader or report those runs as complete qualification. Revalidate that defect
+only against the original checkpoint when working on its own acceptance;
+the 1017 checkpoint needs independent quality results.
+
+On November 4 the pinned Q2/1017 vision downloader moved to HTTP range resume
+with a digest-bound existing partial, exclusive ownership, bounded connection
+retries and exact size/SHA-256 verification. Fourteen small-payload HTTP cases
+pass. One real 1017 Q2 transfer resumed an existing partial and completed at
+365,713,686,528 bytes with the pinned SHA-256. This proves that transfer's
+integrity, not inference, native vision, Engram behavior or full product
+qualification. The [change note](changes/2026-11-04.md) records the scope;
+the contributor qualification rows remain open.
 
 Distinguish the native disk-backed Engram table, SSD expert streaming, resident
 weights and disk KV. Record effective memory mode and cache/prefill budgets.

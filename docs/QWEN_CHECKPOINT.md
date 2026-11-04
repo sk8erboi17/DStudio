@@ -1,6 +1,6 @@
 # Qwen — remaining implementation and qualification
 
-Updated October 3, 2026. The full campaign remains incomplete and paused.
+Updated November 4, 2026. The full campaign remains incomplete and paused.
 
 On October 3 the Qwen3.6 and Qwen3.8-27B engines changed: the vagrillo/ds4
 fork (`ds4-qwen35`) and Ninnix/q36 were retired, and both models now run on the
@@ -25,8 +25,8 @@ For the complete scope use [PLAN.MD](../PLAN.MD); for source/binary admission us
 
 | Model / recorded engine | Implementation still missing | Verification still missing |
 | --- | --- | --- |
-| Qwen3.8-27B / llama.cpp f5027fb | Design qualification (implemented; one development case); persistent KV/session reuse across engine restarts. | Common-100 on llama.cpp, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. Chat/Agent/Cowork and one image case pass the development gate. |
-| Qwen3.6-35B-A3B / llama.cpp f5027fb | Design qualification (implemented on llama.cpp and MLX; development cases only); persistent KV/session reuse across engine restarts; MLX qualification (implemented October 3). | Common-100 on llama.cpp, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode coverage. Chat/Agent/Cowork pass the development gate. |
+| Qwen3.8-27B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design is implemented. | Rerun the development gate on `b11836`: the retained Chat/Agent/Cowork, image and Design checks used `b11371`. Then complete Common-100, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. |
+| Qwen3.6-35B-A3B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design and the separate MLX path are implemented. | Common-100 on llama.cpp and MLX, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode/Design coverage. The six-case development gate passed on `b11836`; MLX retains its own independent development results. |
 | Qwen3.8-Flash-Next / main 890898c (results so far on 0aaea5a) | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
 
 Complete Agent/Cowork build signatures, crash-safe pair publication and legacy
@@ -72,12 +72,13 @@ Scores retain wrong answers, formatting failures and context failures.
 | 27B, q36 1305843 before online-F16 | 61/100 | 0/8 | run-LeDV72/q36-common-100/results.json |
 | 3.6, original Q6_K shader comparison | 55/100 | 0/8 | run-9oQeuX/qwen35-common-100/results.json |
 | 3.6, corrected Q6_K before batched prefill | 63/100 | 0/8 | run-KqWXoa/qwen35-common-100/results.json |
-| Next, current-main single-file Q4 | 75/100 | 8/8 | run-l3Fevh/qwen-common-100/results.json |
+| Next, single-file Q4 on main 0aaea5a | 75/100 | 8/8 | run-l3Fevh/qwen-common-100/results.json |
 
 The Next receipt identifies the new single-file Q4 weights, not the retired
 fork/sidecar checkpoint: SHA-256
 680944460a8cbe93ba8b6d7b6107213ffb7e22320bd913000e563ca0a0f25a8a.
-Its corpus and eight long cases are no longer pending first execution.
+Its corpus and eight long cases are no longer pending first execution on
+`0aaea5a`; they do not qualify the current main pin `890898c`.
 The original-shader comparison also completed: its recorded shader hash matches
 the pristine bundled 73434c4 source, while the corrected run records the applied
 Q6_K overlay. Both use the same corpus identity; neither establishes batched-

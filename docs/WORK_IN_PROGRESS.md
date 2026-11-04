@@ -1,10 +1,19 @@
-# Remaining work — October 25, 2026
+# Remaining work — November 4, 2026
 
 The full macOS/Apple Silicon campaign is incomplete and paused. This backlog
 contains unfinished work only; completed tranches and their original failed
 attempts are retained in [the archived WIP](history/wip-through-2026-09-30.md).
 Updating these documents does not resume implementation or the owner-controlled
 complete quality rerun.
+
+This reconciliation preserves the existing implementation and verification
+backlog. Current pins are main `890898c`, Laguna `448d569`, llama.cpp
+`f5027fb` (`b11836`), and MLX mlx 0.32.4 / mlx-lm 0.32.2. Historical Next Q4
+results (75/100, 8/8 long cases) belong to main `0aaea5a`; Qwen3.8-27B's
+llama.cpp results belong to `b11371`. Neither qualifies the newer installed pin.
+The November 4 HTTP-resume checks and verified full 1017 Q2 transfer are
+completed download evidence, recorded [separately](changes/2026-11-04.md).
+The remaining model, vision and release requirements below stay open.
 
 ## Remaining implementation
 
@@ -23,7 +32,7 @@ complete quality rerun.
 | Area | Work still required |
 | --- | --- |
 | 27B / 3.6 | Common-100 and the original long-context checks on llama.cpp and on MLX, with model/quant-specific numerical references. The published 61/100 and 63/100 and the online-attention/batched-prefill overlays belonged to the retired engines; reruns remain owner-controlled. |
-| Qwen Next | Complete Learn/Tutor, PDF/vision and native-desktop qualification; qualify Q2 independently. Recheck the retained Learn incident with the intended effective reasoning request. The Q4 100-case and eight long-context cases are already recorded in the current-main baseline. |
+| Qwen Next | Complete Learn/Tutor, PDF/vision and native-desktop qualification; qualify Q2 independently. Recheck the retained Learn incident with the intended effective reasoning request. The Q4 baseline is 75/100 and 8/8 long cases on `0aaea5a`; qualify the current `890898c` stack separately. |
 | Agent / Goals / Cowork | Real selected-model long tasks, steering, pause/resume, durable recovery, exactly-once effects and independently reopened exports across all selections. Revalidate the retained 3.6 timeout/partial-summary failure on current code. Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS: resume profile 2/2. Long profile 10/11 so far: `ambiguous-edit` failed in a reasoning loop; a second sample was stopped. Five long cases have not run. Rerun them on runtime v106, which no longer declares the refused shell tools; a reasoning-budget pause is [proposal 3](../PLAN.MD#proposals). |
 | PDFs / vision | At least thirty PDFs and twenty images per vision checkpoint, independently graded answers, actual pixel paths and negative text-model/history/cache tests in all four modes. |
 | Desktop | Ten selections × Chat/Agent/Learn/Cowork: at least forty complete native-model workflows, plus Design, switching, errors, cancellation and final-build regressions. |
@@ -98,6 +107,8 @@ pins, evidence contract and reporting rules are in
 Added October 25. These are candidates outside the campaign; starting one is
 the owner's decision. What exists today and what is missing for each is in
 [PLAN.MD](../PLAN.MD#proposals).
+Proposal 13 was added November 4; its prompt rewrite and evaluation have not
+started. Documentation reconciliation does not implement these proposals.
 
 | # | Proposal | Mode |
 | --- | --- | --- |
@@ -113,6 +124,7 @@ the owner's decision. What exists today and what is missing for each is in
 | 10 | PDF ↔ web claim agreement matrix | Search, Cowork |
 | 11 | Conversation branches instead of destructive Regenerate | Chat, Learn |
 | 12 | Opt-in watched drop folder | Cowork |
+| 13 | Base Chat prompt simplification and held-out comparison, preserving output contracts and effective capabilities | Chat |
 
 ## Scope and separate product roadmap
 
@@ -129,6 +141,9 @@ still needs actual end-to-end validation. The separate
 [quality roadmap](QUALITY_GATES.md#roadmap) retains visual-diversity/independent-
 review work, latency baselines and signed release-summary automation.
 Those items do not authorize media runs or a new platform campaign.
+Real Linux/Windows/CUDA/ROCm/Vulkan qualification, Windows pi/OpenCode and
+Linux/Windows OCR are separate platform-roadmap items, outside the macOS
+campaign denominator; they remain unqualified.
 
 ## Current sources and historical evidence
 

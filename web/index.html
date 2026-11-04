@@ -834,7 +834,7 @@
     .roadmap-loading__step.is-done .roadmap-loading__dot::after { content: '✓'; position: absolute; inset: -3px 0 0; color: #fff; font-size: 9px; font-weight: 700; text-align: center; }
     .roadmap-loading__step.is-active .roadmap-loading__dot { border-color: var(--roadmap-blue); background: var(--roadmap-blue); animation: ds-roadmap-pulse 1.25s ease-in-out infinite; }
     .roadmap-loading__step-title { color: #3a4051; font-size: 13px; line-height: 1.35; }
-    .roadmap-loading__step-detail { margin-top: 5px; color: #9aa0ae; font-size: 11.5px; }
+    .roadmap-loading__step-detail { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
     .roadmap-loading__time { padding-top: 2px; color: #b4b8c4; font: 11px/1 var(--font-mono); }
     .roadmap-loading__draft { display: flex; align-items: center; gap: 10px; margin: 26px 0 14px; color: var(--roadmap-muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
     .roadmap-loading__draft::after { content: ''; flex: 1; height: 1px; background: #edeff3; }
@@ -7574,7 +7574,7 @@
     body.roadmap-mode .roadmap-loading__head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f0f1f5; }
     body.roadmap-mode .roadmap-loading__spinner { width: 16px; height: 16px; border: 2px solid #d6def9; border-top-color: #2b4ee6; border-radius: 50%; animation: spin .8s linear infinite; }
     body.roadmap-mode .roadmap-direct-loading__label { color: #14161c; font-size: 14px; font-weight: 500; }
-    body.roadmap-mode .roadmap-loading__elapsed { margin-left: auto; color: #9aa0ae; font: 12px/1 var(--font-mono); }
+    body.roadmap-mode .roadmap-loading__elapsed { margin-left: auto; color: var(--muted); font: 12px/1 var(--font-mono); }
     body.roadmap-mode .roadmap-loading__steps { padding: 8px 16px 14px; }
     body.roadmap-mode .roadmap-loading__step { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; gap: 11px; padding: 7px 0; }
     body.roadmap-mode .roadmap-loading__dot { width: 10px; height: 10px; margin: 4px 3px 0; border: 1px solid #ccd2df; border-radius: 50%; background: #fff; }
@@ -7582,18 +7582,22 @@
     body.roadmap-mode .roadmap-loading__step.is-done .roadmap-loading__dot::after { content: '✓'; position: absolute; inset: -3px 0 0; color: #fff; font-size: 9px; font-weight: 700; text-align: center; }
     body.roadmap-mode .roadmap-loading__step.is-active .roadmap-loading__dot { border-color: #2b4ee6; background: #2b4ee6; animation: ds-roadmap-pulse 1.25s ease-in-out infinite; }
     body.roadmap-mode .roadmap-loading__step-title { color: #3a4051; font-size: 13px; line-height: 1.35; }
-    body.roadmap-mode .roadmap-loading__step-detail { margin-top: 5px; color: #9aa0ae; font-size: 11.5px; }
+    body.roadmap-mode .roadmap-loading__step-detail { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
     body.roadmap-mode .roadmap-loading__time { padding-top: 2px; color: #b4b8c4; font: 11px/1 var(--font-mono); }
-    body.roadmap-mode .roadmap-loading__draft { display: flex; align-items: center; gap: 10px; margin: 26px 0 14px; color: #9aa0ae; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
-    body.roadmap-mode .roadmap-loading__draft::after { content: ''; flex: 1; height: 1px; background: #edeff3; }
-    body.roadmap-mode .roadmap-loading__skeleton { position: relative; display: grid; gap: 22px; }
-    body.roadmap-mode .roadmap-loading__skeleton::before { content: ''; position: absolute; left: 15px; top: 14px; bottom: 12px; width: 2px; background: #e9ebf2; }
-    body.roadmap-mode .roadmap-loading__phase { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 18px; }
-    body.roadmap-mode .roadmap-loading__phase-node { z-index: 1; display: grid; width: 32px; height: 32px; place-items: center; border: 2px solid #dce0e9; border-radius: 50%; background: #fff; color: #a8adba; font: 600 12px/1 var(--font-mono); }
-    body.roadmap-mode .roadmap-loading__bars { display: grid; align-content: center; gap: 8px; min-height: 57px; }
-    body.roadmap-mode .roadmap-loading__bar { height: 11px; border-radius: 999px; background: linear-gradient(90deg, #f1f2f6 25%, #f8f9fb 38%, #f1f2f6 63%); background-size: 300% 100%; animation: ds-roadmap-shimmer 1.45s ease-in-out infinite; }
-    body.roadmap-mode .roadmap-loading__bar--wide { width: min(56%, 320px); height: 16px; }
-    body.roadmap-mode .roadmap-loading__bar--short { width: min(34%, 190px); }
+    body.roadmap-mode .roadmap-loading__current { padding: 20px 20px 16px; }
+    body.roadmap-mode .roadmap-loading__eyebrow { color: var(--muted); font: 10px/1.4 var(--font-mono); letter-spacing: .08em; }
+    body.roadmap-mode .roadmap-loading__activity { margin-top: 8px; color: var(--text); font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
+    body.roadmap-mode .roadmap-loading__received { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    body.roadmap-mode .roadmap-loading__received:empty { display: none; }
+    body.roadmap-mode .roadmap-loading__step.is-past .roadmap-loading__dot { background: var(--border); }
+    body.roadmap-mode .roadmap-loading__step.is-error .roadmap-loading__dot { border-color: var(--danger); }
+    body.roadmap-mode .roadmap-loading__step-title { color: var(--text); overflow-wrap: anywhere; }
+    body.roadmap-mode .roadmap-loading__step-detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.55; overflow-wrap: anywhere; }
+    body.roadmap-mode .roadmap-loading__footer { display: grid; gap: 7px; padding: 14px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.55; }
+    @media (max-width: 520px) {
+      body.roadmap-mode .roadmap-loading__head { flex-wrap: wrap; }
+      body.roadmap-mode .roadmap-loading__elapsed { margin-left: 26px; }
+    }
     body.roadmap-mode .roadmap-direct-error { width: min(620px, 100%); margin: 42px auto; padding: 24px; border: 1px solid #e1e4ec; border-radius: 14px; background: #fff; color: #3a4051; box-shadow: 0 1px 3px rgb(20 22 28 / .05); text-align: left; }
     body.roadmap-mode .roadmap-direct-error__eyebrow { margin-bottom: 8px; color: #9aa0ae; font: 600 11px/1 var(--font-mono); letter-spacing: .08em; }
     body.roadmap-mode .roadmap-direct-error h2 { margin: 0; color: #14161c; font-family: var(--serif); font-size: 23px; font-weight: 400; letter-spacing: -.01em; }
@@ -7615,9 +7619,6 @@
     body.roadmap-mode .roadmap-attempt__actions .roadmap-attempt__retry { border-color: #2b4ee6; background: #2b4ee6; color: #fff; }
     body.roadmap-mode .roadmap-attempt__actions .roadmap-attempt__retry:hover { border-color: #1e3ac4; background: #1e3ac4; color: #fff; }
     body.roadmap-mode .roadmap-attempt__actions .roadmap-attempt__restore:hover { border-color: #b9c6f7; color: #2b4ee6; }
-    body.roadmap-mode .roadmap-loading__actions { display: flex; justify-content: flex-end; margin-top: 14px; }
-    body.roadmap-mode .roadmap-loading__actions .btn { min-height: 32px; border-color: #d5dbec; background: #fff; color: #5b6070; box-shadow: none; }
-    body.roadmap-mode .roadmap-loading__actions .btn:hover { border-color: #b9c6f7; color: #2b4ee6; }
     @media (max-width: 680px) {
       body.roadmap-mode .roadmap-attempt { grid-template-columns: 1fr; gap: 14px; }
       body.roadmap-mode .roadmap-attempt__actions { justify-content: flex-start; }
@@ -7784,6 +7785,14 @@
     :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__phase-node {
       border-color: var(--border-2);
       background: var(--surface-2);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__step.is-active .roadmap-loading__dot {
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+    :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__step.is-done .roadmap-loading__dot {
+      border-color: #22a06b;
+      background: #22a06b;
     }
     :root[data-theme="dark"] body.roadmap-mode .roadmap-loading__bar {
       background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 38%, var(--surface-2) 63%);
@@ -13554,9 +13563,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     // Shared by the onboarding and Settings model pickers.
     const DEFAULT_FLASH_GGUF = 'gguf/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf';
     const MODEL_DOWNLOADS = [
-      { id: 'ds41f-q2', label: 'DeepSeek V4.1 Flash 1017 · Q2 — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-IQ2_XXS-Q2_K-imatrix\.gguf$/i },
-      { id: 'ds41f-q2-original', label: 'DeepSeek V4.1 Flash (original checkpoint) · Q2 — 365.7 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q2-original', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q2\.gguf$/i },
-      { id: 'ds41f-q4', label: 'DeepSeek V4.1 Flash · Q4 — 518.6 GB including SSD-backed Engram · Metal', body: { target: 'ds41f-q4', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q4\.gguf$/i },
+      { id: 'ds41f-q2', label: 'DeepSeek V4.1 Flash 1017 · Q2 — 365.7 GB including SSD-backed Engram, then its 0.97 GB vision encoder · Metal', body: { target: 'ds41f-q2', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-IQ2_XXS-Q2_K-imatrix\.gguf$/i },
+      { id: 'ds41f-q2-original', label: 'DeepSeek V4.1 Flash (original checkpoint) · Q2 — 365.7 GB including SSD-backed Engram, then its 0.97 GB vision encoder · Metal', body: { target: 'ds41f-q2-original', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q2\.gguf$/i },
+      { id: 'ds41f-q4', label: 'DeepSeek V4.1 Flash · Q4 — 518.6 GB including SSD-backed Engram, then its 0.97 GB vision encoder · Metal', body: { target: 'ds41f-q4', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Q4\.gguf$/i },
       { id: 'ds41f-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash (original checkpoint: Q2 or Q4) · matching native vision encoder — 0.97 GB · Metal', body: { target: 'ds41f-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-Vision\.gguf$/i },
       { id: 'ds41f-1017-vision', role: 'vision-support', label: 'DeepSeek V4.1 Flash 1017 · matching native vision encoder (community, nazeshinjite) — 0.97 GB · Metal', body: { target: 'ds41f-1017-vision', engine: 'main' }, match: /^DeepSeek-V4\.1-Flash-1017-Vision\.gguf$/i },
       { id: 'ds4f-q2', label: 'DeepSeek V4 Flash · chat — IQ2_XXS, ~81 GB (0731)', body: { target: 'ds4f-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731\.gguf$/i },
@@ -13564,13 +13573,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       { id: 'ds4f-q4', label: 'DeepSeek V4 Flash · chat — Q4, higher quality & larger (0731)', body: { target: 'ds4f-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731\.gguf$/i },
       { id: 'ds4f-mxfp4', label: 'DeepSeek V4 Flash · MXFP4 — ~156 GB (0731, Metal/CUDA)', body: { target: 'ds4f-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731\.gguf$/i },
       { id: 'ds4f-dspark', role: 'dspark-support', label: 'DeepSeek V4 Flash · DSpark support (0731 chat) — ~6 GB', body: { target: 'ds4f-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-DSpark-support-0731\.gguf$/i },
-      { id: 'ds4f-vision-q2', label: 'DeepSeek V4 Flash Vision-Exp · IQ2_XXS — ~86.7 GB / 81 GiB', body: { target: 'ds4f-vision-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
-      { id: 'ds4f-vision-q2-q4', label: 'DeepSeek V4 Flash Vision-Exp · mixed Q2/Q4 — ~97.6 GB / 91 GiB', body: { target: 'ds4f-vision-q2-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
-      { id: 'ds4f-vision-mxfp4', label: 'DeepSeek V4 Flash Vision-Exp · MXFP4 — ~156 GB / 145 GiB', body: { target: 'ds4f-vision-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out\.gguf$/i },
+      { id: 'ds4f-vision-q2', label: 'DeepSeek V4 Flash Vision-Exp · IQ2_XXS — ~86.7 GB / 81 GiB, then its ~0.93 GB vision encoder', body: { target: 'ds4f-vision-q2', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
+      { id: 'ds4f-vision-q2-q4', label: 'DeepSeek V4 Flash Vision-Exp · mixed Q2/Q4 — ~97.6 GB / 91 GiB, then its ~0.93 GB vision encoder', body: { target: 'ds4f-vision-q2-q4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8\.gguf$/i },
+      { id: 'ds4f-vision-mxfp4', label: 'DeepSeek V4 Flash Vision-Exp · MXFP4 — ~156 GB / 145 GiB, then its ~0.93 GB vision encoder', body: { target: 'ds4f-vision-mxfp4', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out\.gguf$/i },
       { id: 'ds4f-vision-dspark', role: 'dspark-support', label: 'DeepSeek V4 Flash Vision-Exp · matching DSpark support — ~6 GB', body: { target: 'ds4f-vision-dspark', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Exp-DSpark-support\.gguf$/i },
       { id: 'ds4f-vision-encoder', role: 'vision-support', label: 'DeepSeek V4 Flash Vision-Exp · native vision encoder — ~0.93 GB', body: { target: 'ds4f-vision-encoder', engine: 'main' }, match: /^DeepSeek-V4-Flash-Vision-Encoder\.gguf$/i },
       { id: 'pro-q2-imatrix', label: 'DeepSeek V4 Pro · IQ2_XXS — ~430 GB (0813)', body: { target: 'pro-q2-imatrix', engine: 'main' }, match: /^DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix-0813\.gguf$/i },
-      { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB', body: { target: 'glm53-q2', engine: 'main' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
+      { id: 'glm53-q2', label: 'GLM 5.3 Flash · Q2 — ~96.5 GB / 90 GiB, then its ~1.13 GB vision encoder', body: { target: 'glm53-q2', engine: 'main' }, match: /^GLM-5\.3-Flash-Q2\.gguf$/i },
       { id: 'glm53-vision', role: 'vision-support', label: 'GLM 5.3 Flash · native vision encoder — ~1.13 GB', body: { target: 'glm53-vision', engine: 'main' }, match: /^GLM-5\.3-Flash-Vision-Encoder\.gguf$/i },
       { id: 'laguna-q4', label: 'Laguna S 2.1 · Q4_K_M — ~68 GB · Metal/full residency', body: { target: 'laguna-q4', engine: 'laguna' }, match: /^laguna-s-2\.1-Q4_K_M\.gguf$/i },
       { id: 'qwen38-q2', label: 'Qwen3.8-Flash-Next · Q2 — 147.2 GB disk / 41.7 GiB resident · main · BF16 n-grams included', body: { target: 'qwen38-q2', engine: 'main' }, match: /^Qwen3\.8-Flash-Next-Q2\.gguf$/i },
@@ -13645,7 +13654,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       const bytes = Number(dl?.bytes) > 0
         ? ` · ${fmtGgufSize(Number(dl.bytes))} ${dl?.paused ? 'saved' : 'downloaded'}`
         : '';
-      return `${stage} ${dl?.variant || 'model'}${pct}${bytes}${dl?.paused ? '' : ' · runs in the background'}`;
+      const what = dl?.companionOf ? `the vision encoder for ${dl.companionOf}` : (dl?.variant || 'model');
+      return `${stage} ${what}${pct}${bytes}${dl?.paused ? '' : ' · runs in the background'}`;
     }
     function modelDownloadStateFromStatus(st) {
       if (st?.download && st.downloadPct >= 0 && st.downloadPct < 100)
@@ -13657,6 +13667,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           bytes: st.downloadBytes || 0,
           stage: st.downloadPhase === 'installing' ? 'Installing engine for'
             : st.downloadPhase === 'verifying' ? 'Verifying files for' : 'Downloading',
+          // The host continues a verified model with its vision encoder.
+          companionOf: st.downloadCompanionOf || '',
         };
       if (st?.pausedDownload)
         return {
@@ -16493,49 +16505,83 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         return wrap;
       }
 
-      function buildRoadmapLoading(label = 'Building your roadmap') {
-        const isResearching = /research/i.test(label);
-        const step = (state, title, detail = '', time = '') => el('div', {
-          class: `roadmap-loading__step${state ? ` is-${state}` : ''}`,
+      let roadmapProgressTimer = null;
+
+      function refreshRoadmapProgressClock() {
+        const panels = root?.querySelectorAll('.roadmap-direct-loading[data-started-at]');
+        if (!panels?.length) {
+          clearInterval(roadmapProgressTimer);
+          roadmapProgressTimer = null;
+          return;
+        }
+        if (document.hidden) return;
+        panels.forEach((panel) => {
+          const elapsed = Math.max(0, Math.floor((Date.now() - Number(panel.dataset.startedAt)) / 1000));
+          const quiet = Math.max(0, Math.floor((Date.now() - Number(panel.dataset.updatedAt)) / 1000));
+          panel.querySelector('.roadmap-loading__elapsed').textContent = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')} elapsed`;
+          panel.querySelector('.roadmap-loading__heartbeat').textContent = quiet >= 15
+            ? `Waiting for the next update · last activity ${quiet}s ago. Local research and model preparation can take time.`
+            : 'Live activity · updates appear as research and model work arrive.';
+        });
+      }
+
+      function buildRoadmapLoading(message = {}) {
+        const isResearching = !!message.webSearching;
+        const progress = message.roadmapActivity || {};
+        const trace = (message.webTrace || []).filter(Boolean);
+        const activeRows = trace.filter(item => item.state === 'active').slice(-6);
+        const finishedRows = trace.filter(item => item.state !== 'active' && item.state !== 'pending');
+        const visibleTrace = [...(activeRows.length < 6 ? finishedRows.slice(-(6 - activeRows.length)) : []), ...activeRows];
+        const active = [...visibleTrace].reverse().find(item => item.state === 'active');
+        const label = isResearching ? 'Researching your learning path' : 'Building your roadmap';
+        const activity = isResearching
+          ? active?.label || 'Preparing the next research step'
+          : progress.label || 'Preparing the local model';
+        const step = (state, title, detail = '') => el('div', {
+          class: `roadmap-loading__step is-${state || 'pending'}`,
+          'data-state': state || 'pending',
         }, [
           el('span', { class: 'roadmap-loading__dot', 'aria-hidden': 'true' }),
           el('div', {}, [
             el('div', { class: 'roadmap-loading__step-title', text: title }),
-            detail ? el('div', { class: 'roadmap-loading__step-detail', text: detail }) : null,
+            detail ? el('div', { class: 'roadmap-loading__step-detail', text: detail, title: detail }) : null,
           ].filter(Boolean)),
-          el('span', { class: 'roadmap-loading__time', text: time }),
         ]);
-        const skeleton = (index) => el('div', { class: 'roadmap-loading__phase', 'aria-hidden': 'true' }, [
-          el('span', { class: 'roadmap-loading__phase-node', text: String(index + 1) }),
-          el('span', { class: 'roadmap-loading__bars' }, [
-            el('span', { class: 'roadmap-loading__bar roadmap-loading__bar--wide' }),
-            el('span', { class: 'roadmap-loading__bar roadmap-loading__bar--short' }),
-          ]),
-        ]);
-        return el('div', { class: 'roadmap-direct-loading', role: 'status', 'aria-live': 'polite' }, [
-          el('div', { class: 'roadmap-loading' }, [
-            el('section', { class: 'roadmap-loading__trace', 'aria-label': 'Roadmap generation progress' }, [
-              el('div', { class: 'roadmap-loading__head' }, [
-                el('span', { class: 'roadmap-loading__spinner', 'aria-hidden': 'true' }),
-                el('span', { class: 'roadmap-direct-loading__label', text: label }),
-                el('span', { class: 'roadmap-loading__elapsed', text: 'Working' }),
-              ]),
-              el('div', { class: 'roadmap-loading__steps' }, isResearching
-                ? [
-                    step('active', 'Researching reliable sources', 'Reading the material you provided and selecting authoritative references.'),
-                    step('', 'Extracting foundations and prerequisites'),
-                    step('', 'Sequencing a practical learning path'),
-                  ]
-                : [
-                    step('done', 'Research evidence prepared', 'The sources and prerequisites are ready for the curriculum.', 'done'),
-                    step('active', 'Building your roadmap', 'Organizing phases, blocks and checkpoints around your goal.'),
-                    step('', 'Preparing the first draft'),
-                  ]),
+        const rows = isResearching
+          ? visibleTrace.map(item => step(item.state, item.label, item.detail))
+          : [
+              message.sources?.length ? step('done', `${message.sources.length} research sources collected`) : null,
+              ...(progress.history || []).slice(-3).map(item => step('past', item)),
+              step('active', activity),
+            ].filter(Boolean);
+        const panel = el('div', {
+          class: 'roadmap-direct-loading',
+          'data-started-at': String(progress.startedAt || message.createdAt || Date.now()),
+          'data-updated-at': String(progress.updatedAt || message.createdAt || Date.now()),
+        }, [
+          el('section', { class: 'roadmap-loading__trace', 'aria-label': 'Roadmap generation progress' }, [
+            el('div', { class: 'roadmap-loading__head' }, [
+              el('span', { class: 'roadmap-loading__spinner', 'aria-hidden': 'true' }),
+              el('span', { class: 'roadmap-direct-loading__label', text: label }),
+              el('span', { class: 'roadmap-loading__elapsed', 'aria-live': 'off' }),
             ]),
-            el('div', { class: 'roadmap-loading__draft', text: isResearching ? 'Research in progress' : 'Roadmap draft' }),
-            el('div', { class: 'roadmap-loading__skeleton' }, [skeleton(0), skeleton(1), skeleton(2)]),
+            el('div', { class: 'roadmap-loading__current', role: 'status', 'aria-live': 'polite' }, [
+              el('span', { class: 'roadmap-loading__eyebrow', text: 'CURRENT ACTIVITY' }),
+              el('div', { class: 'roadmap-loading__activity', text: activity }),
+              el('div', { class: 'roadmap-loading__received' }),
+            ]),
+            el('div', { class: 'roadmap-loading__steps', 'aria-label': 'Recent activity' }, rows.length
+              ? rows : [step('active', activity)]),
+            el('div', { class: 'roadmap-loading__footer' }, [
+              el('div', { class: 'roadmap-loading__heartbeat', 'aria-live': 'off' }),
+              el('div', { text: 'You can stop at any time using the square in the prompt below.' }),
+            ]),
           ]),
         ]);
+        // One clock belongs to the visible view, never to individual messages.
+        // It stops after the last loading panel is removed.
+        if (!roadmapProgressTimer) roadmapProgressTimer = setInterval(refreshRoadmapProgressClock, 1000);
+        return panel;
       }
 
       function roadmapAttemptPrompt(chat, attempt) {
@@ -17371,6 +17417,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           m.attachments ? JSON.stringify(m.attachments.map((a) => [a.name, a.size, a.truncated, a.internal])) : '',
           m.roadmapSources ? JSON.stringify(m.roadmapSources) : '',
           m.roadmapProgress ? JSON.stringify(m.roadmapProgress) : '',
+          m.roadmapActivity ? JSON.stringify(m.roadmapActivity) : '',
           m.roadmapOverride ? JSON.stringify(m.roadmapOverride) : '',
           editingUserMsgId === m.id ? 'editing' : '',
           chat?.model || '',
@@ -17425,16 +17472,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           } else if ((m.streaming || m.webSearching || m.roadmapPending)
             && Store.isChatStreaming(chat?.id)
             && Store.getState().ui.connection !== 'down') {
-            const loading = buildRoadmapLoading(m.webSearching ? 'Deep researching your learning path' : 'Building your roadmap');
-            if (!hasPreviousRoadmap) {
-              loading.append(el('div', { class: 'roadmap-loading__actions' }, [
-                el('button', {
-                  class: 'btn', type: 'button', 'data-act': 'cancel-roadmap',
-                  text: 'Annulla generazione',
-                }),
-              ]));
-            }
-            article.append(loading);
+            article.append(buildRoadmapLoading(m));
           } else {
             const modelUnavailable = Store.getState().ui.connection === 'down';
             const label = m.error?.message || (modelUnavailable
@@ -17797,15 +17835,18 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function updateWebSearching(messageId, trace) {
         const chat = Store.getActiveChat();
-        if (!chat || chat.mode === 'roadmap' || !chat.messages.some(m => m.id === messageId && m.webSearching)) return false;
+        if (!chat || !chat.messages.some(m => m.id === messageId && m.webSearching)) return false;
         const article = root?.querySelector(`.msg[data-id="${cssEscape(messageId)}"]`);
-        const panel = article?.querySelector('.web-searching-wrap');
+        const panel = article?.querySelector(chat.mode === 'roadmap' ? '.roadmap-direct-loading' : '.web-searching-wrap');
         if (!panel) return false;
         const stick = shouldAutoFollow(chat.id);
         const previousTop = root.scrollTop;
         // Keep saved messages attached. Rebuilding the entire transcript for
         // every progress event discards selections and WebKit's painted layers.
-        panel.replaceWith(buildWebSearching(trace));
+        panel.replaceWith(chat.mode === 'roadmap'
+          ? buildRoadmapLoading(chat.messages.find(m => m.id === messageId))
+          : buildWebSearching(trace));
+        if (chat.mode === 'roadmap') refreshRoadmapProgressClock();
         messageNodes.delete(messageId);
         follow.settle(stick, previousTop);
         updateScrollBtn();
@@ -17970,7 +18011,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           'data-id': msg.id,
         });
         if (roadmapDirect) {
-          initial.append(buildRoadmapLoading('Building your roadmap'));
+          initial.append(buildRoadmapLoading(msg));
         } else {
           initial.append(buildMessageStart('assistant', true));
           initial.append(el('div', { class: 'msg__content md' }));
@@ -17985,6 +18026,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         let fullContent = msg.content || '';
         let fullReasoning = '';
         let activity = initialActivity;
+        let receivedAt = 0;
         let raf = 0;
 
         function paint() {
@@ -17995,10 +18037,20 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           article.classList.add('msg--streaming');
           const stick = shouldAutoFollow(followBottomChatId);
           if (roadmapDirect) {
-            const label = article.querySelector('.roadmap-direct-loading__label');
-            if (label) label.textContent = activity === 'Restarting local model'
-              ? 'Starting the local model'
-              : 'Building your roadmap';
+            const panel = article.querySelector('.roadmap-direct-loading');
+            const saved = Store.getActiveChat()?.messages.find(item => item.id === msg.id);
+            if (panel && saved?.roadmapActivity?.label !== panel.dataset.activity) {
+              const next = buildRoadmapLoading(saved || msg);
+              next.dataset.activity = saved?.roadmapActivity?.label || '';
+              panel.replaceWith(next);
+            }
+            const visible = article.querySelector('.roadmap-direct-loading');
+            if (visible && (fullContent || fullReasoning)) {
+              visible.dataset.updatedAt = String(Math.max(receivedAt, saved?.roadmapActivity?.updatedAt || msg.createdAt));
+              visible.querySelector('.roadmap-loading__received').textContent =
+                `${(fullContent.length + fullReasoning.length).toLocaleString()} characters received from the model`;
+            }
+            refreshRoadmapProgressClock();
             if (stick) follow.toBottom();
             updateScrollBtn();
             return;
@@ -18036,8 +18088,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const schedule = () => { if (!raf) raf = requestAnimationFrame(paint); };
 
         const view = {
-          appendReasoning(delta) { fullReasoning += delta; schedule(); },
-          setContent(fullText) { fullContent = fullText; schedule(); },
+          appendReasoning(delta) { fullReasoning += delta; if (delta) receivedAt = Date.now(); schedule(); },
+          setContent(fullText) { if (fullText !== fullContent) receivedAt = Date.now(); fullContent = fullText; schedule(); },
           setActivity(label) {
             const next = String(label || '');
             if (next === activity) return;
@@ -21841,9 +21893,21 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         Store.appendMessage(chat.id, asst);
         if (chat.remote) RemoteShare.publishDebounced(chat);
 
-        const view = Store.getActiveChat()?.id === chat.id
+        asst.roadmapActivity = { label: 'Preparing the local model', startedAt: Date.now(), updatedAt: Date.now(), history: [] };
+        const liveView = Store.getActiveChat()?.id === chat.id
           ? Messages.beginAssistant(asst, 'Building a researched learning path')
           : noopAssistantView();
+        const view = {
+          ...liveView,
+          setActivity(label) {
+            const previous = asst.roadmapActivity;
+            const history = previous.label === label ? previous.history : [...previous.history, previous.label].slice(-6);
+            Store.patchMessage(chat.id, asst.id, {
+              roadmapActivity: { ...previous, label, history, updatedAt: Date.now() },
+            });
+            liveView.setActivity(label);
+          },
+        };
         const controller = new AbortController();
         const liveTurn = turns.get(chatId);
         if (liveTurn) liveTurn.phase = 'text';
@@ -22506,7 +22570,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (job.cancelled || researchJobs.get(chatId) !== job) return;
           const chat = Store.getChat(chatId);
           if (!chat) return;
-          Store.patchMessage(chatId, searchMsgId, { webTrace: trace });
+          Store.patchMessage(chatId, searchMsgId, { webTrace: trace, roadmapActivity: { startedAt: job.startedAt, updatedAt: Date.now() } });
           if (Store.getActiveChat()?.id === chatId && !Messages.updateWebSearching(searchMsgId, trace)) renderChatIfActive(chatId);
         };
         (async () => {
@@ -22591,7 +22655,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         let webResult;
         const updateTrace = (trace) => {
           searchMsg.webTrace = trace;
-          Store.patchMessage(chat.id, searchMsg.id, { webTrace: trace });
+          Store.patchMessage(chat.id, searchMsg.id, { webTrace: trace, roadmapActivity: { startedAt: searchMsg.createdAt, updatedAt: Date.now() } });
           if (Store.getActiveChat()?.id === chat.id && !Messages.updateWebSearching(searchMsg.id, trace)) renderChatIfActive(chat.id);
         };
         if (webMode === 'research') {
@@ -37439,9 +37503,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const downloaded = modelDownloadChoice(id);
           toast(downloaded?.role === 'dspark-support'
             ? `${id} downloaded — enable DSpark in Settings → Advanced`
-            : downloaded?.role === 'vision-support'
-              ? `${downloaded.label} downloaded — restart or retry the matching model request`
-              : `${id} downloaded — select it from the model menu`, 'info');
+            : downloaded?.role === 'vision-support' && st.downloadCompanionOf
+              ? `${st.downloadCompanionOf} and its vision encoder downloaded — select it from the model menu`
+              : downloaded?.role === 'vision-support'
+                ? `${downloaded.label} downloaded — restart or retry the matching model request`
+                : `${id} downloaded — select it from the model menu`, 'info');
           Settings.refreshModels();
         } else if (id) {
           toast(st.downloadPhase === 'failed' ? `Installation, download or verification of ${id} failed` : `Download of ${id} stopped before completing`, st.downloadPhase === 'failed' ? 'error' : 'warn');
@@ -37979,7 +38045,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         openWorkdirDialog(target, true);
       }
 
-      return { mount, mode: () => mode, launching: () => launchTarget, restartCurrent, ensureChatReady, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession, openDesignSession,
+      return { mount, openLearn: () => switchTo('roadmap'), mode: () => mode, launching: () => launchTarget, restartCurrent, ensureChatReady, changeWorkdir, applyCtxSize, applyEngineConfig, applyThinkLevel, openImport, switchModel, switchToGguf, switchSkill, switchDesignSystem, switchPlan, switchGsa, switchRsa, downloadModel, newSession, openDesignSession,
                wirePromptForRuntime,
                planArmed: () => PlanDriver.armed(), planArm: (g) => PlanDriver.arm(g),
                planPending: () => PlanDriver.pending(), planAction: (a) => PlanDriver.action(a),
@@ -42241,7 +42307,32 @@ Choose however many stages, branches, and topics the subject actually warrants; 
     // Local server-backed history: merge the server store at boot and LAND on
     // the current conversation (chat/roadmap/agent/design), then keep it fresh
     // (poll the cheap rev endpoint; refresh when the tab is focused).
-    Store.syncFromServer(true, true);
+    const historyReady = Store.syncFromServer(true, true);
+    const learnLaunch = window.__ds4LearnLaunch;
+    delete window.__ds4LearnLaunch;
+    if (learnLaunch && location.hostname === '127.0.0.1' && !isLanClientMode()
+      && typeof learnLaunch.prompt === 'string' && learnLaunch.prompt.trim()
+      && typeof learnLaunch.token === 'string') {
+      historyReady.then(() => {
+        if (sessionStorage.getItem('ds4.learnLaunch') === learnLaunch.token) return;
+        sessionStorage.setItem('ds4.learnLaunch', learnLaunch.token);
+        Switcher.openLearn();
+        if (Switcher.mode() !== 'roadmap') throw new Error('Learn is unavailable in the current runtime mode.');
+        const previous = Store.listChats('roadmap').find(chat => {
+          const lastUser = [...chat.messages].reverse().find(message => message.role === 'user');
+          const last = chat.messages.at(-1);
+          const interrupted = last?.role === 'user' || last?.error || last?.finishReason === 'aborted' || last?.roadmapPending;
+          return interrupted && lastUser?.content?.trim() === learnLaunch.prompt.trim();
+        });
+        if (previous) {
+          Store.setActiveChat(previous.id);
+          Chat.sendMessage(null, { regenerate: true });
+        } else {
+          Store.createChat('roadmap');
+          Chat.sendMessage(learnLaunch.prompt);
+        }
+      }).catch(error => toast(`Could not start learning: ${error.message}`, 'warn'));
+    }
     Store.syncLanClientMirrors();
     setInterval(() => Store.pollStore(), 4000);
     setInterval(() => Store.syncLanClientMirrors(), 4000);

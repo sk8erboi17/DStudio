@@ -2146,6 +2146,21 @@ static int g_dl_result = 0;          /* 0 running/unknown, 1 completed, -1 faile
  * successful installer/downloader exit remains the completion authority. */
 static char g_dl_directory[DSTUDIO_PATH_MAX] = "";
 static int g_dl_progress_fd = -1, g_dl_phase = 0, g_dl_stop_requested = 0;
+/* A vision-capable model's native encoder is a separate download target, and
+ * one download runs at a time. g_dl_next names the encoder to fetch once the
+ * running model download exits successfully; g_dl_companion_of names the model
+ * whose encoder is the current download (status only). */
+static char g_dl_next[48] = "";
+static char g_dl_companion_of[48] = "";
+#ifndef _WIN32
+typedef struct {
+    const char *status;            /* HTTP status line */
+    const char *error;             /* static reply text */
+    unsigned long long task_id;    /* nonzero only when the reply names the task */
+} model_download_refusal;
+static int model_download_begin(const char *target, unsigned long long *task_out,
+                                model_download_refusal *why);
+#endif
 
 static const char *model_download_phase(void) {
     if (g_dl_pid <= 0) return g_dl_result > 0 ? "complete" :
@@ -2943,6 +2958,33 @@ static const char *native_vision_encoder_rel_for_model(const char *model_rel) {
     if (model_file_is_glm(model_rel)) return MODEL_GLM53_VISION;
     if (model_file_is_deepseek_vision(model_rel)) return MODEL_DSVISION_ENCODER;
 #endif
+    return NULL;
+}
+/* The download target of the native vision encoder a downloadable model needs,
+ * or NULL. It is derived from the encoder the runtime requires for that model
+ * file, so download pairing and runtime pairing cannot disagree (each DeepSeek
+ * V4.1 checkpoint, for example, needs its own sidecar). Support files such as
+ * DSpark are not models and get no encoder. */
+static const char *model_download_vision_companion(const char *target) {
+    static const char *const models[] = {
+        "ds41f-q2", "ds41f-q2-original", "ds41f-q4",
+        "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4", "glm53-q2",
+    };
+    static const char *const encoders[] = {
+        "ds41f-1017-vision", "ds41f-vision", "ds4f-vision-encoder", "glm53-vision",
+    };
+    int model = 0;
+    for (size_t i = 0; target && i < sizeof models / sizeof models[0]; i++)
+        if (!strcmp(target, models[i])) model = 1;
+    if (!model) return NULL;
+    char rel[1024], encoder[1024];
+    long long bytes = 0;
+    model_download_details(target, rel, sizeof rel, &bytes);
+    const char *needed = native_vision_encoder_rel_for_model(rel);
+    for (size_t i = 0; needed && i < sizeof encoders / sizeof encoders[0]; i++) {
+        model_download_details(encoders[i], encoder, sizeof encoder, &bytes);
+        if (!strcmp(encoder, needed)) return encoders[i];
+    }
     return NULL;
 }
 static const char *native_selected_vision_encoder(void) {
@@ -4400,6 +4442,33 @@ static void reap_child(void) {
             g_dl_result = code == 0 ? 1 : -1;
             if (g_dl_progress_fd >= 0) { close(g_dl_progress_fd); g_dl_progress_fd = -1; }
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
+#ifndef _WIN32
+            /* Only a verified, unstopped model continues with its encoder, in
+             * the same store it was admitted to. Revalidate absence now: the
+             * file may have arrived another way while the model downloaded. */
+            char next[48], finished[48], rel[1024], current[DSTUDIO_PATH_MAX];
+            long long bytes = 0;
+            cstr_copy(next, sizeof next, g_dl_next);
+            cstr_copy(finished, sizeof finished, g_dl_variant);
+            g_dl_next[0] = '\0';
+            if (next[0] && code == 0 && !g_dl_stop_requested) {
+                model_download_details(next, rel, sizeof rel, &bytes);
+                if (!realpath(g_ds4_dir, current) || strcmp(current, g_dl_directory)) {
+                    printf("model: %s finished; its vision encoder %s was not started because "
+                           "another engine checkout is now selected\n", finished, next);
+                } else if (!file_present_in_dir(g_dl_directory, rel)) {
+                    unsigned long long task = 0;
+                    model_download_refusal why = {0};
+                    if (model_download_begin(next, &task, &why)) {
+                        cstr_copy(g_dl_companion_of, sizeof g_dl_companion_of, finished);
+                        printf("model: %s finished; downloading its vision encoder %s\n", finished, next);
+                    } else {
+                        printf("model: %s finished; its vision encoder %s could not start: %s\n",
+                               finished, next, why.error ? why.error : "unknown error");
+                    }
+                }
+            }
+#endif
         }
     }
     if (g_child <= 0) return;
@@ -6646,16 +6715,14 @@ static const char *mode_name(int m) {
 /* POST /api/model/download {target} — fetch a GGUF in the background by
  * running the matching ds4 download script. The percentage is read from the
  * growing file in /api/status. */
-static void api_model_download(int fd, const char *body) {
-#ifdef _WIN32
-    (void)body;
-    send_json(fd, "501 Not Implemented",
-              "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
-    return;
-#else
-    char target[48] = {0};
-    json_get_string(body, "target", target, sizeof target);
-
+#ifndef _WIN32
+/* Admit and spawn one model download. Shared by the API and by the reaper,
+ * which continues a verified model with its vision encoder. Refusals carry
+ * the exact reply the API sends; nothing is started on refusal. */
+static int model_download_begin(const char *target, unsigned long long *task_out,
+                                model_download_refusal *why) {
+#define DL_REFUSE(status_, error_, task_) do { why->status = (status_); why->error = (error_); \
+        why->task_id = (task_); return 0; } while (0)
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
         "ds41f-q2", "ds41f-q2-original", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
@@ -6675,34 +6742,24 @@ static void api_model_download(int fd, const char *body) {
     int valid = catalog_variant != NULL;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
         if (!strcmp(target, TARGETS[i])) valid = 1;
-    if (!valid) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unknown model/target\"}");
-        return;
-    }
+    if (!valid) DL_REFUSE("400 Bad Request", "unknown model/target", 0);
     unsigned long long task_id = task_begin("model-download", "Download model",
                                             target, ENGINE_NONE,
                                             g_ds4_dir, 0, 0);
     if (g_dl_pid > 0) {
         task_mark_failed(task_id, "a download is already running", g_dl_variant);
-        char out[128];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"a download is already running\"}", task_id);
-        send_json(fd, "409 Conflict", out);
-        return;
+        DL_REFUSE("409 Conflict", "a download is already running", task_id);
     }
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) {
         task_mark_failed(task_id, "ds4 dir not found", g_ds4_dir);
-        char out[128];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"ds4 dir not found\"}", task_id);
-        send_json(fd, "500 Internal Server Error", out);
-        return;
+        DL_REFUSE("500 Internal Server Error", "ds4 dir not found", task_id);
     }
     const int mlx = catalog_variant && variant.engine == QWEN_ENGINE_MLX;
 #if !(defined(__APPLE__) && defined(__aarch64__))
     if (mlx) {
         task_mark_failed(task_id, "MLX needs Apple Silicon", target);
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"The MLX model runs only on Apple Silicon Macs\"}");
-        return;
+        DL_REFUSE("400 Bad Request", "The MLX model runs only on Apple Silicon Macs", 0);
     }
 #endif
     /* Every Qwen download shares one isolated path: managed root, admitted
@@ -6723,8 +6780,7 @@ static void api_model_download(int fd, const char *body) {
         int n = snprintf(ds4_abs, sizeof ds4_abs, "%s/ds4", install_root);
         if (!install_root[0] || n < 0 || (size_t)n >= sizeof ds4_abs || !ds4_dir_valid_path(ds4_abs)) {
             task_mark_failed(task_id, "managed model store unavailable", "this model needs the managed ds4 installation root");
-            send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"This model needs the managed ds4 model store; finish first-run setup\"}");
-            return;
+            DL_REFUSE("409 Conflict", "This model needs the managed ds4 model store; finish first-run setup", 0);
         }
         char store[DSTUDIO_PATH_MAX + 64]; struct stat st;
         snprintf(store, sizeof store, "%s/gguf", ds4_abs);
@@ -6738,8 +6794,7 @@ static void api_model_download(int fd, const char *body) {
         }
         if (stat(store, &st) != 0 || !S_ISDIR(st.st_mode)) {
             task_mark_failed(task_id, "managed model store unavailable", "Finish first-run setup before downloading this model");
-            send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"The managed model folder is missing; finish first-run setup\"}");
-            return;
+            DL_REFUSE("409 Conflict", "The managed model folder is missing; finish first-run setup", 0);
         }
         snprintf(store_identity, sizeof store_identity, "%llu:%llu", (unsigned long long)st.st_dev, (unsigned long long)st.st_ino);
         if (pipe(progress) != 0 || fcntl(progress[0], F_SETFL, O_NONBLOCK) != 0 ||
@@ -6747,16 +6802,14 @@ static void api_model_download(int fd, const char *body) {
             if (progress[0] >= 0) close(progress[0]);
             if (progress[1] >= 0) close(progress[1]);
             task_mark_failed(task_id, "could not create download progress pipe", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not prepare the model download\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not prepare the model download", 0);
         }
         cstr_copy(log_path, sizeof log_path, mlx ? "/tmp/dstudio-mlx-download.XXXXXX" : "/tmp/dstudio-qwen27-download.XXXXXX");
         owned_log = mkstemp(log_path);
         if (owned_log < 0) {
             close(progress[0]); close(progress[1]);
             task_mark_failed(task_id, "could not create private download log", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not prepare a private download log\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not prepare a private download log", 0);
         }
         fcntl(owned_log, F_SETFD, FD_CLOEXEC);
     }
@@ -6769,8 +6822,7 @@ static void api_model_download(int fd, const char *body) {
         if (sigprocmask(SIG_BLOCK, &download_signals, &previous_signals) != 0) {
             close(progress[0]); close(progress[1]); close(owned_log);
             task_mark_failed(task_id, "could not isolate download signals", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not isolate the model download\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not isolate the model download", 0);
         }
     }
     pid_t pid = fork();
@@ -6780,10 +6832,7 @@ static void api_model_download(int fd, const char *body) {
         if (progress[1] >= 0) close(progress[1]);
         if (owned_log >= 0) close(owned_log);
         task_mark_failed(task_id, "fork failed", strerror(errno));
-        char out[160];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"fork failed\"}", task_id);
-        send_json(fd, "500 Internal Server Error", out);
-        return;
+        DL_REFUSE("500 Internal Server Error", "fork failed", task_id);
     }
     if (pid == 0) {
         if (q27) {
@@ -6855,7 +6904,43 @@ static void api_model_download(int fd, const char *body) {
     g_dl_qwen = variant; g_dl_qwen_valid = catalog_variant != NULL;
     model_download_details(target, g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
     printf("model: downloading %s (pid %d) — log %s\n", target, (int)pid, log_path);
-    char out[128];
+    /* Plan the encoder only when it is absent from this store; the reaper
+     * revalidates absence, success and the selected store before starting it. */
+    g_dl_companion_of[0] = '\0';
+    g_dl_next[0] = '\0';
+    const char *companion = model_download_vision_companion(target);
+    if (companion) {
+        char companion_rel[1024];
+        long long companion_bytes = 0;
+        model_download_details(companion, companion_rel, sizeof companion_rel, &companion_bytes);
+        if (!file_present_in_dir(ds4_abs, companion_rel))
+            cstr_copy(g_dl_next, sizeof g_dl_next, companion);
+    }
+    *task_out = task_id;
+    return 1;
+#undef DL_REFUSE
+}
+#endif
+
+static void api_model_download(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
+#else
+    char target[48] = {0};
+    json_get_string(body, "target", target, sizeof target);
+    unsigned long long task_id = 0;
+    model_download_refusal why = {0};
+    char out[256];
+    if (!model_download_begin(target, &task_id, &why)) {
+        if (why.task_id)
+            snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", why.task_id, why.error);
+        else
+            snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", why.error);
+        send_json(fd, why.status, out);
+        return;
+    }
     snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, target);
     send_json(fd, "200 OK", out);
 #endif
@@ -6879,6 +6964,7 @@ static void api_model_download_stop(int fd) {
         return;
     }
     g_dl_stop_requested = 1;
+    g_dl_next[0] = '\0';   /* Stop ends the whole request, including its encoder */
     send_json(fd, "200 OK", "{\"ok\":true,\"stopped\":true}");
 #endif
 }
@@ -7168,6 +7254,7 @@ static void api_status(int fd) {
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,\"downloadPhase\":\"%s\","
+        "\"downloadCompanionOf\":\"%s\","
         "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
         "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
@@ -7184,6 +7271,7 @@ static void api_status(int fd) {
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
         dl_bytes, g_dl_expected_bytes, model_download_phase(),
+        g_dl_variant[0] ? g_dl_companion_of : "",
         paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
         err_esc, line_esc, mf_esc, g_skill, g_design_system,
         native_glm_vision_installed() ? "true" : "false",

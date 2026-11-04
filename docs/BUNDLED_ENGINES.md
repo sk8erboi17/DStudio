@@ -11,6 +11,10 @@ Weights still require a separate, explicit download or an existing local model.
 Source installation is not model readiness or inference qualification. Existing
 runtime checkouts, user changes, settings and model paths are preserved.
 
+The [November 4 payload correction](changes/2026-11-04.md) synchronizes the
+HTTP-resumable V4.1 downloader in the source tree and local app/support copies.
+It does not change engine pins or the scope of earlier inference results.
+
 | Engine | Source snapshot | Upstream revision |
 | --- | --- | --- |
 | Main: DeepSeek, GLM and current Qwen Next | [ds4](../src/engines/ds4/) | `890898cfb437ed256be58ebcf7c58a6dfa8f2f53` (since November 3, 2026; `0aaea5a` before) |

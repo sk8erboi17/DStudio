@@ -316,6 +316,13 @@ thread identity stay in their existing owners; the domain callback revalidates
 the displayed conversation before rendering. All five modes run the same mouse,
 keyboard, completion, reading-position and persistence regressions.
 
+The Learn fixture also holds its first source-read HTTP response until the
+current URL appears in the loading panel. It checks real trace updates, elapsed
+and quiet-interval feedback, and the single shared composer Stop. A simulated
+native learning launch resumes a cancelled request in the same conversation and
+is consumed once across reload. These are UI checks with simulated inference,
+not real-model roadmap acceptance.
+
 The broader Learn fixture holds its first expansion response until the live
 status and disabled submission control have been observed. Recovery tests pause
 the fixture browser clock and drain owned HTTP work before injecting their
@@ -1819,6 +1826,39 @@ fork and are no longer runnable.
 
 
 ## Local regression suite
+
+### DeepSeek V4.1 HTTP download and resume
+
+`make test-ds41-1017-download` executes the production shell downloader and real
+curl against a threaded loopback HTTP server with tiny independently hashed
+payloads. It checks all three pinned targets, adoption of the largest matching
+HF partial without copying, exact range resume after a broken connection and
+Stop, exclusive per-file ownership, ignored Range rejection, size/SHA failures,
+preservation of existing files, linked/oversized partial rejection, token
+delivery and root CLI routing. It transfers no model weights and qualifies
+neither real inference nor full-size download completion. Receipts, including
+failed runs, remain under `tests/.artifacts/ds41-1017-download/`.
+
+The November 4 14-case run passed. A separate real 1017 Q2 transfer completed
+at the pinned 365,713,686,528 bytes and passed SHA-256; it validates that
+download's integrity, not inference or vision. Earlier failed fixture runs are
+retained. See [the reconciliation and evidence scope](../docs/changes/2026-11-04.md).
+
+### Automatic matching vision downloads (host fixtures)
+
+After building `./dstudio`, run:
+
+```sh
+node tests/unit/ds41_model_test.mjs
+node tests/integration/model_vision_companion_host_test.mjs ./dstudio
+```
+
+The UI unit cases execute the production model/download helpers. The host test
+runs isolated HTTP, process groups and tiny fixture download scripts on macOS;
+it checks correct V4.1/GLM pairing, existing encoders, text/support exclusions,
+failed model downloads and Stop during either phase. Receipts remain under
+`tests/.artifacts/model-vision-companion-host/`. These checks run no real
+weights or inference and do not qualify a model or Windows downloads.
 
 ### DeepSeek V4.1 vision sidecar pairing (real engine, no weights)
 

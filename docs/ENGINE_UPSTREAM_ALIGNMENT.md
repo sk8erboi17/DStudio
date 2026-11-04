@@ -12,9 +12,12 @@ receipts and unresolved source reviews. It must fail admission until those
 items are resolved. Its rows are requirements, not an announcement that all
 models, backends or modes work.
 
-The October 1 documentation audit counts nine macOS targets, **117 required
-gate slots and zero linked receipts** in that matrix. These are missing bound
-qualification records, not 117 failed tests. Existing scoped results may be
+The November 4 reconciliation counts nine macOS targets, **107 required
+gate slots and zero linked receipts** in that matrix. MLX is the tenth campaign
+selection but still lacks an admission target; adding it remains open.
+These are missing bound qualification records, not 107 failed tests.
+The October 1 audit's 117-slot count is historical: the Qwen targets later
+moved to llama.cpp with different required gates. Existing scoped results may be
 linked only after checking the exact source/patch/binary/model identity and gate
 scope; no new release receipt was created by the documentation cleanup.
 
@@ -28,7 +31,7 @@ The command rechecks each relevant branch over the network.
 
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
-| ds4 main, including Qwen3.8 Next | [`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. The results below were recorded on `0aaea5a` and do not transfer to `890898c`. New single-file Q4 has a complete 75/100 corpus receipt, including 8/8 long cases; Q2 and complete numerical/mode/desktop qualification remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
+| ds4 main, including Qwen3.8 Next | [`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. The Next single-file Q4 baseline is 75/100, including 8/8 long cases, on `0aaea5a`. It does not qualify `890898c`; current-stack numerical/mode/desktop qualification and independent Q2 acceptance remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
 | Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits at the last recorded review; applicable main changes and complete macOS mode coverage remain open. Other backends are outside this campaign. |
 | llama.cpp, Qwen3.6-35B-A3B and Qwen3.8-27B | [`f5027fb`](https://github.com/ggml-org/llama.cpp/commit/f5027fb21307eb264aed483242603d68c87b0fe3) (`b11836`, since October 23; `b11371` before) | Bundled unmodified in `src/engines/llama.cpp`; built offline with CMake on first use. Chat, Agent and Cowork passed the live gate on both models on `b11371` (Metal); on `b11836` only Qwen3.6 has been rerun (6/6); Design runs with structured tool calls (real page on Qwen3.6). No DStudio patch is applied. Full-model quality, long context and other backends remain open. |
 
@@ -48,8 +51,10 @@ engine and patches. The full campaign
 census, additional format/quantization choices
 and final build freeze remain separate requirements.
 
-The Agent patch set is now version 103, adding unified main without changing
-the other variants' source output. The separate Qwen Next target is replaced by
+The current Agent patch manifest is version 106; its scoped changes and
+verification are recorded in [the patch notes](../patch/ds4-agent-jsonl/README.md).
+Version 103 previously added unified main without changing the other variants'
+source output. The separate Qwen Next target is replaced by
 main/Qwen Next Q2 and Q4 rows; all their full qualification gates remain open.
 The version-102 real Laguna continuation
 replay passes 6/6, including separate summary review. The corresponding Qwen3.6

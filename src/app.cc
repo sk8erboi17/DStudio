@@ -340,6 +340,22 @@ static void stop_server(void) {
 #endif
 
 int main(int argc, char **argv) {
+#ifdef __APPLE__
+    const char *learn_prompt = NULL;
+#endif
+    if (argc == 3 && !strcmp(argv[1], "--learn")) {
+#ifdef __APPLE__
+        if (!argv[2][0] || strlen(argv[2]) > 32768) {
+            fprintf(stderr, "DStudio: --learn requires a prompt of 1–32768 bytes.\n");
+            return 2;
+        }
+        learn_prompt = argv[2];
+        argc = 1; /* The prompt belongs to the window, never the HTTP child. */
+#else
+        fprintf(stderr, "DStudio: --learn is currently supported by the macOS desktop app.\n");
+        return 2;
+#endif
+    }
     /* Batch/CLI modes and windowless mode run the server entry DIRECTLY — no
      * fork, no window. Otherwise the parent would wait for a server the batch
      * child never starts, then open a window (the --build-jsonl "hang"). */
@@ -448,6 +464,25 @@ int main(int argc, char **argv) {
     snprintf(url, sizeof url, "http://127.0.0.1:%d%s", port, path);
 
     webview_t w = webview_create(1280, 860, "DStudio");
+#ifdef __APPLE__
+    if (learn_prompt) {
+        /* An explicit local launch request, scoped to this app's origin and
+         * consumed once by the main page. Reloading must never resubmit it. */
+        NSString *prompt = [NSString stringWithUTF8String:learn_prompt];
+        if (prompt) {
+            NSString *origin = [NSString stringWithFormat:@"http://127.0.0.1:%d", port];
+            NSArray *request = @[origin, prompt, [[NSUUID UUID] UUIDString]];
+            NSData *json = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+            NSString *literal = [[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] autorelease];
+            NSString *script = [NSString stringWithFormat:
+                @"(() => { const [origin, prompt, token] = %@; if (location.origin !== origin || location.pathname !== '/') return; if (sessionStorage.getItem('ds4.learnLaunch') === token) return; window.__ds4LearnLaunch = {prompt, token}; })();", literal];
+            WKUserScript *launch = [[WKUserScript alloc] initWithSource:script
+                injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+            [((ds4_wv *)w)->webview.configuration.userContentController addUserScript:launch];
+            [launch release];
+        }
+    }
+#endif
     webview_navigate(w, url);
     webview_run(w);   /* blocks while the window stays open */
 

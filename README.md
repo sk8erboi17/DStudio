@@ -58,7 +58,7 @@ and most models are integrated without being fully qualified.
 - [Development and tests](#development-and-tests)
 - [Network access](#network-lan) · [How it works](#how-it-works) · [Security](#security)
 - [Contributing](#contributing)
-- [WIP checklist](#wip-checklist--october-27-2026)
+- [WIP checklist](#wip-checklist--november-4-2026)
 - [Project layout](docs/PROJECT_LAYOUT.md)
 
 ## What DStudio can do
@@ -137,14 +137,28 @@ downloadable build; to use it today, [build from source](#build-from-source).
 
 **Recent changes**
 
+- **Learn activity feedback (November 4).** The loading panel shows actual
+  research steps, URLs being read, synthesis/audit activity, elapsed time and
+  quiet intervals. Stop stays in the composer. Chromium/WebKit checks use
+  simulated model replies; final roadmap quality remains unqualified.
+  [Scope](docs/changes/2026-11-04.md#learn-generation-feedback-and-local-relaunch).
+- **Matching vision downloads (November 4).** DeepSeek V4 Vision-Exp, V4.1 and
+  GLM model downloads continue with their missing native encoder after the model
+  download succeeds. Stop cancels the remaining chain; existing encoder files
+  stay in place. [Scope](docs/changes/2026-11-04.md#matching-vision-encoder-downloads).
+- **V4.1 HTTP resume (November 4).** The pinned Q2 and 1017 vision downloader
+  resumes existing digest-matched partials over HTTP, with connection retries
+  and exact size/SHA-256 verification. Fourteen small-file HTTP checks pass;
+  one full 1017 Q2 transfer also completed and verified. This is download
+  evidence, not model-quality qualification. [Scope](docs/changes/2026-11-04.md).
 - **ds4 main moved to `890898c` (November 3).** The bundled main engine follows
   upstream's November 2 revision; DStudio's patches were rebased and the native
-  runtimes rebuilt on it (no real-model runs yet). An installed `ds4/` at
+  runtimes rebuilt on it (complete real-model qualification remains open). An installed `ds4/` at
   `0aaea5a` must be reinstalled; move it aside rather than deleting it, because
   its `gguf/` folder holds your models. [Steps](docs/BUNDLED_ENGINES.md#main-refresh-to-890898c-november-3-2026).
 - **Breaking for existing source installs (October 27).** Older installations
   are not upgraded: reinstall the bundled engines and restart unfinished Qwen
-  downloads. [Details](#wip-checklist--october-27-2026).
+  downloads. [Details](#wip-checklist--november-4-2026).
 - **Qwen moved to bundled engines.** Qwen3.6-35B-A3B and Qwen3.8-27B run on
   llama.cpp `b11836`; Qwen3.6 also runs on MLX on Apple Silicon. The former
   Qwen side engines (vagrillo/ds4 and Ninnix/q36) are retired. Qwen3.8-Flash-Next
@@ -217,7 +231,7 @@ These are focused development checks, not a quality score or a ranking.
   is started. See [the list](PLAN.MD#proposals).
 - Learn/Tutor, PDF/vision, long tasks, the native desktop matrix, generated
   Design projects and final release admission. See the
-  [WIP checklist](#wip-checklist--october-27-2026),
+  [WIP checklist](#wip-checklist--november-4-2026),
   [remaining work](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
 
 ## Install
@@ -984,7 +998,7 @@ From the project root:
 ./download-model.sh --help
 ./download-model.sh ds4f-q2        # DeepSeek V4 Flash
 ./download-model.sh ds4f-vision-q2 # DeepSeek V4 Flash Vision-Exp + encoder
-./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash 1017 Q2 (needs hf with Xet)
+./download-model.sh ds41f-q2       # DeepSeek V4.1 Flash 1017 Q2 (Python 3 + curl, HTTP resume)
 ./download-model.sh ds41f-1017-vision # its 1017 vision encoder
 ./download-model.sh glm53-q2       # GLM 5.3 Flash (glm53-vision for its encoder)
 ./download-model.sh laguna-q4      # Laguna S 2.1
@@ -999,8 +1013,13 @@ From the project root:
 
 DeepSeek V4, GLM and Laguna show a visible `<model>.gguf.part` while a transfer
 is incomplete. The pinned Qwen downloads verify size and SHA-256 per file before
-the model becomes selectable. Hugging Face/Xet transfers (Qwen3.8, V4.1) keep
-partial data in the Hugging Face cache until they are verified in full.
+the model becomes selectable. The pinned V4.1 Q2 and 1017 vision downloads use
+HTTP range resume, continuing the largest matching Hugging Face cache partial
+in place. A stalled connection is retried from the bytes actually saved; Stop
+preserves those bytes. Exact size and SHA-256 must pass before publication, and
+existing weights are never overwritten. These targets need Python 3 and curl,
+without depending on the installed Hugging Face/Xet version. Other Hugging
+Face/Xet transfers (Qwen3.8, V4.1 Q4/original vision) retain their own downloader.
 
 ### Linux and Windows (prepared, not tested)
 
@@ -1509,12 +1528,15 @@ right testers.
 [BSD 3-Clause](LICENSE) © 2026 Giuseppe Perrotta. Bundled third-party sources
 keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## WIP checklist — October 27, 2026
+## WIP checklist — November 4, 2026
 
 The macOS/Apple Silicon campaign is **incomplete**. Checked items mean the
 stated implementation or scoped verification is complete; they do not qualify
 every model or a release. Exact acceptance criteria and retained failures are in
 [the remaining WIP](docs/WORK_IN_PROGRESS.md) and [PLAN.MD](PLAN.MD).
+Reconciled against the current source pins and evidence on November 4. The
+complete model-quality campaign remains paused; historical results keep their
+original revisions and are not passes on a newer engine.
 
 ### Completed implementation and scoped checks
 
@@ -1523,7 +1545,9 @@ every model or a release. Exact acceptance criteria and retained failures are in
   [Sources and verification](docs/BUNDLED_ENGINES.md).
 - [x] Replace the Qwen side engines with bundled llama.cpp for Qwen3.6 and
   Qwen3.8-27B, with a guarded resident owner; real 6/6 on each model,
-  including Design. [Retirement record](docs/BUNDLED_ENGINES.md#retired-qwen-side-engines).
+  including Design, on llama.cpp `b11371`. On current `b11836`, Qwen3.6
+  passed 6/6 again; Qwen3.8-27B has not been rerun.
+  [Retirement record](docs/BUNDLED_ENGINES.md#retired-qwen-side-engines).
 - [x] Add MLX for Qwen3.6 on Apple Silicon: offline wheels, pinned weight
   download, readiness check; real 6/6 with retained earlier failures.
 - [x] Run Design on llama.cpp/MLX models with structured tool calls.
@@ -1538,8 +1562,10 @@ every model or a release. Exact acceptance criteria and retained failures are in
 - [x] Prepare Linux/Windows llama.cpp builds (dynamic backends, Job Object,
   parent-death signal); cross-compiled, and the dynamic layout built and run on
   macOS.
-- [x] Move Qwen Next onto unified main and record the Q4 baseline: 75/100 corpus
-  answers and 8/8 long-context cases. [Qwen evidence](docs/QWEN_CHECKPOINT.md).
+- [x] Move Qwen Next onto unified main and record the Q4 baseline on main
+  `0aaea5a`: 75/100 corpus answers and 8/8 long-context cases. These retained
+  results do not qualify the current `890898c` pin.
+  [Qwen evidence](docs/QWEN_CHECKPOINT.md).
 - [x] Remove automatic elapsed-work cutoffs from model preparation, inference,
   PDF planning and Research, keeping Stop, count/byte/concurrency bounds and
   explicit Task Graph budgets.
@@ -1569,29 +1595,15 @@ every model or a release. Exact acceptance criteria and retained failures are in
 - [x] Download every Qwen variant, the three original ones included, through
   one verified downloader (`scripts/download-qwen-variant.py`). Remove host
   routes and UI code that nothing called.
-- [x] Keep patches only for the bundled engine revisions (ds4 main `0aaea5a`,
+- [x] Keep patches only for the bundled engine revisions (ds4 main `890898c`,
   Laguna `448d569`): the variants for earlier main revisions and the retired
   Qwen Next fork, with its fixtures and tests, are deleted (about 19,000 lines).
   The patch stack applies and restores byte for byte on the bundled sources.
   [Patch notes](patch/README.md).
-- [x] **Breaking (October 27, 2026):** no backward compatibility with older
-  installations. An engine at another revision, an older DStudio patch state
-  (the former M2 Max batch-limit upgrade and Design label normalization), a
-  leftover `ds4-qwen38`/`ds4-glm5.3` folder without a DStudio receipt or the old
-  Qwen Next base + PLE files get no special handling or upgrade: they fail as
-  drift or are treated like any other folder or file. Half-finished Qwen
-  downloads from before this change do not resume (their staging folder is now
-  `.dstudio-qwen-downloads`); partial files are left on disk. Reinstall the
-  bundled engines and restart those downloads.
-
-### Still required
-
 - [x] Restore Agent, Cowork and Design sessions on llama.cpp/MLX (and a LAN
   host) after a restart: the transcript is saved after every turn and `/switch`
   rebuilds it; old tool calls can never run again. Real runtimes across a
   restart with simulated model frames: `make test-remote-session`.
-- [ ] KV snapshots for llama.cpp/MLX sessions (a restored session is prefilled
-  again), and saved sessions for pi/OpenCode on these models.
 - [x] Refuse SSRF to the host's loopback from LAN devices, DNS rebinding and
   cross-site CORS; bound and protect LAN chat mirrors.
   `make test-http-lan` (real host, requests from the LAN address).
@@ -1605,16 +1617,34 @@ every model or a release. Exact acceptance criteria and retained failures are in
   DeepSeek V4 Flash Vision-Exp. [Results](extension/prompt-lookup/bench/README.md#follow-up-the-lost-final-newline-3-october-2026).
 - [x] Cowork from a LAN browser through an explicitly shared, paired session.
   `make test-http-lan`, `tests/browser/ui_lan_cowork_playwright_test.mjs`.
+- [x] Resume the pinned V4.1 Q2 and 1017 vision files over HTTP without Xet.
+  Fourteen loopback HTTP checks pass; one real 365,713,686,528-byte 1017 Q2
+  transfer resumed its existing partial and passed the pinned SHA-256. Model
+  quality and the separate vision component remain independent requirements.
+  [Evidence scope](docs/changes/2026-11-04.md).
+- [x] **Breaking (October 27, 2026):** no backward compatibility with older
+  installations. An engine at another revision, an older DStudio patch state
+  (the former M2 Max batch-limit upgrade and Design label normalization), a
+  leftover `ds4-qwen38`/`ds4-glm5.3` folder without a DStudio receipt or the old
+  Qwen Next base + PLE files get no special handling or upgrade: they fail as
+  drift or are treated like any other folder or file. Half-finished Qwen
+  downloads from before this change do not resume (their staging folder is now
+  `.dstudio-qwen-downloads`); partial files are left on disk. Reinstall the
+  bundled engines and restart those downloads.
+
+### Still required
+
+- [ ] KV snapshots for llama.cpp/MLX sessions (a restored session is prefilled
+  again), and saved sessions for pi/OpenCode on these models.
 - [ ] Run the five representative real-weight checks of the newly downloadable
   Qwen variants (Qwen3.6 UD-Q4_K_M, UD-IQ4_XS and MXFP4_MOE GGUFs, Qwen3.6 MLX
   NVFP4, Qwen3.8-27B MLX 4-bit; about 98 GB) with the production-host gate,
   one at a time. **NOT RUN** yet (no weights downloaded for them).
   [Plan](docs/WORK_IN_PROGRESS.md).
 - [ ] Rerun the 100-task corpus and the long requests on llama.cpp and MLX
-  (published Qwen scores come from retired engines); qualify Next Q2
-  independently.
-- [ ] Run Linux, Windows, CUDA, ROCm and Vulkan for real; make pi/OpenCode
-  available on Windows.
+  (published Qwen3.6/27B scores come from retired engines). Revalidate Next on
+  current main `890898c`; its Q4 baseline belongs to `0aaea5a`, and Q2 needs
+  independent qualification.
 - [ ] Run pi/OpenCode with GLM, Laguna, Qwen3.8-Flash-Next, DeepSeek V4.1 and a
   cloud endpoint, and qualify Plan/GSA/RSA with them.
 - [ ] Complete Agent/Cowork dependency signatures, crash-safe runtime-pair
@@ -1642,12 +1672,23 @@ every model or a release. Exact acceptance criteria and retained failures are in
   [How to help](PLAN.MD#contributors).
 - [ ] Complete the six-agent/two-lane comparison with held-out cases, phase
   profiling, matched baselines and reviewed Matplotlib publication.
+
+### Separate platform and media roadmap
+
+These items are outside the macOS/Apple Silicon language-model campaign and do
+not enter its acceptance denominator. They remain open and are not qualified
+by macOS builds or the existing model checks.
+
+- [ ] Run Linux, Windows, CUDA, ROCm and Vulkan for real; make pi/OpenCode
+  available on Windows. Linux/Windows OCR remains unimplemented.
 - [ ] Validate the two-photo MiniMax H3 path end to end.
 
 ### Proposed modules and improvements (not started)
 
 Candidates added October 25, outside the campaign; what exists today and what
 is missing for each is in [PLAN.MD](PLAN.MD#proposals).
+The base Chat prompt review was added as a proposal on November 4; its rewrite
+and real-model comparison have not started.
 
 - [ ] Guards for the pi/OpenCode harnesses: duplicate-call breaker, read-only
   Plan mode and mid-turn steering.
@@ -1662,6 +1703,8 @@ is missing for each is in [PLAN.MD](PLAN.MD#proposals).
 - [ ] A PDF ↔ web claim agreement matrix in Search.
 - [ ] Conversation branches instead of a destructive Regenerate.
 - [ ] An opt-in watched drop folder for Cowork.
+- [ ] Simplify the base Chat prompts and compare them on held-out tasks while
+  preserving math, file and media contracts and effective model capabilities.
 
 Private prompts, documents, transcripts, weights and raw receipts remain
 ignored. Publishing this checkpoint does not qualify any unchecked requirement.
