@@ -7,9 +7,11 @@
 - `extension/`: feature implementations and their assets.
 - `patch/`: versioned engine adaptations, separate from upstream checkouts.
 - `scripts/`: installation, model downloads, packaging and runtime helpers.
-- `tests/`: unit, browser, integration and live suites; see [tests](../tests/README.md).
+- `tests/`: unit, browser, integration and live suites; [the test index](../tests/README.md) links the topic guides in `tests/docs/`.
 - `docs/`: contributor documentation and verification reports. Superseded
-  snapshots live in `docs/history/`, clearly separated from current results.
+  snapshots live in [docs/history/](history/README.md), clearly separated from current results.
+  `PLAN.MD` owns detailed unfinished requirements; `docs/WORK_IN_PROGRESS.md`
+  is the short navigation page, and README is the product entry point.
 - `assets/`: shipped icons, images and bundle metadata.
 - `extension/design-systems/`: original DStudio visual systems, included offline.
 - `src/harness/`: agent loops. Native Cowork, Design, GSA and RSA sources; the

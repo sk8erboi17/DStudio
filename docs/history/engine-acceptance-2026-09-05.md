@@ -1,12 +1,14 @@
 # Real installation and inference checks — September 5, 2026
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md).
+
 **Qwen: 26.44 tokens/s during generation and 12 of 12 checks passed through DStudio.**
 Measured on an Apple M2 Max with 96 GB of memory while Minecraft/Lunar Client
 was running. This is not a speed promise for every conversation.
 
 This is a historical run, not the current support matrix. See the
-[current models and limitations](../README.md#supported-models-and-limitations)
-and [work-in-progress status](WORK_IN_PROGRESS.md) for later integrations.
+[current models and limitations](../../README.md#supported-models-and-limitations)
+and [work-in-progress status](../WORK_IN_PROGRESS.md) for later integrations.
 
 ## What worked, in plain language
 
@@ -107,7 +109,7 @@ Run heavy tests one at a time. Incorrect answers, missing weights, timeouts and
 missing dependencies do not count as successes. `make check-fast` separately
 checks functions, HTTP and browser behavior without loading a large model.
 
-[Published data: requests, answers, failures, revisions, hashes and measurements](benchmarks/engine-acceptance-2026-09-05.json).
+[Published data: requests, answers, failures, revisions, hashes and measurements](../benchmarks/engine-acceptance-2026-09-05.json).
 Full logs remain in the Git-ignored `tests/.artifacts/engine-acceptance/` and
 `tests/.artifacts/qwen-decode/` directories. These are observable workflow checks,
 not proof of logit equivalence, correctness on every input, Qwen multimodal

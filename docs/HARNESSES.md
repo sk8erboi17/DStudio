@@ -130,7 +130,7 @@ Streaming (`make test-streaming-live`, October 3): with a file written through
 a tool, the live preview streamed on every path that was run: Agent, Cowork,
 Design, pi and OpenCode on Qwen3.6 llama.cpp and MLX, and Agent, pi-ds4 and
 OpenCode on DeepSeek. The failed attempts that led to the fixes are listed in
-[tests/README.md](../tests/README.md#streaming-and-live-tool-previews).
+[the streaming verification guide](../tests/docs/engines-and-harnesses.md#streaming-and-live-tool-previews).
 
 Retained failures: `run-Q00iea` ran a stale host binary (the native Agent
 answered; the confinement case caught it, and the target now rebuilds the
@@ -140,7 +140,7 @@ the confinement patch. Both receipts stay under `tests/.artifacts/harness-live/`
 Native harnesses with the llama.cpp models (`make test-llama-resident-live`):
 Agent, Cowork and Chat pass on both models. On **Qwen3.6 MLX** all six native
 checks pass, Design included (`run-scIcQY`; the three earlier MLX failures
-and their fixes are listed in [tests/README.md](../tests/README.md#qwen36-on-mlx-apple-silicon)). **Design** now runs on them with
+and their fixes are listed in [the MLX verification guide](../tests/docs/engines-and-harnesses.md#qwen36-on-mlx-apple-silicon)). **Design** now runs on them with
 structured tool calls: Qwen3.6 saved a page with the exact requested heading
 through the full Design flow (todo, write, read, edit, verify, critique,
 artifact). Its first attempt over the DSML text protocol is retained as a

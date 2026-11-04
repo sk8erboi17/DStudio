@@ -1,8 +1,10 @@
 # DS4 alignment — historical snapshot, 2026-08-27
 
 This records an earlier revision, not the current repository or release state.
-See [current installation and inference results](../ENGINE_ACCEPTANCE.md) for
-the later pinned engines and the checks actually run on them.
+See [the September 5 results](engine-acceptance-2026-09-05.md) for the later
+historical engines and their executed checks. Use [bundled engines](../BUNDLED_ENGINES.md)
+and [engine admission](../ENGINE_UPSTREAM_ALIGNMENT.md) for current installation
+and qualification scope.
 
 No push or release was performed.
 

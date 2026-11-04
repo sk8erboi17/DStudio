@@ -12,6 +12,13 @@ Use [the WIP](docs/WORK_IN_PROGRESS.md) for the shorter backlog,
 [engine admission](docs/ENGINE_UPSTREAM_ALIGNMENT.md) for release requirements.
 Removing a completed task from this backlog does not qualify the entire model.
 
+**Documentation ownership.** This is the canonical detailed list of unfinished
+campaign requirements and retained failures. [README](README.md) is the product
+entry point; [the WIP](docs/WORK_IN_PROGRESS.md) is a short navigation page.
+[Test guides](tests/README.md) own commands and verification scope, while
+[historical reports](docs/history/README.md) retain dated results. Updating those
+summaries does not change this plan's acceptance criteria or denominators.
+
 <a id="scope"></a>
 ## Scope and order
 

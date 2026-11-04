@@ -71,7 +71,7 @@ September 5 build layout and its expert-logging correction) and the skip rule
 for the retired standalone Qwen fork were removed on October 27, 2026. The
 private `b4c3550` fork build had shown that its different layer/expert bounds
 needed their own variant; increasing the scratch-memory bound was not an
-accepted fix. See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-07.md).
+accepted fix. See [the update report](../../docs/history/ds4-main-update-2026-09-07.md).
 
 The macOS hook `scripts/apply-ds4-glm53-m2max.sh` applies the complete patch
 after the existing GLM runtime patch and restores it before that patch during
@@ -154,7 +154,7 @@ binary. Do not restore/apply patches concurrently with another build or update.
 
 The model-free tests do not prove full session error atomicity, continuation
 quality or absence of silent full-model errors. The historical QA record is
-[`PORT_QA.md`](PORT_QA.md), copied unchanged from the prior, then-unapplied
+[`PORT_QA.md`](../../docs/history/glm53-m2max-port-2026-09-05.md), copied unchanged from the prior, then-unapplied
 delivery. Its statement that the destination is unapplied describes that earlier
 phase, not the current managed build.
 
@@ -163,7 +163,7 @@ phase, not the current managed build.
 No inference benchmark was run during this integration. Native raw decode,
 MTP disabled: **no new tok/s, p50/p95 or first-token number**. Historical source
 measurements (not validation of these rebuilt DStudio binaries) are preserved in
-[`PERF_GLM53_M2MAX96.md`](PERF_GLM53_M2MAX96.md): 7.46 tok/s median
+[`PERF_GLM53_M2MAX96.md`](../../docs/history/glm53-m2max-performance-through-2026-09-05.md): 7.46 tok/s median
 (7.26..7.75), 16 actual raw prompt tokens, 131072 allocation, automatic SSD
 streaming. The historical completed scorer records NLL 0.458046251,
 first-token match 89/100 and mean greedy prefix 7.110.
@@ -215,4 +215,5 @@ The live-model QA gate remains open regardless of directory cleanup.
 `src/dstudio_updates.c`, `tests/integration/glm53_m2max_patch_test.mjs`,
 `tests/unit/lan_unit.c`, `Makefile`, `README.md`, `patch/README.md`, and this
 `patch/ds4-glm53-m2max/` package. The engine patch's eight paths are listed in
-`PORT_QA.md`. No direct hand-edited engine delta exists outside that patch.
+the [archived port delivery](../../docs/history/glm53-m2max-port-2026-09-05.md).
+No direct hand-edited engine delta exists outside that patch.

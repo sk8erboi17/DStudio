@@ -1,5 +1,7 @@
 # Original Design systems — development comparison
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md).
+
 This is a real native-agent development experiment, not a model self-score or
 a claim of universal design superiority. The same three frozen briefs are sent
 to the captured old and new Design agents, linked to the same DS4 main runtime
@@ -44,9 +46,9 @@ has a dead link and the revised workshop was never saved. Those failures are
 retained, and the later targeted recovery run is not substituted into these
 initial results.
 
-![Initial Design comparison: both variants deliver two of three projects; one of three in each variant also passes every independent check.](../assets/README%20images/benchmarks/design-development-comparison.png)
+![Initial Design comparison: both variants deliver two of three projects; one of three in each variant also passes every independent check.](../../assets/README%20images/benchmarks/design-development-comparison.png)
 
-[Public aggregate results and provenance hashes](benchmarks/design-development-2026-09-06.json).
+[Public aggregate results and provenance hashes](../benchmarks/design-development-2026-09-06.json).
 The chart uses Matplotlib: `python3 tests/support/publish_benchmark_charts.py`.
 It is reproducible from the committed aggregate JSON; the full local receipts
 and generated projects are not published, so this is not a public raw-run corpus.

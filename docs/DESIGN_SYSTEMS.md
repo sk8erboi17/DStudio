@@ -219,7 +219,7 @@ a pass. At most 12 detailed findings are returned.
 
 Geometry is not an aesthetic score. A model's own critique is not an independent
 quality benchmark. Real comparisons must operate the resulting interfaces.
-See the [real-agent development experiment](DESIGN_AGENT_EXPERIMENT.md) for
+See the [real-agent development experiment](history/design-agent-experiment-2026-09-06.md) for
 observed output defects, regression derivation and comparison status.
 
 A separate P1 readability warning now measures long paragraphs confined below
@@ -439,4 +439,4 @@ Final native Design source SHA-256:
 `87acb241eb2f7ca4aecf2a7eb407a6ed6c37930475801081c315d1813e4e2bd9`.
 These passing regression checks do not erase the mixed initial real-agent
 comparison. The workshop-only replay and its limitations are documented in
-[the experiment](DESIGN_AGENT_EXPERIMENT.md).
+[the experiment](history/design-agent-experiment-2026-09-06.md).

@@ -89,9 +89,12 @@ or mathematical/logit equivalence.
   image retrieval, and can miss CSS backgrounds or other page regions.
 - Only this model's vision was exercised live. Four-engine browser-helper
   compilation does not establish four-model multimodal support.
-- Full Search/Deep Research quality and bounded overall research deadlines,
-  broader tasks, OpenWork/OpenDesign comparisons and real generated-site
-  screenshots remain tracked in [the work plan](../../../docs/SEARCH_AGENT_QUALITY_PLAN.md).
+- Discovery, synthesis and review in the current application have no automatic
+  elapsed-work cutoff. Stop, actual transport failures and count/byte limits
+  remain effective; the historical benchmark keeps its recorded case limits.
+  Held-out Search/Deep Research quality, broader tasks, OpenWork/OpenDesign
+  comparisons and real generated-site screenshots remain tracked in
+  [the work plan](../../../docs/SEARCH_AGENT_QUALITY_PLAN.md).
 
 ## Original failures and grader corrections
 

@@ -67,7 +67,7 @@ safety, visual, or persistence metric goes down.
 Run gates in order. A later green gate does not excuse an earlier red one.
 
 These are release-profile requirements, not labels to attach to every development
-experiment. The [original-systems comparison](DESIGN_AGENT_EXPERIMENT.md) uses
+experiment. The [original-systems comparison](history/design-agent-experiment-2026-09-06.md) uses
 its own matched, disclosed 32k/8192-token development bounds and retains failures;
 it does not qualify the full release ladder or native-vision/media lanes.
 
