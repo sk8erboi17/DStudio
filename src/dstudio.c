@@ -577,9 +577,9 @@ static char g_engine_err[256] = "";       /* why the engine last died, surfaced 
 static void dtg_watchdog_observe_event_line(const char *line);
 static void dtg_agent_owner_release_if_terminal(void);
 static int display_prompt_is_guided_analysis(const char *display);
-static const char *agent_turn_think_preflight(int force_think_max, char *err, size_t errsz);
+static const char *agent_turn_think_preflight(char *err, size_t errsz);
 static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
-                                      const char *display_prompt, int force_think_max,
+                                      const char *display_prompt,
                                       unsigned long long *task_id,
                                       size_t *transcript_from,
                                       char *err, size_t errsz);
@@ -8727,27 +8727,20 @@ static int display_prompt_is_guided_analysis(const char *display) {
     return 0;
 }
 
-static const char *agent_turn_think_preflight(int force_think_max, char *err, size_t errsz) {
+static const char *agent_turn_think_preflight(char *err, size_t errsz) {
     engine_cfg candidate = g_cfg;
-    if (force_think_max) candidate.think = 2;
     return native_think_context_preflight(&candidate, g_mode, current_model_rel(),
                                           g_remote_base_url[0] != '\0', err, errsz);
 }
 
-/* Both native and graph turns use the same pipe control before the prompt.
- * Callers revalidate first, before admitting a turn or changing settings. */
-static int agent_write_turn(const char *prompt, int force_think_max) {
-    static const char think_max_frame[] =
-        "\x1e" "{\"type\":\"control\",\"name\":\"think\",\"value\":\"max\"}\n";
-    if ((force_think_max && !fd_write_all(g_in_fd, think_max_frame, sizeof think_max_frame - 1)) ||
-        !fd_write_all(g_in_fd, prompt, strlen(prompt)) || !fd_write_all(g_in_fd, "\n", 1))
-        return 0;
-    if (force_think_max) g_cfg.think = 2;
-    return 1;
+/* Native and graph turns preserve user-selected control frames in the prompt.
+ * Never promote guided analysis to Max; callers revalidate before admission. */
+static int agent_write_turn(const char *prompt) {
+    return fd_write_all(g_in_fd, prompt, strlen(prompt)) && fd_write_all(g_in_fd, "\n", 1);
 }
 
 static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
-                                      const char *display_prompt, int force_think_max,
+                                      const char *display_prompt,
                                       unsigned long long *task_id,
                                       size_t *transcript_from,
                                       char *err, size_t errsz) {
@@ -8762,11 +8755,11 @@ static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
     }
     /* A queued/recovered graph may now target a different runtime context.
      * Revalidate its original request on every attempt, not just HTTP create. */
-    if (agent_turn_think_preflight(force_think_max, err, errsz)) return 0;
+    if (agent_turn_think_preflight(err, errsz)) return 0;
     unsigned long long operation = task_begin("task-graph-agent",
         title && title[0] ? title : "Task Graph Agent turn", "task-graph",
         ENGINE_AGENT, g_workdir, (int)g_child, 1);
-    if (!agent_write_turn(prompt, force_think_max)) {
+    if (!agent_write_turn(prompt)) {
         snprintf(err, errsz, "write to Agent failed: %s", strerror(errno));
         task_mark_failed(operation, "write to Agent failed", err);
         return 0;
@@ -8852,14 +8845,8 @@ static void api_agent_send(int fd, const char *body) {
         api_agent_send_state_error(fd, "409 Conflict", "a Task Graph owns the Agent turn lease", 0);
         return;
     }
-    int force_think_max = g_mode == ENGINE_AGENT && display_prompt_is_guided_analysis(display);
-    if (g_mode == ENGINE_AGENT && !strcmp(orchestration, "goal")) {
-        char objective[DTG_GOAL_MAX];
-        if (json_get_string(body, "goalObjective", objective, sizeof objective) &&
-            display_prompt_is_guided_analysis(objective)) force_think_max = 1;
-    }
     char think_error[256] = "";
-    const char *think_code = agent_turn_think_preflight(force_think_max, think_error, sizeof think_error);
+    const char *think_code = agent_turn_think_preflight(think_error, sizeof think_error);
     if (think_code) {
         char escaped[768], out[1024];
         json_escape_into(escaped, sizeof escaped, think_error, strlen(think_error));
@@ -8893,7 +8880,7 @@ static void api_agent_send(int fd, const char *body) {
                                             target, g_mode, g_workdir, (int)g_child, 1);
     size_t from = g_alen;
     /* send on the agent's stdin + newline as turn terminator */
-    if (!agent_write_turn(prompt, force_think_max)) {
+    if (!agent_write_turn(prompt)) {
         snprintf(g_engine_err, sizeof g_engine_err, "write to agent/design failed: %s", strerror(errno));
         task_mark_failed(task_id, "write to agent/design failed", g_engine_err);
         api_agent_send_state_error(fd, "500 Internal Server Error", "write to agent/design failed", task_id);
@@ -10042,6 +10029,8 @@ static void store_file_path(char *out, size_t n) {
     snprintf(out, n, "%s/.local/share/flashcards/ds4web-store.json", home ? home : ".");
 #endif
 }
+#include "dstudio_chat_store.c"
+
 static void store_load(void) {
     char p[2048];
     store_file_path(p, sizeof p);
@@ -10050,7 +10039,7 @@ static void store_load(void) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     rewind(f);
-    if (sz > 0 && sz < 64L * 1024 * 1024) {
+    if (sz > 0 && sz <= 64L * 1024 * 1024) {
         char *b = malloc((size_t)sz + 1);
         if (b && fread(b, 1, (size_t)sz, f) == (size_t)sz) {
             b[sz] = '\0';
@@ -10058,22 +10047,6 @@ static void store_load(void) {
             g_store = b; g_store_len = (size_t)sz; g_store_rev = 1;
         } else free(b);
     }
-    fclose(f);
-}
-static void store_save(void) {
-    char p[2048];
-    store_file_path(p, sizeof p);
-    char dir[2048];
-    snprintf(dir, sizeof dir, "%s", p);
-    char *s = strrchr(dir, '/');
-#ifdef _WIN32
-    char *bs = strrchr(dir, '\\');
-    if (!s || (bs && bs > s)) s = bs;
-#endif
-    if (s) { *s = '\0'; mkpath(dir); }
-    FILE *f = fopen(p, "wb");
-    if (!f) return;
-    if (g_store && g_store_len) fwrite(g_store, 1, g_store_len, f);
     fclose(f);
 }
 /* GET → {"rev":N,"data":<the stored blob, raw JSON | null>} */
@@ -10089,13 +10062,8 @@ static void api_store_get(int fd) {
     free(out);
 }
 /* POST: replaces the store with `body` (ownership transferred here), persists it. */
-static void api_store_set(int fd, char *body, size_t len) {
-    free(g_store);
-    g_store = body; g_store_len = len; g_store_rev++;
-    store_save();
-    char out[64];
-    snprintf(out, sizeof out, "{\"ok\":true,\"rev\":%ld}", g_store_rev);
-    send_json(fd, "200 OK", out);
+static int api_store_set(int fd, char *body, size_t len, long revision) {
+    return chat_store_begin(fd, body, len, revision, 0, 0);
 }
 
 static int lan_client_id_ok(const char *id) {
@@ -10231,9 +10199,16 @@ static void clear_dir(const char *path) {       /* delete the contents, keep the
 /* "Clear all conversations": empties the shared chat store, and (when no engine
  * is running, so it's not in use) the on-disk KV cache. Behind the anti-CSRF
  * header. The page wipes its own localStorage separately. */
-static void api_wipe(int fd) {
-    free(g_store); g_store = NULL; g_store_len = 0; g_store_rev++;
-    store_save();
+static int api_wipe(int fd) {
+    struct timespec stamp; timespec_get(&stamp, TIME_UTC);
+    long long epoch = (long long)stamp.tv_sec * 1000 + stamp.tv_nsec / 1000000;
+    char json[160];
+    snprintf(json, sizeof json, "{\"v\":2,\"chats\":[],\"deleted\":[],\"clearedAt\":%lld}", epoch);
+    char *empty = strdup(json);
+    if (!empty) { send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"Conversation wipe could not be prepared\"}"); return 0; }
+    return chat_store_begin(fd, empty, strlen(empty), g_store_rev, 1, epoch);
+}
+static void chat_store_wipe_committed(int fd, long long clear_epoch) {
     int kv_cleared = 0;
     if (g_child <= 0) {        /* the engine isn't running → the KV files are free */
         /* A crashed Agent leaves its completed output in the launcher's
@@ -10246,8 +10221,8 @@ static void api_wipe(int fd) {
         clear_dir(kvroot);
         kv_cleared = 1;
     }
-    char out[80];
-    snprintf(out, sizeof out, "{\"ok\":true,\"kvCleared\":%s}", kv_cleared ? "true" : "false");
+    char out[144];
+    snprintf(out, sizeof out, "{\"ok\":true,\"durable\":true,\"rev\":%ld,\"clearedAt\":%lld,\"kvCleared\":%s}", g_store_rev, clear_epoch, kv_cleared ? "true" : "false");
     send_json(fd, "200 OK", out);
 }
 
@@ -11632,7 +11607,6 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/lan")) { api_lan(fd, body); return 200; }
     if (!strcmp(path, "/api/http-port")) { api_http_port(fd, body); return 200; }
     if (!strcmp(path, "/api/remote")) { api_remote_control(fd, body); return 200; }
-    if (!strcmp(path, "/api/wipe")) { api_wipe(fd); return 200; }
     send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}");
     return 404;
 }
@@ -11874,6 +11848,14 @@ static void handle_connection(int fd) {
         return;
     }
 
+    if (!strcmp(method, "POST") && !strcmp(path, "/api/wipe")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        if (!api_wipe(fd)) close(fd);
+        return;
+    }
+
     /* POST /api/store carries the whole chat history → can be large, so it also
      * runs before the small BODY_MAX cap, reading the full body into a buffer. */
     if (!strcmp(method, "POST") && !strcmp(path, "/api/store")) {
@@ -11888,8 +11870,20 @@ static void handle_connection(int fd) {
             close(fd);
             return;
         }
-        api_store_set(fd, buf, off);   /* takes ownership of buf */
-        close(fd);
+        long revision = -1;
+        char expected[40];
+        int revision_header = request_header_value(req, header_len, "x-dstudio-store-revision", expected, sizeof expected);
+        if (revision_header < 0) {
+            free(buf); send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"Invalid conversation revision header\"}"); close(fd); return;
+        }
+        if (revision_header == 1) {
+            char *end = NULL; errno = 0;
+            revision = strtol(expected, &end, 10);
+            if (errno || revision < 0 || end == expected || !end || *end) {
+                free(buf); send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"Invalid conversation revision\"}"); close(fd); return;
+            }
+        }
+        if (!api_store_set(fd, buf, off, revision)) close(fd);
         return;
     }
 
@@ -12303,6 +12297,7 @@ int main(int argc, char **argv)
     }
 
     while (!g_stop) {
+        chat_store_tick();
         reap_child();
         resident_tick();
         drain_child(); /* also consumes a retained stdout suffix after upload pressure */
@@ -12326,7 +12321,7 @@ int main(int argc, char **argv)
         /* Reaping a canceled helper must not delay the next admitted request.
          * Windows anonymous pipes have no writable poll event in this host;
          * their nonblocking writes are retried with a bounded active cadence. */
-        int poll_ms = g_model_rpc && g_model_rpc->stopping ? 10 : 200;
+        int poll_ms = g_store_write || (g_model_rpc && g_model_rpc->stopping) ? 10 : 200;
 #ifdef _WIN32
         if (g_model_rpc) poll_ms = 10;
 #endif
@@ -12354,6 +12349,7 @@ int main(int argc, char **argv)
         sse_flush();
     }
     sse_close_all();
+    chat_store_shutdown();
     model_rpc_shutdown();
     launch_preparation_shutdown();
     image_runtime_shutdown();

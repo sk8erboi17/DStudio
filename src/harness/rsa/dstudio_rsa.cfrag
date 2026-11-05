@@ -832,7 +832,7 @@ static void api_rsa_start(int fd, const char *body) {
             "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"structurePath\":\"%s\","
             "\"iteration\":%d,\"targetUrl\":\"%s\",\"profileRequested\":\"%s\",\"profileEffective\":\"%s\","
             "\"scopePath\":\"%s\",\"safetyGatePath\":\"%s\","
-            "\"think\":\"max\",\"prompt\":",
+            "\"think\":\"high\",\"prompt\":",
             task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, structure_esc,
             iteration, target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc) ||
         !json_dyn_put_escaped(&out, prompt) ||

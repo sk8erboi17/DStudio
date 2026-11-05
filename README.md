@@ -137,6 +137,27 @@ downloadable build; to use it today, [build from source](#build-from-source).
 
 **Recent changes**
 
+- **Selectable reasoning (November 5).** High is the default in Learn and
+  guided analysis. Off/High/Max can be chosen where supported; GSA/RSA no
+  longer override the level. Selecting Max warns about repetitive reasoning
+  loops, with the context/restart cost in the same confirmation when needed.
+- **Clearer Learn resume (November 5).** One current card replaces the paused
+  attempt; earlier attempts and technical failures remain in collapsed history.
+  Changing Max to High keeps saved authored stages and revalidates the checks.
+- **Saved factual checks in Learn (November 5).** Small audit batches receive
+  actual source excerpts and save each verdict. Unchanged checks resume after
+  Stop; partial replies save valid ids and retry only missing/invalid checks.
+  Missing evidence remains unresolved. Recovery also catches reordered
+  repeated paragraphs. The earlier real audit failure is retained; scoped
+  tests do not qualify complete roadmap quality.
+  [Scope](docs/changes/2026-11-05.md).
+- **Learn cycle recovery (November 4).** Roadmaps save their structure and each
+  developed stage; interrupted drafts can resume without repeating completed
+  stages. Generation, audits, repairs and added blocks detect substantial exact
+  reasoning cycles, with bounded retries and explicit incomplete outcomes.
+  Productive reasoning has no elapsed-time or output-token cutoff. Scoped
+  simulated checks pass; real-weight quality remains open.
+  [Scope](docs/changes/2026-11-04.md#learn-saved-phases-and-reasoning-cycle-recovery).
 - **Learn activity feedback (November 4).** The loading panel shows actual
   research steps, URLs being read, synthesis/audit activity, elapsed time and
   quiet intervals. Stop stays in the composer. Chromium/WebKit checks use
@@ -284,6 +305,13 @@ generation are routed from Chat and Design. Every mode has reopenable local
 history. Restorable on-disk engine sessions depend on the engine: ds4 models
 have them, the llama.cpp and MLX Qwen models do not yet.
 
+Conversation saves now require a completed native file write or browser-storage
+transaction. When the small `localStorage` quota fills, history moves to
+IndexedDB without deleting reasoning, saved Learn checks or transcript text.
+Settings remain independently writable. If neither history copy can be saved,
+the draft stays open and Learn does not advance or create another draft on
+Retry. [Storage contract and scoped tests](tests/docs/ui.md#conversation-history-persistence).
+
 ### Chat
 
 Streaming chat backed by the selected local model: context lives in the
@@ -415,11 +443,13 @@ quizzes and correct your work. It keeps the normal Chat tools (Thinking, files,
 PDFs and images, LaTeX, ASCII diagrams, hints, canvas previews). Each block owns
 its transcript and attachments, so **Study** resumes the same lesson.
 
-Learn generation and its verification roles use **Thinking: max**. Local ds4
-needs at least 393,216 context tokens for Max, so DStudio temporarily launches
-the Learn pipeline at that size when your Chat context is smaller, without
-changing the saved setting. Learn has not been qualified on the llama.cpp/MLX
-Qwen models.
+Learn generation, verification and added blocks use your selected reasoning
+level. **High is the default**; Off and Max remain selectable where the engine
+supports them. GSA/RSA also honor the chosen level instead of forcing Max.
+Selecting Max warns about long responses and repetitive reasoning loops. For
+local DeepSeek, raising the context to 393,216 for Max requires the existing
+explicit confirmation; declining keeps the previous setting. Learn has not
+been qualified on the llama.cpp/MLX Qwen models.
 
 ### Local Image Generation
 

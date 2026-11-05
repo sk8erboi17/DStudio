@@ -609,7 +609,12 @@
             saved.ctxSize = Math.round(Number(started.ctx));
           }
           if (typeof started.dspark === 'boolean') saved.dspark = started.dspark;
-          localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved));
+          try { localStorage.setItem('ds4web.settings.v2', JSON.stringify(saved)); }
+          catch {
+            syncBootFacts({}, { ...saved, ssdStreaming });
+            showStartupError('The engine started, but browser storage could not save its adjusted settings. Open the workspace to recover history storage and review the active configuration.', 'Engine started; settings need attention');
+            return false;
+          }
           syncBootFacts({}, { ...saved, ssdStreaming });
           showProgress(visualPct, 'Using a memory-safe engine configuration', started.warning || 'Saved settings adjusted');
         }

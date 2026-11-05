@@ -304,6 +304,45 @@ models and the MLX Qwen3.6, with development checks only.
    research → curriculum → audit → lesson/exercise/correction, actual references,
    progress and reopen. No hidden DeepSeek fallback or generic DeepSeek-only
    context policy imposed on Qwen.
+   November 4 implementation: roadmap generation saves an outline and each
+   developed stage; streamed generation/audits/repairs/block expansion detect
+   substantial exact reasoning cycles and recover the current phase. Automatic
+   retries are bounded by count, with no elapsed-work or productive-reasoning
+   token cutoff. Interrupted drafts and incomplete verification remain visible
+   and saved. Model-free checks are documented in
+   [Learn UI coverage](tests/docs/ui.md); real-weight qualification remains open.
+   November 5 retains a later real V4.1 audit failure: reordered repeated
+   paragraphs escaped that first guard, and the auditor lacked read-source
+   excerpts. Factual verification now uses finite evidence-backed batches,
+   saved verdicts and complete stage-pair/capstone consistency checks; unresolved
+   evidence blocks publication. Reordered-paragraph recovery is covered by a
+   private replay and synthetic negatives. See the
+   [audit correction](docs/changes/2026-11-05.md). Complete real-weight Learn
+   qualification, including the retained six-stage draft, is still open.
+   A further real first-batch stall is also retained. At the owner's request,
+   High is now the default and Learn/GSA/RSA reasoning is selectable rather
+   than forced to Max. Max requires a loop warning and any context-increase
+   confirmation. Model-free Off/High/Max request and guided-turn checks pass;
+   this does not qualify the stalled draft at High.
+   Retry now uses one current workspace view with collapsed attempt history.
+   Saved authored stages are keyed to learner input/instructions/evidence,
+   independently of runtime effort/context; audit receipts remain bound to
+   model/settings/evidence. The retained six-stage draft loads in a read-only
+   replay. Full real verification of that draft remains open.
+   The real High attempt later stopped at 46/122 checks after three responses
+   omitted one requested id. Partial-response recovery now saves independently
+   valid verdicts and requests only missing/invalid ids within the original
+   three-request budget. A private response replay retains those 46 checks and
+   the next three valid ids; this is not a new real inference acceptance run.
+   A subsequent storage failure was independent of model speed: the browser
+   history quota was exhausted while the native file still had free disk space.
+   Shared history now migrates to IndexedDB without emergency text deletion;
+   native saves acknowledge checked atomic publication, and Learn waits for a
+   durable checkpoint before advancing. Retry refuses unavailable storage before
+   appending another draft. Real browser/native-file tests cover all five modes,
+   Tutor payloads, failures, restart and competing windows. A private replay
+   preserves all 23 attempts, six stages and 46 checks. These storage checks do
+   not complete real-roadmap acceptance or engine KV reuse.
 4. Rerun the retained Next Learn incident with the intended effective reasoning
    request. Its diagnostic harness is corrected, but the real non-thinking
    loop/completion outcome is not established.

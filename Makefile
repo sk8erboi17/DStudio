@@ -89,6 +89,10 @@ else
   APP_DEPS     := $(HDR) $(LOGO_HDR)     # Linux icon comes from the embedded logo
   BIN_DEPS     :=                        # no .icns on Linux (logo is baked into app.o)
 endif
+ifeq ($(UNAME),Linux)
+  CFLAGS += -pthread
+  APP_LDFLAGS += -pthread
+endif
 
 .PHONY: all run check check-fast check-real test-task-graph-unit test-task-graph-http test-task-graph-bench-validate test-task-graph-real test-task-graph-reliability-real test-task-graph-cli-competitors-real test-lan-unit test-remote-utf8 test-cowork test-cowork-unit test-document-table-scale test-cowork-browser test-cowork-http test-cowork-bench-validate test-design-build-freshness test-design-self test-design-controls test-design-disclosure test-design-interrupt test-design-resume test-design-runtime test-design-bench-validate test-design-release test-image-pipeline test-image-runtime test-ideogram-vae-mps test-hunyuan-sdpa-mps test-frontend-unit test-ui-browser test-ui-live-vision test-ui-plan test-ui-gsa test-ui-rsa test-rsa-collectors test-table-ascii test-markdown-math test-video-open-weight test-http-lan test-gsa-bench-validate test-real-cowork test-real-cowork-resume test-real-cowork-long test-real-design test-real-design-long test-real-ascii-diagrams test-real-math-explanations test-real-pdf-rag test-real-search-research test-real-roadmap-quality test-real-remote test-macos-bundle dist-macos clean app windows install-desktop uninstall-desktop
 
@@ -384,7 +388,26 @@ check-fast: test-v1-proxy-exchange
 .PHONY: test-roadmap-request
 test-roadmap-request:
 	@node tests/unit/roadmap_request_test.mjs
+	@node tests/unit/roadmap_generation_test.mjs
+	@node tests/unit/roadmap_audit_test.mjs
 check-fast: test-roadmap-request
+
+.PHONY: test-ui-learn-audit test-real-roadmap-audit
+test-ui-learn-audit:
+	@DSTUDIO_TEST_LEARN_AUDIT_PARTIAL=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_AUDIT_PARTIAL=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_AUDIT_RECOVERY=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_AUDIT_RECOVERY=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
+test-real-roadmap-audit: $(BIN)
+	@DSTUDIO_LIVE_ROADMAP_AUDIT=1 node tests/live/real_roadmap_audit_test.mjs $(BIN)
+
+.PHONY: test-ui-learn-recovery
+test-ui-learn-recovery:
+	@DSTUDIO_TEST_LEARN_RECOVERY=1 DSTUDIO_TEST_LEARN_THINK_LEVEL=max DSTUDIO_TEST_LEARN_RESUME_THINK_LEVEL=high DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_RECOVERY=1 DSTUDIO_TEST_LEARN_THINK_LEVEL=max DSTUDIO_TEST_LEARN_RESUME_THINK_LEVEL=high DSTUDIO_TEST_LEARN_LEGACY_DRAFT=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
 
 $(TEST_BUILD)/agent_spawn_unit: tests/unit/agent_spawn_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
 	@mkdir -p $(TEST_BUILD)
@@ -649,6 +672,23 @@ test-harness-live: $(TEST_SERVER)
 	@node tests/live/harness_live_test.mjs
 
 .PHONY: test-engine-setup-unit
+$(TEST_BUILD)/chat_store_unit: tests/unit/chat_store_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/chat_store_unit.c -pthread -o $@
+
+.PHONY: test-chat-store-unit
+test-chat-store-unit: $(TEST_BUILD)/chat_store_unit
+	@$(TEST_BUILD)/chat_store_unit
+check-fast: test-chat-store-unit
+
+.PHONY: test-ui-persistence
+test-ui-persistence: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_persistence_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_persistence_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium DSTUDIO_TEST_LEARN_STORAGE_FAILURE=1 node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit DSTUDIO_TEST_LEARN_STORAGE_FAILURE=1 node tests/browser/ui_roadmap_playwright_test.mjs
+test-ui-browser: test-ui-persistence
+
 test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
 	@$(TEST_BUILD)/engine_setup_unit
 	@node tests/unit/agent_session_capability_test.mjs

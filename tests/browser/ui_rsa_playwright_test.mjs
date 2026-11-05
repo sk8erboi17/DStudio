@@ -227,7 +227,7 @@ const server = http.createServer(async (req, res) => {
       structurePath: '/tmp/dstudio-rsa-ui-test/STRUCTURE.MD',
       iteration: runSeq,
       targetUrl: 'https://streamrecorder.io/',
-      think: 'max',
+      think: 'high',
       prompt: 'INVENTORY_PROMPT',
       rsaTools: { mode: 'tool-assisted', tools: [] },
     });
@@ -343,7 +343,7 @@ try {
       theme: 'light',
       model: 'deepseek-v4-flash',
       modelVariant: 'flash',
-      thinkLevel: 'max',
+      thinkLevel: 'high',
       ctxSize: 65536,
       webMode: 'off',
       workdirs: { agent: '/tmp/dstudio-rsa-ui-test' },
@@ -358,6 +358,16 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();
+  await page.locator('.cbar-think-btn').click();
+  await page.locator('.cbar-think-item').nth(0).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'off');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel), 'off',
+    'Guided analysis must allow lower reasoning levels');
+  await page.locator('.cbar-think-btn').click();
+  await page.locator('.cbar-think-item').nth(1).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'high');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel), 'high');
+
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#composer-input').fill('/rsa Analyze https://streamrecorder.io/ into STRUCTURE.MD');
   await page.locator('#btn-send').click();
@@ -377,7 +387,7 @@ try {
   assert.match(rsaStarts[0].mission, /streamrecorder\.io/);
   assert.equal(rsaPhases.map((p) => p.phase).join(','), 'inventory,capture,structure,review');
   assert.equal(maxConcurrentAgentPolls, 1, 'RSA phase polling must remain single-flight across send and watchdog callers');
-  assert.ok(sends.every((s) => /"value":"max"/.test(s.prompt || '')), 'every RSA send should force thinking max');
+  assert.ok(sends.every((s) => /"value":"high"/.test(s.prompt || '')), 'every RSA send should use the selected high reasoning level');
 
   await page.locator('#workflow-surface').waitFor({ state: 'visible' });
   await page.locator('#wf-back').click();

@@ -150,6 +150,7 @@ try {
   // Declining changes nothing at all.
   await pickMax();
   const body = await page.locator('#confirm-body').textContent();
+  assert.match(body, /repetitive reasoning loop/, 'Max must warn about possible loops');
   assert.match(body, /384k/, 'the prompt should name the context Thinking: max needs');
   assert.match(body, /64k/, 'the prompt should name the context being left behind');
   assert.match(body, /96 GB RAM/, 'the warning should name the machine it is about');
@@ -175,6 +176,14 @@ try {
   assert.equal(starts.length, 1, 'accepting should restart the engine once');
   assert.equal(starts[0].ctx, 393216, 'the restart should carry the raised context');
   assert.doesNotMatch(await pill.textContent(), /needs 384k/, 'at 384k the max pill is no longer underfed');
+
+  // The loop warning is required even when Max's context is already present.
+  await pickMax();
+  assert.match(await page.locator('#confirm-body').textContent(), /repetitive reasoning loop/);
+  assert.match(await page.locator('#confirm-title').textContent(), /Use Thinking: max/);
+  await page.locator('#confirm-cancel').click();
+  assert.equal((await settings(page)).thinkLevel, 'max');
+  assert.equal(starts.length, 1, 'declining a re-selection cannot restart the engine');
 
   // Leaving max hands the context back, with its own restart prompt.
   await pill.click();

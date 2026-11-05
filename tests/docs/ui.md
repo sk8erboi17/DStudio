@@ -324,6 +324,114 @@ native learning launch resumes a cancelled request in the same conversation and
 is consumed once across reload. These are UI checks with simulated inference,
 not real-model roadmap acceptance.
 
+The shared reasoning selector is editable in Learn, Agent, Cowork and Design;
+High is the application default. Learn generation, audit, repair and block
+expansion honor the selected level. GSA/RSA do not override the preference in
+UI workflow phases, native send or Task Graph dispatch. Selecting Max always
+shows its repetitive-loop warning, including when context is already adequate.
+Its existing context increase shares that dialog. Declining changes neither
+level nor context. Tutor inherits the selected setting and warns on Max too.
+`DSTUDIO_TEST_LEARN_THINK_LEVEL=off|high|max` controls the Learn browser fixture;
+`ui_think_max_context_test.mjs` covers context and warning accept/cancel in both
+browsers. Qwen's single native On/Off switch remains unchanged.
+
+Learn now saves a prerequisite outline and each developed stage before
+assembling the complete draft. Factual stage/global audits and the separate
+curriculum judge still gate publication. Only a verified candidate replaces the
+previous graph. Interrupted drafts remain saved and retry reuses validated
+stages when the learner input, authoring instructions and saved evidence match.
+Changing reasoning effort, model, context or memory mode keeps authored stages;
+audit receipts still require the exact model/settings/evidence identity. Older
+drafts without an input key can be loaded only as unverified work owned by the
+same surviving learner message, with identical saved evidence and validated
+stage ids/URLs. Editing that message removes its descendants. This is saved
+curriculum work, not native KV/session restoration.
+
+The workspace renders one current attempt. Previous attempts remain stored and
+are accessible in collapsed history, including the original technical errors.
+Starting a retry replaces the paused view immediately. A verified roadmap stays
+usable with a compact update notice until a verified replacement exists. The
+main paused view uses a readable explanation, saved-block counts and a resume
+action; technical transport details live behind an explicit disclosure.
+
+All roadmap generation, audit, repair and block-expansion requests stream through
+the same bounded recovery path. It detects a substantial exactly repeating
+reasoning suffix (at least 8,192 characters and four copies) or recurring
+normalized paragraphs even when reordered, closes that request,
+and retries only its phase with bounded unverified working-note excerpts.
+Distinct long reasoning has no elapsed-time or output-token cutoff. Automatic
+phase recovery and verification repair are limited to three attempts/rounds;
+unresolved work is retained as incomplete, never accepted. Each phase retains a
+bounded reasoning preview with an explicit omitted-character count, at most
+1,048,576 output characters, and twelve small recovery receipts. A saved draft
+has the same character limit. Storage failure prevents claiming a saved step.
+
+`make test-roadmap-request` executes the production phase functions with
+simulated frames: exact and short-period cycles, productive long reasoning,
+serial request retirement, cancellation, stale results, invalid JSON, broken
+transport, source/id validation and saved-stage continuation. Run the focused
+browser recovery case with
+`DSTUDIO_TEST_LEARN_RECOVERY=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs`
+(or `chromium`). It stops after the first saved stage, reloads, resumes without
+regenerating it, encounters a repeated reasoning stream, then completes all
+verification. The normal fixture also repairs a truncated block expansion.
+Add `DSTUDIO_TEST_LEARN_THINK_LEVEL=max DSTUDIO_TEST_LEARN_RESUME_THINK_LEVEL=high`
+to check effort/context changes across resume, and
+`DSTUDIO_TEST_LEARN_LEGACY_DRAFT=1` for an older saved draft followed by an empty
+failed restart. The fixture observes DOM mutations for overlapping cards,
+checks collapsed history and retained technical failures, and verifies that
+saved stages are not requested again. `make test-ui-learn-recovery` runs these
+cases on Chromium and WebKit. Tutor checks also exercise rapid warning
+cancel/reopen/accept, including a queued close event from the prior dialog.
+These checks do not qualify real-weight Learn output or the broader P3/P6 gates.
+
+November 5 replaces the monolithic factual auditor with a finite plan: batches
+of at most four content items, every stage pair and every stage/capstone pair.
+Read-source excerpts accompany external factual checks. Supported/contradicted
+verdicts require quotes that match both the supplied excerpt and the actual
+read-page text. Unread discovery snippets are excluded. Missing evidence,
+uncertain contradictions and unresolved claims cannot pass factual admission.
+Per-batch receipts are persisted immediately; reuse revalidates the exact
+item, selected evidence/full-source digest, learner context, model settings and
+protocol. Changing a stage reopens its content batch and affected global pairs;
+unchanged checks remain saved. A continuously active stream also periodically
+flushes progress instead of indefinitely postponing a trailing debounce.
+
+Within a completed response, verdict admission is now independent per id. A
+three-of-four reply durably retains the three valid checks, then requests only
+the missing id. Invalid quotes, duplicate/conflicting ids and malformed siblings
+cannot qualify a check or discard valid neighbors. The same three-request phase
+budget covers partial replies and other recovery; exhaustion retains progress.
+Stop/reload revalidates partial receipts and preserves later saved jobs. Truncated
+or failed transports cannot admit otherwise complete-looking partial JSON.
+`DSTUDIO_TEST_LEARN_AUDIT_PARTIAL=1` exercises this path in the Learn browser
+fixture, including Stop while the missing-id request is pending; the audit
+target runs it on Chromium and WebKit. Unit tests cover invalid siblings,
+stale ownership, storage/transport failures, identity drift and finite retries.
+Older retained partial output is reusable only with a matching authoring-input
+key, completed transport, exact compatible receipt prefix and unchanged pending
+item text. The private saved failure is replayed separately from inference;
+its transcript remains ignored and is not a public fixture.
+
+The audit plan retains at most 512 jobs and 8M plan/evidence characters; receipts
+retain at most 2M characters. Exceeding these budgets reports incomplete work
+and preserves the draft. Receipt matching is derived-work reuse, not independent
+proof that the model's semantic judgment is correct. Without WebCrypto on an
+insecure LAN origin, checks run again rather than using a weak digest. The
+reordered-paragraph detector holds at most 80 normalized paragraphs and requires
+at least five recurring paragraphs, 6,000 duplicated characters and a majority
+of duplicate paragraph occurrences; isolated quotations and distinct numerical
+examples are covered by negative tests.
+
+`make test-ui-learn-audit` runs Chromium/WebKit Stop/reload/reuse and missing-
+evidence publication regressions. `make test-real-roadmap-audit` explicitly
+loads existing V4.1 1017 Q2 weights in SSD streaming, serially runs five authored
+factual/consistency oracles through the production host and Learn phase
+normalizer, retains all attempts, and stops its owned engine. It neither downloads
+weights nor qualifies a complete real roadmap. The retained private failure can
+also be replayed through `DSTUDIO_TEST_REASONING_REPLAY` in
+`tests/unit/roadmap_generation_test.mjs`; the transcript is never published.
+
 The broader Learn fixture holds its first expansion response until the live
 status and disabled submission control have been observed. Recovery tests pause
 the fixture browser clock and drain owned HTTP work before injecting their
@@ -425,6 +533,52 @@ are retained in ignored `tests/.artifacts/ui-simulated/run-jxwQp1/` and
 `tests/.artifacts/ui-audit-visual/final-review/`. The recorded GIFs are sampled
 interaction evidence, not a performance benchmark or proof of every possible
 UI state. All engines, generations, tools and downloads were simulated.
+
+## Conversation history persistence
+
+`make test-chat-store-unit` executes the production native store with isolated
+files and deterministic publication/failure gates. `make test-ui-persistence`
+runs Chromium and WebKit with real IndexedDB/localStorage and the native HTTP
+host, then Learn's simulated storage-failure recovery on both browsers. No
+weights load and no inference occurs. Reports remain under ignored
+`tests/.artifacts/history-persistence/` and `roadmap-browser/`.
+
+The browser tests preserve more than 6 MiB of authored history, including long
+reasoning, Agent/Cowork/Design transcripts and Learn/Tutor data. They verify
+quota migration, settings after quota exhaustion, native acknowledgement while
+an IndexedDB transaction is blocked, one in-flight writer, later save promises,
+real native permission errors, simultaneous browser/native failure, recovery,
+restart, independent-window merging, active-conflict refusal, malformed revision
+headers and a clear-history epoch. LAN/offline history uses browser storage
+without reading or writing the host-private history endpoint. The Learn case
+denies both stores for three Retry clicks, checks unchanged saved draft data
+and zero new research/model requests, restores storage, exercises Stop while
+the next native save is blocked, and finishes the
+simulated roadmap. The broader Learn/Tutor, Chat controls, Agent/Design and
+workflow suites exercise their actual shared-save consumers separately.
+
+The native file owns local-host history. Its browser copy is a replica;
+LAN/offline clients own their browser history. Browser storage is scoped to
+the origin and schema version (`dstudio-history`, `snapshots`, `chats.v2`). It
+has one active write and one latest pending snapshot, with no automatic history
+eviction. Migration commits before deleting the old localStorage key; failure
+retains existing copies. Host saves admit one immutable candidate of at most
+64 MiB plus the previous snapshot, refuse concurrent writes/wipe as busy, and
+publish file/memory/revision only after preparation. Browser save callers are
+bounded to 64; excess calls return an explicit failure. Snapshot failure never
+trims text or disables settings. The existing 300,000-character native transcript
+tail limit is unchanged and separate from quota-failure handling.
+
+A checkpoint succeeds after either a native durable acknowledgement or browser
+storage completion. A native failure with a successful browser save is visible
+as a warning. An active-window conflict remains a failure even if its local
+replica saves. If both paths fail, critical callers stop before further work;
+the in-memory draft remains. Native errors before rename preserve the old file.
+Rename followed by failed directory sync returns uncertain durability and
+updates memory to the file actually published. Cancellation does not undo an
+already admitted history save; callers revalidate their own turn/settings after
+awaiting it. Tests exercise these outcomes without claiming cross-platform
+durability or engine KV restoration.
 
 ## Reasoning Markdown spacing
 

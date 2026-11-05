@@ -17,7 +17,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
 try {
   const base = `http://127.0.0.1:${server.address().port}`;
-  assert.deepEqual(roadmapGenerationSettings({}), {thinkLevel: 'max'});
+  assert.deepEqual(roadmapGenerationSettings({}), {thinkLevel: 'high'});
   assert.throws(() => roadmapGenerationSettings({DSTUDIO_REAL_ROADMAP_THINK_LEVEL: 'disabled'}));
   for (const level of ['off', 'high', 'max']) {
     const opts = {...roadmapGenerationSettings({DSTUDIO_REAL_ROADMAP_THINK_LEVEL: level}), maxTokens: 32, timeoutMs: 5000};

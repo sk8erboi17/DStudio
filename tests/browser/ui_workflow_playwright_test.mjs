@@ -323,7 +323,8 @@ try {
     await capture('gsa-current-label-narrow');
     await page.setViewportSize({ width: 1360, height: 900 });
     assert.match(sends[0].prompt, /FLOW_UI:gsa:gsa-ui-1:selection/);
-    assert.match(sends[0].prompt, /"value":"max"/);
+    assert.match(sends[0].prompt, /"value":"off"/,
+      'The saved user choice must reach the workflow instead of a forced Max');
     await capture('gsa-running-light');
   });
 

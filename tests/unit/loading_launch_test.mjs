@@ -5,14 +5,14 @@ import { extractFunction } from '../support/real_harness.mjs';
 
 const source = fs.readFileSync('web/loading.html', 'utf8');
 const start = extractFunction(source, 'startWithSavedSettings');
-async function scenario({ running = false, occupied = false, launchTaskId = 0 } = {}) {
+async function scenario({ running = false, occupied = false, launchTaskId = 0, adjusted = false, quota = false } = {}) {
   const calls = [], redirects = [], stages = [];
   const context = vm.createContext({
     JSON, Math, Number, parseInt, visualPct: 5,
-    localStorage: { getItem: () => '{}', setItem() {} },
+    localStorage: { getItem: () => '{}', setItem() { if (quota) throw Error('Browser quota'); } },
     syncBootFacts() {},
     showProgress: (...args) => stages.push(args),
-    showStartupError: message => stages.push([5, 'Could not start the engine', message]),
+    showStartupError: (message,title='Could not start the engine') => stages.push([5, title, message]),
     crypto: { randomUUID: () => 'loading-fixture-attempt' },
     sleep: async () => {},
     location: { replace: value => redirects.push(value) },
@@ -25,7 +25,7 @@ async function scenario({ running = false, occupied = false, launchTaskId = 0 } 
         error.data = { code: 'external_server' };
         throw error;
       }
-      return { ok: true };
+      return { ok: true, adjusted, ctx:65536 };
     },
   });
   const result = await vm.runInContext(`(${start})()`, context);
@@ -49,4 +49,9 @@ assert.equal(active.result, true);
 const preparing = await scenario({ launchTaskId: 37 });
 assert.equal(preparing.calls.length, 1, 'an admitted preparation is not launched again by loading');
 assert.equal(preparing.result, true);
+const storage = await scenario({adjusted:true,quota:true});
+assert.equal(storage.result,false);
+assert.equal(storage.calls.length,2,'A settings write failure must never restart an already started engine');
+assert.equal(storage.stages.at(-1)[1],'Engine started; settings need attention');
+assert.match(storage.stages.at(-1)[2],/browser storage/);
 console.log('loading_launch_test: PASS (production startup function; simulated status and port conflict, no model)');
