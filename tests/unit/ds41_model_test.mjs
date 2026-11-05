@@ -14,7 +14,8 @@ const helpers = source.slice(source.indexOf('    const isGlm53Gguf ='), source.i
 const downloads = source.slice(source.indexOf('    const DEFAULT_FLASH_GGUF ='), source.indexOf('    function availableModelDownloads('));
 const functions = ['parseGgufName', 'modelIdForEngineStatus', 'ggufIsDsparkSupport', 'ggufIsGlmVisionEncoder',
   'ggufIsDeepseekVisionEncoder', 'ggufIsEngineComponent', 'ggufIsModifiedWeights', 'ggufIsUsableModel', 'availableModelDownloads',
-  'availableNativeVisionDownloads', 'availableDsparkDownloads', 'preferredDefaultGguf', 'launchBase'].map(name => extractFunction(source, name)).join('\n');
+  'availableNativeVisionDownloads', 'availableDsparkDownloads', 'preferredDefaultGguf', 'launchBase',
+  'fmtGgufSize', 'modelDownloadStateFromStatus', 'modelDownloadStatusText'].map(name => extractFunction(source, name)).join('\n');
 vm.runInContext(`${helpers}\n${downloads}\n${functions}`, context);
 const plain = value => JSON.parse(JSON.stringify(value));
 const item = file => ({file, path: `gguf/${file}`, engineDir: '/fixture/main'});
@@ -115,5 +116,21 @@ check('remote models cannot inherit the local V4.1 vision encoder', () => {
   assert(!context.localNativeVisionInfo({...settings, chatBackend: 'deepseek', deepseekApiKey: 'fixture'}));
   context.isLanClientMode = () => true;
   assert(!context.localNativeVisionInfo(settings));
+});
+check('a vision model download names its encoder, then shows the chained encoder download', () => {
+  const offers = plain(context.availableModelDownloads([]));
+  for (const [id, size] of [['ds41f-q2', '0.97 GB'], ['ds41f-q2-original', '0.97 GB'], ['ds41f-q4', '0.97 GB'],
+    ['ds4f-vision-q2', '0.93 GB'], ['glm53-q2', '1.13 GB']])
+    assert.match(offers.find(x => x.id === id).label, new RegExp(`then its ~?${size.replace('.', '\\.')} vision encoder`));
+  assert.doesNotMatch(offers.find(x => x.id === 'ds4f-q2').label, /vision encoder/);
+  // The host's status while it fetches the encoder after a verified model.
+  const status = {download: true, downloadVariant: 'ds41f-1017-vision', downloadPct: 40, downloadBytes: 400000000,
+    downloadPhase: 'downloading', downloadCompanionOf: 'ds41f-q2'};
+  const state = context.modelDownloadStateFromStatus(status);
+  assert.equal(state.companionOf, 'ds41f-q2'); assert.equal(state.variant, 'ds41f-1017-vision');
+  assert.match(context.modelDownloadStatusText(state), /^Downloading the vision encoder for ds41f-q2 — 40%/);
+  // A user-started download keeps its own name.
+  const own = context.modelDownloadStateFromStatus({...status, downloadVariant: 'ds41f-q2', downloadCompanionOf: ''});
+  assert.match(context.modelDownloadStatusText(own), /^Downloading ds41f-q2 — 40%/);
 });
 console.log(`Evidence: ${run}`);

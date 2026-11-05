@@ -58,8 +58,11 @@ try {
   }
   for (let i = 0; i < files.length; i++) {
     const data = [...unrelated];
-    const needle = i === 0 ? '    const double t0 = timing ? now_sec() : 0.0;' :
+    // A line inside a patched hunk. It must be unique: an earlier fixture line
+    // also occurred outside the hunks, so an upstream move edited unrelated code.
+    const needle = i === 0 ? '    const double t0 = timing ? (inputs_staged ? stage_start : now_sec()) : 0.0;' :
       'int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t errlen);';
+    assert.equal(data[i].toString().split(needle).length, 2, 'Drift fixture line must occur exactly once');
     const changed = data[i].toString().replace(needle, needle + ' /* incompatible edit */');
     assert.notEqual(changed, data[i].toString(), 'Drift fixture must modify the selected hunk');
     data[i] = Buffer.from(changed); put(data);

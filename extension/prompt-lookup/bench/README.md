@@ -96,7 +96,7 @@ The twelve failures are Cowork copy/revision tasks losing only the final
 newline, already with PLD off. Their `write_document` calls contain a `content`
 argument missing that newline; the existing `.txt` writer encodes and writes
 the supplied content without trimming it
-([Office helper](../../cowork/office_tool.py)). This localizes the observed
+([Office helper](../../../src/harness/cowork/office_tool.py)). This localizes the observed
 loss before file persistence; it is not a demonstrated PLD regression or a
 disk-write error. No checker was relaxed to turn these into passes.
 

@@ -1,13 +1,26 @@
 # Cancellable Qwen3.8 reset preparation
 
 Current base: antirez/ds4 main
-`0aaea5a238fb41a35106a551e73c8409dfb751ac`, using
+`890898cfb437ed256be58ebcf7c58a6dfa8f2f53`, using
 [prepare-main.patch](prepare-main.patch). This retains native BF16 n-gram
 batch reads, checkpoint frontiers and per-chunk logits while adding control
 only to an unpublished session candidate. Normal live sync keeps the upstream
 path. The managed setup/update apply and restore this patch as part of the
 complete native stack. Main already fixes snapshot allocations.
 [Migration and limits](../../docs/QWEN_NEXT_MAIN_MIGRATION.md).
+
+The November 3, 2026 rebase onto `890898c` meets upstream's Qwen PLE prefetch
+(`347c2e1`, `c97964b`): live sync may stage the next chunk's n-gram rows on a
+worker thread while the GPU runs. Upstream's `qwen4_graph_stage_inputs` and
+`qwen4_graph_forward_tokens_impl` keep their signatures, which upstream's own
+tests call, as wrappers around new `_controlled` variants that carry the
+candidate control. Live sync, including the prefetch path, calls them exactly
+as upstream does. A candidate preparation never starts that
+worker: an in-flight read cannot observe Stop, and joining it would delay
+layer-boundary cancellation by up to one chunk of SSD reads. Candidates
+therefore stage synchronously, polling every 32 rows as before, and do not get
+the prefetch overlap. Token validation now precedes staging, as upstream does.
+The results below were recorded on earlier bases and do not qualify `890898c`.
 
 ## Origin and earlier results
 

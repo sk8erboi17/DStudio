@@ -57,7 +57,7 @@ marker as proof that a web patch is complete. Other native extensions use
 unified patches through dedicated scripts. Missing or drifted inputs fail explicitly.
 
 Every patch set now carries only the variants for the engine revisions DStudio
-bundles: ds4 main `0aaea5a` and Laguna `448d569`. Variants for earlier main
+bundles: ds4 main `890898c` and Laguna `448d569`. Variants for earlier main
 revisions (`c0a6119`/`f62ca29`, `f4d03f6`, V4.1 `bd66c40`, the unified-main
 `9139e2a` server and runtime layouts) and for the retired Qwen Next fork
 (`b4c3550`, `ff4f0ff`, `bd9cfbc`) were removed on October 27, 2026, together

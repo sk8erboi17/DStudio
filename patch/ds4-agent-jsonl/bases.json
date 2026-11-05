@@ -27,7 +27,7 @@
       "requiredCorePatch": "../ds4-qwen38-prepare/prepare-main.patch",
       "oracle": "Unified main: native Qwen and DSML/V4.1 tool grammar, worker-owned cancellable session preparation, durable session save, JSONL steering, compaction, Cowork and PLD. Sanitized native behavior tests use simulated model responses; not a full-model quality or historical byte-parity claim.",
       "equivalentSourceRevisions": [
-        "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+        "890898cfb437ed256be58ebcf7c58a6dfa8f2f53"
       ],
       "postV105Fix": {
         "patch": "main-qwen-final-newline.patch",

@@ -1,5 +1,7 @@
 # ds4 main update — September 5, 2026
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md).
+
 Main is updated from `b0a147a7fba6d1a104d047d5a140e9bb4bfc13cd` to
 [`f4d03f6cf9f11c1e7b630bcb160853acfba7c52a`](https://github.com/antirez/ds4/commit/f4d03f6cf9f11c1e7b630bcb160853acfba7c52a),
 the latest upstream main revision checked for this update. The first-run
@@ -75,9 +77,9 @@ No clear speedup on this M2 Max. DeepSeek's decode changes range from −1.66%
 to +2.21% across the three workloads; GLM's range from −4.08% to −1.11%.
 These are observed timings, not causal attribution to upstream changes.
 
-![Before and after: short-prompt prefill and response generation, with observed ranges. No clear speed gain; measured answers pass but auxiliary failures remain.](../assets/README%20images/benchmarks/main-update-prefill-decode.png)
+![Before and after: short-prompt prefill and response generation, with observed ranges. No clear speed gain; measured answers pass but auxiliary failures remain.](../../assets/README%20images/benchmarks/main-update-prefill-decode.png)
 
-The Matplotlib chart is generated from the [public JSON](benchmarks/main-update-2026-09-05.json).
+The Matplotlib chart is generated from the [public JSON](../benchmarks/main-update-2026-09-05.json).
 Run `python3 tests/support/publish_benchmark_charts.py` from the repository root
 to reproduce the published charts without loading a model.
 
@@ -106,7 +108,7 @@ format. All four live invocations correctly exit nonzero for this failure.
 The overall count is 44/48 passing requests; this is not a fully passing
 capability suite or proof of general model quality.
 
-[Machine-readable results, ranges and failures](benchmarks/main-update-2026-09-05.json).
+[Machine-readable results, ranges and failures](../benchmarks/main-update-2026-09-05.json).
 Raw evidence: `tests/.artifacts/ds4-main-update-4XujZJ/` (ignored), with original
 before/after receipts and a separately derived `comparison/REPORT.md`.
 The rejected initial GLM launch using a custom prefill chunk is retained too;

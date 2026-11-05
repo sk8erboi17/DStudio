@@ -1,4 +1,11 @@
-# Shared prompt lookup — Agent/Cowork patch 81, Chat patch 1
+# Shared prompt lookup
+
+Current manifests are Agent/Cowork [106](manifest) and Chat
+[3](../ds4-server-pld/manifest). This guide describes the available modes;
+the original patch-81/patch-1 implementation and verification below are retained
+with their own scope. Patch versions are build identities, not inference
+qualification. See [the scoped real-engine benchmark](../../extension/prompt-lookup/bench/README.md)
+for measured outcomes on earlier revisions, including the failed tasks.
 
 Managed Chat, Agent and Cowork can look for code/text continuations already
 present in their committed context. That includes PDF/document excerpts after
@@ -17,9 +24,10 @@ and [mlx-serve](https://github.com/ddalcu/mlx-serve).
 - `DS4UI_PLD=batch`: explicitly experimental batched verification, only
   for greedy (`--temp 0`, or Chat request `temperature: 0`), text-only DeepSeek
   on the modern Metal backend.
-  It has **not been qualified with real model weights**. Batch and ordinary
-  reductions can produce different floating-point results; byte-identical
-  long outputs are NOT promised in this mode.
+  Earlier revisions have scoped real-weight development measurements; these
+  **do not qualify the current bundle**. Batch and ordinary reductions can
+  produce different floating-point results; byte-identical long outputs are
+  NOT promised in this mode.
 - `DS4UI_PLD=off`: bypass lookup for baseline comparisons. Unknown values
   stay strict; they never turn on the experimental mode.
 

@@ -87,7 +87,14 @@ s.listen(0, '127.0.0.1', () => {
 NODE
 )"
 
-HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 DSTUDIO_VIDEO_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
+# This suite has no model. Keep proxy checks away from a user's engine on 28000.
+engine_port="$(node - <<'NODE'
+const net = require('net');
+const s = net.createServer();
+s.listen(0, '127.0.0.1', () => { const port = s.address().port; s.close(() => process.stdout.write(String(port))); });
+NODE
+)"
+HOME="${tmp}/home" DS4UI_ENGINE_PORT="${engine_port}" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 DSTUDIO_VIDEO_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port}" "${tmp}/ds4" >"${tmp}/server.log" 2>&1 &
 pid="$!"
 
 base="http://127.0.0.1:${port}"
@@ -373,7 +380,7 @@ const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || !r.runDir || !r.prompt) throw new Error('GSA start should return runDir and prompt');
 if ('skillCount' in r) throw new Error('GSA start must not expose skillCount');
 if (r.targetUrl !== 'https://test.example/api/users/42') throw new Error('GSA start should return the authorized target URL');
-if (r.think !== 'max') throw new Error('GSA start should require thinking=max');
+if (r.think !== 'high') throw new Error('GSA start should suggest high without forcing the runtime level');
 if (!r.statePath || !fs.existsSync(r.statePath)) throw new Error('GSA start should return a run_state path');
 if (r.iteration !== 1) throw new Error('initial GSA run should be iteration 1');
 const target = fs.readFileSync(`${r.runDir}/target.md`, 'utf8');
@@ -599,7 +606,7 @@ node - "${tmp}/rsa-start.json" <<'NODE'
 const fs = require('fs');
 const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!r.ok || !r.runId || !r.runDir || !r.statePath || !r.structurePath || !r.prompt) throw new Error('RSA start should return run metadata and prompt');
-if (r.think !== 'max') throw new Error('RSA start should force thinking=max');
+if (r.think !== 'high') throw new Error('RSA start should suggest high without forcing the runtime level');
 if ('skillCount' in r) throw new Error('RSA start must not expose skillCount');
 if (r.targetUrl !== 'https://streamrecorder.io/') throw new Error('RSA start should preserve target URL');
 if (!fs.existsSync(r.statePath)) throw new Error('RSA run_state should exist');
@@ -1089,7 +1096,7 @@ s.listen(0, '127.0.0.1', () => {
 });
 NODE
 )"
-HOME="${tmp}/home" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 \
+HOME="${tmp}/home" DS4UI_ENGINE_PORT="${engine_port}" DS4UI_TEST_MODE=1 DSTUDIO_IMAGE_TEST_MODE=1 \
   DSTUDIO_VIDEO_TEST_MODE=1 DSTUDIO_GSA_INSTALL_DRY_RUN=1 \
   DS4UI_PAGE_FROM_DISK=1 "${bin}" "${port2}" "${tmp}/ds4" \
   >"${tmp}/server-2.log" 2>&1 &

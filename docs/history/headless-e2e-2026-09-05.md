@@ -1,7 +1,9 @@
 # Headless installation and real-model checks — September 5, 2026
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md).
+
 This report describes the earlier pinned revisions below. Main was subsequently
-updated; see [the main update and before/after comparison](DS4_MAIN_UPDATE_2026-09-05.md)
+updated; see [the main update and before/after comparison](ds4-main-update-2026-09-05.md)
 for the new revision's separately executed checks.
 
 ## Result in plain language
@@ -112,4 +114,4 @@ Local ignored evidence: `first-launch-TxNHSH` (installation),
 `installed-models-8aPJcF` (Qwen3.8 rerun), all under `tests/.artifacts/`.
 They retain setup results, model identities, configurations, binary hashes,
 actual replies, raw Chat SSE, screenshots, failures and shutdown checks.
-See [test scope and prerequisites](../tests/README.md).
+See [test scope and prerequisites](../../tests/README.md).

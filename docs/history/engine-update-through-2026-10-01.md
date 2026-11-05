@@ -93,7 +93,7 @@ server really loaded the old 33-token checkpoint and answered correctly, but
 returned `cached_tokens: 0`. Its retained receipt SHA-256 is
 `42ecb0a1875394e34c09f27aad0053853e25e9674161865f9c7cd37a31b07603`.
 
-The separate [cache-usage overlay](../../patch/q36-metal-runtime/cache-usage.patch)
+The separate [cache-usage overlay](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-metal-runtime/cache-usage.patch)
 targets `Ninnix/q36` **8362010a301b3360296e435703f58ffc230a024a** after the existing
 `next-review` → `monitor` → `monitor-owner` stack. It publishes text reuse only
 after owner commit and preserves the zero-usage initial Responses event. It
@@ -405,7 +405,7 @@ Along with Laguna's premature-completion summary, it requires reconciliation
 with actual current/open-reply state. Six passing workflows are not proof of
 summary fidelity, general quality or a token-identical A/B speed comparison.
 
-The separate [q36 monitor-owner patch](../../patch/q36-agent-tty/README.md), layered
+The separate [q36 monitor-owner patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-agent-tty/README.md), layered
 after `monitor.patch` on `8362010`, fixes blocked status/Stop, output-writer
 ownership, signal/reap PID lifetime, duplicate terminal notices and EOF polling.
 Native receipt `q36-monitor-control/run-g38GQE` passes **7/7 cases + 14/14 patch
@@ -463,7 +463,7 @@ commit are retained, not overwritten by DStudio's older patch context.
 
 q36's new vision/context/SSD-accounting update overlaps DStudio's preparation
 and ownership adaptation. The isolated three-way review is now resolved and
-exported as [next-review.patch](../../patch/q36-metal-runtime/next-review.patch),
+exported as [next-review.patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-metal-runtime/next-review.patch),
 but its complete runtime and real-model qualification remain open. It is not
 promoted by the installer. Upstream's multimodal parser holds the inference
 mutex while encoding images; the candidate instead retains request-owned
@@ -478,7 +478,7 @@ neither is interchangeable with DStudio's existing Qwen GGUF installation.
 
 q27's unchanged native Metal operator suite exposed a second real upstream
 defect: its 512-thread DeltaNet dispatch exceeded that pipeline's M2 Max limit.
-The [versioned correction](../../patch/q27-metal-delta/README.md) assigns two
+The [versioned correction](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q27-metal-delta/README.md) assigns two
 64-column groups to each head, with 256 threads per group and unchanged
 per-column arithmetic. Both the original failure and the passing corrected
 suite are retained. This is operator-level evidence, not a Qwen27B quality or
@@ -602,7 +602,7 @@ architecture-specific changes that do not belong in other model families.
   task completion. The original 4/6 remains retained; this is a development
   replay, not a token-identical A/B or speed comparison. MoE v101 is separate.
 - Fresh q36 `8362010` review retains its exact upstream Agent/web changes and
-  the separate [monitor terminal patch](../../patch/q36-agent-tty/README.md).
+  the separate [monitor terminal patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-agent-tty/README.md).
   `q36-agent-tty/run-zro9_7ab` passes all **24 stages**, including native
   ownership tests, fictional-password PTY interactions and 32 normal/cancelled
   job lifetimes with zero leaked descriptors. Completed historical jobs retain
@@ -740,7 +740,7 @@ architecture-specific changes that do not belong in other model families.
   model answers. The unchanged native Metal build still fails to link
   `q36_gpu_rope_qwen_mrope_rows_tensor`; the existing DStudio runtime patch
   supplies that missing implementation. The Agent test also needed a
-  [test-only macOS header correction](../../patch/q36-upstream-tests/README.md).
+  [test-only macOS header correction](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-upstream-tests/README.md).
   Original failed logs are retained in `ds41-update.08fcss`.
 - The isolated q36 rebase now builds the complete Metal CLI/server/benchmark,
   native Agent and test binary. This is compilation, not Agent qualification.
@@ -773,7 +773,7 @@ architecture-specific changes that do not belong in other model families.
   sampled text, actual disk-only replay, explicit v1/v2 legacy wire fixtures,
   invalid flags and a blocked-write race where only the prelude changes.
 - Native `q36_test --server` passes on pristine CPU and the Metal candidate
-  after the same [test-only historical-prelude scenario correction](../../patch/q36-upstream-tests/README.md).
+  after the same [test-only historical-prelude scenario correction](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-upstream-tests/README.md).
   Independently, the native renderer matches all 32 cases from the original
   Qwen27B/Qwen3.6 GGUF templates (`q36-chat-template/run-j0ybk47s`). These are
   prompt-format checks; earlier real-model long-context failures remain open.

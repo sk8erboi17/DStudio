@@ -584,7 +584,7 @@ static int dtg_agent_context_preflight(const dtg_graph *graph, char *err, size_t
         if (!dtg_is_agent_action(node->action_name)) continue;
         if (dtg_node_terminal(node->state) &&
             (strcmp(node->action_name, "agent.goal") || node->state != DTG_NODE_FAILED)) continue;
-        if (agent_turn_think_preflight(display_prompt_is_guided_analysis(node->action_display), err, errsz))
+        if (agent_turn_think_preflight(err, errsz))
             return 0;
     }
     return 1;
@@ -680,10 +680,9 @@ static int dtg_executor_begin_native(dtg_runtime *rt, dtg_node *node,
         const char *display_prompt = node->action_display
             ? (node->attempts_started == 0 ? node->action_display : NULL)
             : prompt.ptr;
-        /* Transcript echo is first-attempt-only; execution settings belong to
-         * the durable action and must also survive retry/resume. */
-        int force_think_max = display_prompt_is_guided_analysis(node->action_display);
-        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, display_prompt, force_think_max,
+        /* Transcript echo is first-attempt-only; reasoning uses the user-selected
+         * runtime setting on each dispatch, including retry/resume. */
+        if (!dtg_agent_submit_for_graph(node->title, prompt.ptr, display_prompt,
                                         operation_task_id,
                                         &node->transcript_from, err, errsz)) {
             free(prompt.ptr);

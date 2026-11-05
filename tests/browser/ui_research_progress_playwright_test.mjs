@@ -111,6 +111,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (system.includes('DStudio Deep Research writer')) {
         assert.equal(body.stream, true, 'The actual browser writer request must use streaming');
+        assert.equal(body.max_tokens, undefined, 'The browser writer must omit the output-token cap');
         if (writerMode === 'empty') { json(res, { error: { message: 'Fixture engine unavailable.' } }, 503); return; }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         const event = Buffer.from(`data: ${JSON.stringify({ choices: [{ delta: { content: partialAnswer } }] })}\n\n`);

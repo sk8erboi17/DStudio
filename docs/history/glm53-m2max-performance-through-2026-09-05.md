@@ -1,5 +1,7 @@
 # GLM 5.3 Flash Q2 — M2 Max 96 GB performance report
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md). Current patch instructions are in the [maintained README](../../patch/ds4-glm53-m2max/README.md).
+
 Publication note: personal absolute paths use `$DSTUDIO_ROOT` (project root)
 and `$USER_HOME` (user directory) below. Measurements and hashes are unchanged.
 

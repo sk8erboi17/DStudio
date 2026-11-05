@@ -2918,7 +2918,7 @@ static int gsa_start_build_response(const gsa_start_request *req, const gsa_star
             "\"runDir\":\"%s\",\"statePath\":\"%s\",\"parentRunDir\":\"%s\",\"iteration\":%d,"
             "\"targetUrl\":\"%s\",\"profileRequested\":\"%s\",\"profileEffective\":\"%s\","
             "\"scopePath\":\"%s\",\"safetyGatePath\":\"%s\","
-            "\"think\":\"max\",\"candidateCount\":%d,\"truncated\":%s,\"prompt\":",
+            "\"think\":\"high\",\"candidateCount\":%d,\"truncated\":%s,\"prompt\":",
             run->task_id, id_esc, abs_esc, run_esc, state_esc, parent_esc, req->iteration,
             target_esc, prof_req_esc, prof_eff_esc, scope_esc, safety_esc,
             candidate_count, truncated ? "true" : "false") &&

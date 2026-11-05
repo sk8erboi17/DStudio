@@ -44,7 +44,7 @@ model/backend. The exact engine tips and tested scope are in the
   another model/backend. Its Metal attention source
   is unchanged by all three newly reviewed commits; earlier long-context failures remain open.
 - q27's own native Metal operator suite exposed a pipeline threadgroup-limit
-  failure on M2 Max. The [bounded column-tiling correction](../../patch/q27-metal-delta/README.md)
+  failure on M2 Max. The [bounded column-tiling correction](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q27-metal-delta/README.md)
   passes unchanged upstream operators, 24 independent recurrence comparisons
   and patch lifecycle tests. This is q27-specific operator evidence, not proof
   that DStudio's Qwen GGUF can be loaded by q27 or that CUDA behaves identically.

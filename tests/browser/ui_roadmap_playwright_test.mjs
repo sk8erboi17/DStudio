@@ -9,6 +9,19 @@ const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 assert(['chromium', 'webkit', 'firefox'].includes(browserName), 'Unknown browser');
 const modelFamily = process.env.DSTUDIO_TEST_MODEL || 'deepseek';
 const repairCheckout = process.env.DSTUDIO_TEST_STALE_CHECKOUT === '1';
+const storageFailureCase = process.env.DSTUDIO_TEST_LEARN_STORAGE_FAILURE === '1';
+const recoveryCase = process.env.DSTUDIO_TEST_LEARN_RECOVERY === '1' || storageFailureCase;
+let storageWritesDenied = false;
+let storeWriteBarrier = null, releaseStoreWrite = () => {}, storeBarrierEntered = false;
+const resumeThinkLevel = process.env.DSTUDIO_TEST_LEARN_RESUME_THINK_LEVEL || '';
+const legacyDraftCase = process.env.DSTUDIO_TEST_LEARN_LEGACY_DRAFT === '1';
+assert.ok(!resumeThinkLevel || ['off', 'high'].includes(resumeThinkLevel));
+const auditPartialCase = process.env.DSTUDIO_TEST_LEARN_AUDIT_PARTIAL === '1';
+const auditRecoveryCase = process.env.DSTUDIO_TEST_LEARN_AUDIT_RECOVERY === '1' || auditPartialCase;
+const unverifiedCase = process.env.DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED === '1';
+let auditRequestCount = 0, auditStreamsClosed = 0;
+let recoveryStageRequests = 0, recoveryStreamsClosed = 0;
+let resumedRequestStart = 0;
 const modelFixture = {
   deepseek: { id: 'deepseek-v4-flash', file: 'gguf/DeepSeek-V4-Flash-test.gguf', engine: '/fixture/ds4', effort: 'max', normalEffort: 'high', maximum: 'max', minimum: 393216 },
   qwen38: { id: 'qwen3.8-flash-next', file: 'gguf/Qwen3.8-Flash-Next-Q4.gguf', engine: '/fixture/ds4', effort: 'xhigh', normalEffort: 'xhigh', maximum: 'xhigh', minimum: 0 },
@@ -18,6 +31,13 @@ const modelFixture = {
   qwen27: { id: 'qwen3.8-27b', file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', engine: '/fixture/ds4', effort: undefined, normalEffort: undefined, maximum: 'on', minimum: 0 },
 }[modelFamily];
 assert(modelFixture, 'Unknown model fixture');
+const learnThinkLevel = process.env.DSTUDIO_TEST_LEARN_THINK_LEVEL || 'high';
+assert.ok(['off','high','max'].includes(learnThinkLevel));
+const selectedLevel = learnThinkLevel === 'max' && !modelFixture.minimum ? 'high' : learnThinkLevel;
+const selectedEffort = selectedLevel === 'off' ? undefined : selectedLevel === 'max' ? modelFixture.effort : modelFixture.normalEffort;
+const selectedEffective = selectedLevel === 'off' ? 'off' : modelFamily === 'deepseek' ? selectedLevel : modelFixture.maximum;
+const selectedMinimum = selectedLevel === 'max' ? modelFixture.minimum : 0;
+const selectedContext = selectedMinimum || 65536;
 let browserType;
 try {
   browserType = (await import('playwright'))[browserName];
@@ -31,7 +51,7 @@ const webRoot = path.join(repoRoot, 'web');
 const appHtml = fs.readFileSync(path.join(webRoot, 'index.html'));
 const artifacts = artifactRunDir('roadmap-browser');
 const receipt = {scope: 'Production Learn/Tutor UI with simulated engine replies',
-  modelFamily, browserName, repairCheckout, htmlSHA256: createHash('sha256').update(appHtml).digest('hex'),
+  modelFamily, browserName, repairCheckout, recoveryCase, storageFailureCase, resumeThinkLevel, legacyDraftCase, auditRecoveryCase, auditPartialCase, unverifiedCase, htmlSHA256: createHash('sha256').update(appHtml).digest('hex'),
   harnessSHA256: createHash('sha256').update(fs.readFileSync('tests/browser/ui_roadmap_playwright_test.mjs')).digest('hex'), status: 'RUNNING'};
 writeArtifact(artifacts, 'results.json', receipt);
 console.log(`Learn browser evidence: ${artifacts}`);
@@ -40,6 +60,10 @@ const webSearchRequests = [];
 const webReadRequests = [];
 const missingRequests = [];
 const startRequests = [];
+let releaseSourcePicker;
+const sourcePickerGate = new Promise(resolve => { releaseSourcePicker = resolve; });
+let releaseResearchRead;
+const researchReadGate = new Promise(resolve => { releaseResearchRead = resolve; });
 let blockAttempts = 0;
 let roadmapAttempts = 0;
 let activeContext = 65536;
@@ -167,7 +191,12 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/store') {
     if (req.method === 'POST') await readBody(req);
-    json(res, 200, { ok: true, rev: 0, data: null });
+    if (req.method === 'POST' && storeWriteBarrier) {
+      storeBarrierEntered = true; await storeWriteBarrier;
+    }
+    json(res, 200, storageWritesDenied && req.method === 'POST'
+      ? {ok:false,code:'store_write_failed',error:'Injected native storage failure'}
+      : { ok: true, durable: true, rev: 0, data: null });
     return;
   }
   if (url.pathname === '/api/storerev') { json(res, 200, { rev: 0 }); return; }
@@ -195,7 +224,7 @@ const server = http.createServer(async (req, res) => {
       sources: [...roadmapSources, ...roadmapNoiseSources].map((sourceUrl, index) => ({
         title: ['MDN Learn Web Development', 'web.dev Learn', 'W3C Digital Accessibility Curricula', 'WHATWG HTML Living Standard', 'ECMAScript Language Specification', 'Pull requests', 'Actions'][index],
         url: sourceUrl,
-        content: ['Platform curriculum and prerequisites', 'Practice-oriented current web curriculum', 'Accessibility learning objectives and assessments', 'Normative HTML platform semantics and browser behavior', 'Normative JavaScript language semantics and execution model', 'Repository navigation', 'Repository automation navigation'][index],
+        content: ['Platform curriculum and prerequisites', 'Practice-oriented current web curriculum', 'Official curriculum with accessibility learning objectives and assessments', 'Official reference for normative HTML platform semantics and browser behavior', 'Official reference for normative JavaScript language semantics and execution model', 'Repository navigation', 'Repository automation navigation'][index],
       })),
     });
     return;
@@ -203,11 +232,12 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/web-read' && req.method === 'POST') {
     const payload = JSON.parse(await readBody(req) || '{}');
     webReadRequests.push(payload);
+    await researchReadGate;
     const index = Math.max(0, roadmapSources.indexOf(payload.url));
     const pages = [
       {
         title: 'MDN Learn Web Development',
-        markdown: '# Learn Web Development\n\n' + 'Start with semantic HTML and CSS, then JavaScript, accessibility, testing, browser tools, network fundamentals, and deployment. Each module includes skills tests, challenges, debugging practice, explicit prerequisites, and an observable project outcome. '.repeat(6),
+        markdown: '# Learn Web Development\n\n' + 'A conforming document exposes one visible main landmark. Start with semantic HTML and CSS, then JavaScript, accessibility, testing, browser tools, network fundamentals, and deployment. Each module includes skills tests, challenges, debugging practice, explicit prerequisites, and an observable project outcome. '.repeat(6),
       },
       {
         title: 'web.dev Learn',
@@ -257,6 +287,7 @@ const server = http.createServer(async (req, res) => {
     const isBlock = system.includes('DStudio roadmap-block expansion protocol');
     const isClassifier = system.includes('DStudio search classifier');
     const isPicker = system.includes('DStudio source picker');
+    if (isPicker) await sourcePickerGate;
     const isBatchExtractor = system.includes('DStudio roadmap evidence extractor');
     const isExtractor = system.includes('DStudio evidence extractor');
     const isJudge = system.includes('DStudio research sufficiency judge');
@@ -266,11 +297,39 @@ const server = http.createServer(async (req, res) => {
     const isFactAuditor = system.includes('DStudio roadmap factual auditor');
     const isCurriculumJudge = system.includes('DStudio roadmap curriculum judge');
     const isRoadmapRepairer = system.includes('DStudio roadmap repairer');
+    if (isFactAuditor && auditRecoveryCase && ++auditRequestCount === 2) {
+      res.on('close', () => {auditStreamsClosed += 1;});
+      res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-cache'});
+      res.write(`data: ${JSON.stringify({choices: [{delta: {reasoning_content: 'Useful partial audit analysis retained before Stop.'}}]})}\n\n`);
+      let progress = 0;
+      const timer = setInterval(() => {
+        res.write(`data: ${JSON.stringify({choices: [{delta: {reasoning_content: ` Distinct evidence check ${++progress}.`}}]})}\n\n`);
+      }, 100);
+      res.on('close', () => clearInterval(timer));
+      return;
+    }
+
     if (isBlock) {
       blockAttempts += 1;
       if (blockAttempts === 1) await blockStartGate;
     }
-    if (isRoadmap) roadmapAttempts += 1;
+    const phaseText = (payload.messages || []).filter(message => message.role === 'user').map(message => String(message.content || '')).join('\n');
+    const phase = [...phaseText.matchAll(/\[Roadmap phase: ([^\]]+)\]/g)].at(-1)?.[1];
+    if (isRoadmap && !isRoadmapRepairer && phase === 'outline') roadmapAttempts += 1;
+    if (recoveryCase && isRoadmap && !isRoadmapRepairer && phase === 'stage javascript' && ++recoveryStageRequests <= 2) {
+      res.on('close', () => { recoveryStreamsClosed += 1; });
+      res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-cache'});
+      const useful = 'A useful prerequisite observation retained before the interruption.';
+      const cycle = Array.from({length: 45}, (_, i) => `Assumption ${i}: learner context and measurable practice ${i * 17}.`).join('\n');
+      res.write(`data: ${JSON.stringify({choices: [{delta: {reasoning_content: recoveryStageRequests === 1 ? useful : cycle.repeat(8)}}]})}\n\n`);
+      return; // First: user Stop. Second: production cycle detector closes it.
+    }
+
+    const phaseResult = (value) => {
+      if (phase === 'outline') return JSON.stringify(value);
+      const id = phase?.replace(/^stage /, '');
+      return JSON.stringify({stage: value.stages.find(stage => stage.id === id)});
+    };
     const truncatedBlock = isBlock && blockAttempts === 1;
     const generatedBlock = {
       title: 'Accessibilità HTML',
@@ -288,26 +347,23 @@ const server = http.createServer(async (req, res) => {
       ...Array.from({ length: 28 }, (_, index) => `Passaggio ${index + 1}: collega la struttura semantica al comportamento osservabile e verifica il risultato con un esempio concreto.`),
       '<details><summary>Hint 1: struttura</summary>Apri prima `main`, poi aggiungi le sezioni semantiche.</details>',
     ].join('\n\n');
-    const auditScope = payload.messages?.find((message) => message.role === 'user')?.content
-      ?.match(/Audit scope:\s*(?:stage\s+)?([^\.\n]+)/i)?.[1]?.trim() || 'global';
+    const auditTask = isFactAuditor ? JSON.parse(payload.messages.find(message => message.role === 'user').content) : null;
     const content = isFactAuditor
-      ? !factFindingIssued
-        ? (() => {
-            factFindingIssued = true;
-            return JSON.stringify({
-              scope: auditScope,
-              pass: false,
-              findings: [{
-                location: 'web-foundations/html-semantics/practice',
-                claim: 'HTML permits any number of simultaneous main landmarks.',
-                verdict: 'incorrect',
-                justification: 'A document must not expose multiple visible main landmarks with the same role.',
-                correction: 'Use one visible main landmark and verify the accessibility tree.',
-                confidence: 0.99,
-              }],
-            });
-          })()
-        : JSON.stringify({ scope: auditScope, pass: true, findings: [] })
+      ? JSON.stringify({checks: auditTask.items.map(item => {
+          const badClaim = 'HTML permits any number of main landmarks.';
+          const uncertain = unverifiedCase && item.id === 'web-foundations/html-semantics/application';
+          if (uncertain) return {id: item.id,verdict: 'unverified',reason: 'More primary source evidence is needed for this claim.',evidence: [],finding: null};
+          const bad = !factFindingIssued && item.text.includes(badClaim);
+          if (bad) factFindingIssued = true;
+          const evidence = item.kind === 'consistency'
+            ? [{sourceId: 'input', quote: item.text.slice(0, 100)}]
+            : [{sourceId: auditTask.evidence[0].id, quote: auditTask.evidence[0].text.slice(0, 100)}];
+          return {id: item.id, verdict: bad ? 'contradicted' : 'supported',
+            reason: bad ? 'The supplied primary reference permits one visible main landmark.' : 'The supplied evidence/input supports the fixture check.',
+            evidence, finding: bad ? {claim: badClaim, verdict: 'incorrect',
+              justification: 'The supplied reference permits one visible main landmark.',
+              correction: 'Use one visible main landmark and verify the accessibility tree.',confidence: .99} : null};
+        }).filter((check,index) => !(auditPartialCase && auditRequestCount === 1 && index === 3))})
       : isCurriculumJudge
         ? JSON.stringify({
             overall: 8.75,
@@ -321,7 +377,7 @@ const server = http.createServer(async (req, res) => {
             reason: 'The curriculum is complete, sequenced, and actionable.',
           })
         : isRoadmapRepairer
-          ? `\`\`\`dstudio-roadmap\n${JSON.stringify(correctedRoadmap)}\n\`\`\``
+          ? phaseResult(correctedRoadmap)
           : isClassifier
       ? JSON.stringify({
           needsSearch: true,
@@ -357,8 +413,8 @@ const server = http.createServer(async (req, res) => {
         ? truncatedBlock
           ? '\`\`\`dstudio-roadmap-block\n{"title":"Accessibilità HTML","summary":"Bozza troncata"'
           : `\`\`\`dstudio-roadmap-block\n${JSON.stringify(generatedBlock)}\n\`\`\``
-        : isRoadmap && roadmapAttempts === 1
-          ? `\`\`\`dstudio-roadmap\n${JSON.stringify(shallowRoadmap)}\n\`\`\``
+        : isRoadmap
+          ? phaseResult(roadmapAttempts === 1 ? shallowRoadmap : roadmap)
           : `Questo testo introduttivo non deve apparire.\n\n\`\`\`dstudio-roadmap\n${JSON.stringify(roadmap)}\n\`\`\``;
     if (payload.stream === false) {
       json(res, 200, { choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 80, total_tokens: 120 } });
@@ -372,7 +428,7 @@ const server = http.createServer(async (req, res) => {
     ].join('');
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
     if (isBlock) await new Promise((resolve) => setTimeout(resolve, 500));
-    else if (!isStudy) await new Promise((resolve) => setTimeout(resolve, 1_300));
+    else if (!isStudy) await new Promise((resolve) => setTimeout(resolve, phase || isFactAuditor || isCurriculumJudge ? 100 : 1_300));
     if (isStudy) {
       const finalEvent = events.lastIndexOf('data: ');
       res.write(events.slice(0, finalEvent));
@@ -415,17 +471,18 @@ try {
 
 let page;
 try {
+  scenario: {
   page = await browser.newPage({ viewport: { width: 1360, height: 960 } });
   await page.clock.install();
   const prepareRecoveryFixture = async () => {
     // Quiesce the old document before injecting a recovery snapshot. Otherwise
     // a pending persistence write can overwrite it, or a background status
     // request can race the intentional navigation. Browser errors remain fatal.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 10_000);
     await page.waitForLoadState('networkidle');
   };
   const pageErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
+  page.on('pageerror', (error) => { pageErrors.push(error?.stack || error?.message || String(error)); writeArtifact(artifacts, 'page-errors.json', pageErrors); });
   page.on('console', (msg) => { if (msg.type() === 'error') pageErrors.push(msg.text()); });
   await page.addInitScript((fixture) => {
     // This fixture owns the app document, never opaque artifact preview frames.
@@ -464,14 +521,28 @@ try {
     'Roadmap should retain one visible prompt handle for raising and lowering the composer');
   assert.match(await page.locator('#roadmap-composer-peek').textContent() || '', /Roadmap prompt/);
 
-  const think = page.locator('.cbar-think-btn--locked');
-  await think.waitFor({ state: 'visible' });
-  assert.match(await think.textContent() || '', modelFixture.minimum
-    ? new RegExp(`Thinking: max · ${modelFixture.minimum / 1024}k\\+\\s*locked`)
-    : new RegExp(`Thinking: ${modelFixture.maximum}\\s*locked`));
-  await think.click();
-  assert.equal(await page.locator('.cbar-think-menu').count(), 0, 'locked Roadmap thinking must not open a selector');
-
+  const think = page.locator('.cbar-think-btn');
+  await think.waitFor({state:'visible'});
+  assert.equal(await think.getAttribute('aria-haspopup'), 'true');
+  assert.doesNotMatch(await think.textContent(), /locked/);
+  // Both lower settings remain selectable in Learn; request assertions below
+  // prove the choice reaches generation, audit, repair and block expansion.
+  await think.click(); await page.locator('.cbar-think-item').nth(0).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'off');
+  await think.click(); await page.locator('.cbar-think-item').nth(1).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'high');
+  if (selectedLevel === 'max') {
+    await think.click(); await page.locator('.cbar-think-item').nth(2).click();
+    await page.locator('#confirm-dialog[open]').waitFor();
+    assert.match(await page.locator('#confirm-body').textContent(), /repetitive reasoning loop/);
+    await page.locator('#confirm-cancel').click();
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel), 'high');
+    await think.click(); await page.locator('.cbar-think-item').nth(2).click();
+    await page.locator('#confirm-dialog[open]').waitFor(); await page.locator('#confirm-go').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'max');
+  } else if (selectedLevel === 'off') {
+    await think.click(); await page.locator('.cbar-think-item').nth(0).click();
+  }
   await page.locator('#composer-input').fill('Voglio imparare lo sviluppo frontend da zero in tre mesi, con esercizi e verifiche pratiche.');
   const focusedRoadmapComposer = await page.locator('#composer-form').evaluate((node) => {
     const style = getComputedStyle(node);
@@ -484,11 +555,39 @@ try {
   await page.locator('#btn-send').click();
   const loadingTrace = page.locator('.roadmap-loading__trace');
   await loadingTrace.waitFor({ state: 'visible' });
-  assert.equal(await loadingTrace.locator('.roadmap-loading__step').count(), 3,
-    'Roadmap loading should show the three-step research trace from the approved design');
-  assert.equal(await page.locator('.roadmap-loading__phase').count(), 3,
-    'Roadmap loading should preview the upcoming vertical phases while the draft is being built');
-  assert.match(await page.locator('.roadmap-direct-loading__label').textContent() || '', /Deep researching your learning path|Building your roadmap/);
+  await page.waitForFunction(() => document.querySelector('.roadmap-loading__activity')?.textContent === 'Preparing the next research step');
+  assert.ok(webSearchRequests.length > 0 && webReadRequests.length === 0,
+    'between completed searches and the source-picker reply, Learn must not label a completed search as current work');
+  releaseSourcePicker();
+  await page.waitForFunction(() => document.querySelector('.roadmap-loading__activity')?.textContent === 'Read URL');
+  assert.ok(webReadRequests.length > 0, 'the fixture holds a real production read request in flight');
+  assert.ok((await loadingTrace.textContent()).includes(webReadRequests[0].url),
+    'Learn must display the actual URL being read while its request is still pending');
+  assert.equal(await page.locator('[data-act="cancel-roadmap"]').count(), 0,
+    'Learn keeps cancellation in the shared composer instead of a duplicate loading-panel button');
+  assert.equal(await page.locator('.roadmap-loading__phase').count(), 0,
+    'Learn should show actual activity rather than a fabricated draft skeleton');
+  assert.ok(await loadingTrace.locator('.roadmap-loading__step').count() > 0,
+    'Learn exposes the actual research trace');
+  await page.clock.runFor(20_000);
+  assert.match(await page.locator('.roadmap-loading__elapsed').textContent() || '', /0:(?:19|20) elapsed/);
+  assert.match(await page.locator('.roadmap-loading__heartbeat').textContent() || '', /Waiting for the next update/,
+    'a quiet model must show the lack of new activity without claiming a stall or invented progress');
+  await page.waitForFunction(() => !document.body.classList.contains('composer-raised'));
+  await page.screenshot({path: path.join(artifacts, 'learn-progress-dark.png')});
+  const rects = await page.evaluate(() => Object.fromEntries([
+    ['head', '.roadmap-loading__head'], ['current', '.roadmap-loading__current'],
+    ['steps', '.roadmap-loading__steps'], ['stop', '#btn-stop'],
+  ].map(([key, selector]) => {
+    const {x, y, width, height} = document.querySelector(selector).getBoundingClientRect();
+    return [key, {x: x / innerWidth * 100, y: y / innerHeight * 100, w: width / innerWidth * 100, h: height / innerHeight * 100}];
+  })));
+  writeArtifact(artifacts, 'progress-rects.json', rects);
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.screenshot({path: path.join(artifacts, 'learn-progress-light.png')});
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  releaseResearchRead();
+
 
   // The Roadmap keeps the shared Agent-sized composer visible at the bottom so
   // the learner can refine the plan without discovering a hidden drawer.
@@ -514,13 +613,222 @@ try {
   assert.equal(streamingComposer.stopHidden, false,
     'Stop should remain available while generation is running');
 
+  if (recoveryCase) {
+    await page.waitForFunction(() => document.querySelector('.roadmap-loading__received')?.textContent.includes('1/5 stages saved'));
+    await page.clock.runFor(1000);
+    const beforeStop = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    const pending = beforeStop.chats.flatMap(chat => chat.messages).find(message => message.streaming && message.roadmapBuild);
+    assert.equal(pending.roadmapBuild.stages.length, 1);
+    assert.match(pending.reasoning, /useful prerequisite observation/);
+    await page.screenshot({path: path.join(artifacts, 'saved-stage-before-stop.png')});
+    await page.locator('#btn-stop').click();
+    await page.locator('.roadmap-direct-error').waitFor({state: 'visible'});
+    assert.equal(await page.locator('.roadmap-card').count(), 0, 'An unverified draft is never an accepted roadmap');
+    if (legacyDraftCase) {
+      await prepareRecoveryFixture();
+      await page.evaluate(() => {
+        const data = JSON.parse(localStorage.getItem('ds4web.chats.v2'));
+        const chat = data.chats.find(chat => chat.mode === 'roadmap');
+        const saved = chat.messages.find(message => message.roadmapBuild);
+        delete saved.roadmapBuild.inputKey;
+        saved.roadmapBuild.dependencyKey = 'old-runtime-dependent-key';
+        // Match the retained user case: a good saved draft, then a failed
+        // restart that never wrote a new outline. Neither record may be lost.
+        chat.messages.push({id: 'empty-restart', role: 'assistant', content: '', createdAt: Date.now(),
+          finishReason: 'error', roadmapPending: false, roadmapVerification: {status: 'failed'},
+          error: {type: 'roadmap-generation', message: 'Response incomplete: stream ended before data: [DONE]. mode=none; running=false; ready=false; engineLine=shutdown requested, draining requests'}});
+        localStorage.setItem('ds4web.chats.v2', JSON.stringify(data));
+      });
+    }
+    await page.reload({waitUntil: 'networkidle'});
+    await page.clock.resume();
+    await page.locator('#tab-roadmap').click();
+    if (legacyDraftCase) {
+      assert.doesNotMatch(await page.locator('.roadmap-direct-error > p').first().textContent(), /stream ended|engineLine|running=false/);
+      const diagnostics = page.locator('.roadmap-direct-error > .roadmap-diagnostics');
+      assert.equal(await diagnostics.getAttribute('open'), null);
+      assert.match(await page.locator('.roadmap-direct-error').textContent(), /1\/5 blocchi già salvati/);
+      assert.equal(await page.locator('.roadmap-direct-error').count(), 1);
+      await diagnostics.locator('summary').click();
+      assert.match(await diagnostics.locator('pre').textContent(), /engineLine/,
+        'The original technical failure remains accessible without leading the paused screen');
+    }
+    if (resumeThinkLevel) {
+      await page.locator('.cbar-think-btn').click();
+      await page.locator('.cbar-think-item').nth(resumeThinkLevel === 'off' ? 0 : 1).click();
+      await page.waitForFunction(level => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === level, resumeThinkLevel);
+      if (await page.locator('#confirm-dialog[open]').isVisible()) await page.locator('#confirm-go').click();
+    }
+    if (storageFailureCase) {
+      storageWritesDenied = true;
+      const before = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+      const modelCalls = chatRequests.length, searches = webSearchRequests.length;
+      await page.evaluate(() => {
+        window.originalHistorySetItem = Storage.prototype.setItem;
+        window.originalHistoryTransaction = IDBDatabase.prototype.transaction;
+        Storage.prototype.setItem = function(key,value) {
+          if (key === 'ds4web.chats.v2') throw new DOMException('Injected history quota', 'QuotaExceededError');
+          return originalHistorySetItem.call(this,key,value);
+        };
+        IDBDatabase.prototype.transaction = function(...args) {
+          if (args[1] === 'readwrite') throw new DOMException('Injected database failure','SecurityError');
+          return originalHistoryTransaction.apply(this,args);
+        };
+      });
+      for (let attempt=0;attempt<3;attempt++) {
+        await page.locator('[data-act="retry"]').click();
+        await page.waitForFunction(() => document.querySelector('.toast')?.textContent.includes('Injected native storage failure'));
+        // A settings change is still independently writable after the failure.
+        await page.locator('.cbar-think-btn').click();
+        await page.locator('.cbar-think-item').nth(attempt%2).click();
+        await page.waitForFunction(level=>JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel===level,attempt%2?'high':'off');
+      }
+      assert.equal(chatRequests.length,modelCalls,'Failed saves must not call the model');
+      assert.equal(webSearchRequests.length,searches,'Failed saves must not start research');
+      const after = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+      assert.deepEqual(after,before,'Repeated Retry must retain the saved stages without adding draft copies');
+      assert.equal(await page.locator('.roadmap-direct-error').count(),1);
+      await page.evaluate(() => {
+        Storage.prototype.setItem = originalHistorySetItem;
+        IDBDatabase.prototype.transaction = originalHistoryTransaction;
+      });
+      storageWritesDenied = false;
+      await page.locator('.cbar-think-btn').click(); await page.locator('.cbar-think-item').nth(1).click();
+      storeWriteBarrier = new Promise(resolve => { releaseStoreWrite = resolve; });
+      await page.locator('[data-act="retry"]').click();
+      await page.locator('#btn-stop').waitFor({state:'visible'});
+      for (let i=0;!storeBarrierEntered&&i<1000;i++) await new Promise(resolve => setTimeout(resolve,10));
+      assert.ok(storeBarrierEntered,'The test must hold an actual native save before Stop');
+      await page.locator('#btn-stop').click();
+      releaseStoreWrite(); storeWriteBarrier = null;
+      await page.waitForFunction(() => document.querySelector('#btn-stop')?.hidden);
+      assert.equal(chatRequests.length,modelCalls,'Stop during an admitted save must prevent inference after its acknowledgement');
+      assert.equal(webSearchRequests.length,searches);
+      assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2'))),before);
+    }
+    await page.evaluate(() => {
+      window.__learnWorkspaceOverlaps = [];
+      new MutationObserver(() => {
+        const count = document.querySelectorAll('#messages .roadmap-direct-error, #messages .roadmap-direct-loading, #messages .roadmap-card').length;
+        if (count > 1) window.__learnWorkspaceOverlaps.push(count);
+      }).observe(document.querySelector('#messages'), {childList: true, subtree: true});
+    });
+    resumedRequestStart = chatRequests.length;
+    await page.locator('[data-act="retry"]').click();
+    await page.locator('.roadmap-loading__trace').waitFor();
+    assert.equal(await page.locator('.roadmap-direct-error').count(), 0, 'Retry replaces the paused card immediately');
+    assert.equal(await page.locator('.roadmap-history').getAttribute('open'), null, 'Old attempts belong to collapsed history');
+  }
+  if (auditRecoveryCase) {
+    const savedCount = auditPartialCase ? 3 : 4;
+    await page.waitForFunction(savedCount => {
+      const state = JSON.parse(localStorage.getItem('ds4web.chats.v2'));
+      return state.chats.flatMap(chat => chat.messages).some(message => message.streaming && message.roadmapAudit?.completed === savedCount && message.reasoning?.includes('Useful partial audit'));
+    },savedCount);
+    await page.waitForFunction(savedCount => new RegExp(`${savedCount}/\\d+ factual checks saved`).test(document.querySelector('.roadmap-loading__received')?.textContent || ''),savedCount);
+    assert.match(await page.locator('.roadmap-loading__received').textContent(), new RegExp(`${savedCount}/\\d+ factual checks saved`));
+    if(auditPartialCase) {
+      const tasks=chatRequests.filter(entry=>entry.messages[0].content.includes('roadmap factual auditor')).map(entry=>JSON.parse(entry.messages[1].content));
+      assert.equal(tasks[0].items.length,4);assert.equal(tasks[1].items.length,1);
+      assert.equal(tasks[1].items[0].id,tasks[0].items[3].id,'The retry asks only for the omitted fourth verdict');
+    }
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('ds4web.chats.v2'));
+      return data.chats.flatMap(chat => chat.messages).some(message => message.streaming && message.roadmapPhase?.reasoningChars > 500);
+    });
+
+    await page.waitForFunction(() => document.querySelector('.roadmap-loading__received')?.textContent.includes('Reasoning on the current step'));
+    await page.screenshot({path: path.join(artifacts, 'saved-audit-before-stop.png')});
+    await page.locator('#btn-stop').click();
+    await page.locator('.roadmap-direct-error').waitFor({state: 'visible'});
+    await page.reload({waitUntil: 'networkidle'}); await page.clock.resume();
+    await page.locator('#tab-roadmap').click();
+    await page.locator('[data-act="retry"]').click();
+  }
+  if (unverifiedCase) {
+    await page.locator('.roadmap-direct-error').waitFor({state: 'visible'});
+    assert.equal(await page.locator('.roadmap-card').count(), 0);
+    const data = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    const assistant = data.chats.flatMap(chat => chat.messages).findLast(message => message.roadmapBuild);
+    assert.equal(assistant.roadmapBuild.stages.length, 5);
+    assert.equal(assistant.roadmapAudit.completed, assistant.roadmapAudit.total);
+    assert.equal(assistant.roadmapVerification.status, 'incomplete');
+    assert.ok(assistant.roadmapVerification.stageAudits.some(audit => audit.unresolved.length));
+    assert.equal(chatRequests.filter(entry => entry.messages[0].content.includes('curriculum judge')).length, 0,
+      'An unresolved factual claim cannot advance to a successful curriculum verdict');
+    assert.deepEqual(pageErrors, []); receipt.status = 'PASS';
+    console.log(`ui_roadmap missing-evidence: ok (${browserName}; unverified retained, no graph published)`);
+    break scenario;
+  }
   const card = page.locator('.roadmap-card');
   await card.waitFor({ state: 'visible' });
+  if (auditRecoveryCase) {
+    const data = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    const messages = data.chats.find(chat => chat.mode === 'roadmap').messages;
+    const interrupted = messages.find(message => message.finishReason === 'aborted' && message.roadmapAudit);
+    assert.equal(interrupted.roadmapAudit.completed, auditPartialCase ? 3 : 4);
+    const verified = messages.findLast(message => message.roadmapVerification?.status === 'verified');
+    assert.equal(verified.roadmapAudit.completed, verified.roadmapAudit.total);
+    assert.equal(auditStreamsClosed, 1);
+    const auditInputs = chatRequests.filter(entry => entry.messages[0].content.includes('roadmap factual auditor')).map(entry => entry.messages[1].content);
+    assert.equal(auditInputs.filter(input => input === auditInputs[0]).length, 1, 'The completed batch is not rerun after Stop/reload');
+    if(auditPartialCase) {
+      const tasks=auditInputs.map(input=>JSON.parse(input));
+      assert.deepEqual(tasks[2].items.map(item=>item.id),tasks[1].items.map(item=>item.id),
+        'Stop/reload retains the three valid verdicts and asks only for the same missing item');
+      assert.equal(interrupted.roadmapAudit.records[0].checks.length,3);
+      assert.equal(await page.locator('.roadmap-direct-error').count(),0);
+    }
+    assert.deepEqual(pageErrors, []); receipt.status = 'PASS';
+    console.log(`ui_roadmap audit recovery: ok (${browserName}; ${auditPartialCase?'3-of-4 partial admission, missing-id-only retries, ':''}per-batch persistence, Stop/reload, cached checks and final verification)`);
+    break scenario;
+  }
+  if (recoveryCase) {
+    await page.clock.runFor(1000);
+    const data = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    const messages = data.chats.find(chat => chat.mode === 'roadmap').messages;
+    const interrupted = messages.find(message => message.finishReason === 'aborted' && message.roadmapBuild);
+    const verified = messages.findLast(message => message.roadmapVerification?.status === 'verified');
+    assert.equal(interrupted.roadmapBuild.stages.length, 1, 'Stop/reload retains the saved stage and failure');
+    assert.match(interrupted.reasoning, /useful prerequisite observation/);
+    assert.equal(verified.roadmapBuild.stages.length, 5);
+    assert.equal(verified.roadmapRecoveries.length, 1);
+    assert.ok(verified.roadmapRecoveries[0].repetition.repeats >= 4);
+    const phaseRequests = chatRequests.filter(entry => {
+      const system = entry.messages?.find(message => message.role === 'system')?.content || '';
+      return system.includes('DStudio learning-roadmap protocol') && !system.includes('DStudio roadmap repairer');
+    });
+    assert.equal(phaseRequests.filter(entry => entry.messages.at(-1).content.includes('[Roadmap phase: stage web-foundations]')).length, 1,
+      'The stage completed before Stop is not regenerated after reload');
+    assert.equal(phaseRequests.filter(entry => entry.messages.at(-1).content.includes('[Roadmap phase: outline]')).length, 1,
+      'Only the initial outline request is issued; its repair does not restart after reload');
+    assert.equal(recoveryStreamsClosed, 2, 'Both user cancellation and cycle recovery close the old inference stream');
+    assert.deepEqual(await page.evaluate(() => window.__learnWorkspaceOverlaps), [], 'No paused/loading duplicate at any point during retry');
+    assert.equal(await page.locator('.roadmap-history').count(), 1);
+    assert.equal(await page.locator('.roadmap-history').getAttribute('open'), null);
+    await page.locator('.roadmap-history > summary').click();
+    assert.match(await page.locator('.roadmap-history').textContent(), /1\/5 blocchi salvati/);
+    assert.equal(verified.roadmapResumedFrom, interrupted.id);
+    if (legacyDraftCase) assert.ok(messages.some(message => message.id === 'empty-restart' && message.error.message.includes('engineLine')),
+      'An empty failed restart remains retained after another retry');
+    if (resumeThinkLevel) {
+      const resumedRequests = chatRequests.slice(resumedRequestStart).filter(entry => phaseRequests.includes(entry));
+      assert.ok(resumedRequests.length > 0 && resumedRequests.every(entry => entry.think === (resumeThinkLevel !== 'off')));
+      assert.ok(resumedRequests.every(entry => entry.reasoning_effort === (resumeThinkLevel === 'off' ? undefined : modelFixture.normalEffort)),
+        'Changing effort keeps authored stages and sends the newly selected effort on remaining work');
+    }
+    await page.screenshot({path: path.join(artifacts, 'single-roadmap-with-history.png')});
+    assert.deepEqual(pageErrors, []);
+    receipt.status = 'PASS';
+    console.log(`ui_roadmap recovery: ok (${modelFamily}, ${browserName}; simulated stream cycle, Stop, reload, saved-stage reuse and full verification)`);
+    break scenario;
+  }
   assert.equal(await page.locator('.scroll-down').count(), 0,
     'the chat scroll button must not cover the Roadmap dependency rail');
 
   const finalRoadmapRequests = chatRequests.filter((entry) =>
-    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio learning-roadmap protocol')
+    (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio learning-roadmap protocol') &&
+    !(entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap repairer')
   );
   const factualAuditRequests = chatRequests.filter((entry) =>
     (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap factual auditor')
@@ -536,27 +844,34 @@ try {
   );
   assert.equal(roadmapResearchWriterRequests.length, 0,
     'Roadmap should pass the complete deterministic evidence bundle directly to generation instead of writing a redundant prose report');
-  assert.equal(finalRoadmapRequests.length, 2,
-    'a shallow researched Roadmap should be rejected and regenerated automatically');
-  assert.equal(factualAuditRequests.length, (roadmap.stages.length + 1) * 2,
-    'every stage and the complete Roadmap must be audited again after a factual repair');
-  assert.equal(factualRepairRequests.length, 1,
-    'a high-confidence factual finding should trigger one complete-roadmap repair');
+  assert.equal(finalRoadmapRequests.length, roadmap.stages.length + 2,
+    'reject the incomplete outline, then develop each agreed stage separately');
+  assert.ok(factualAuditRequests.length > roadmap.stages.length + 1,
+    'every stage and every cross-stage/capstone pair must be checked in finite batches');
+  assert.equal(new Set(factualAuditRequests.map(entry => entry.messages[1].content)).size, factualAuditRequests.length,
+    'a factual repair reuses identical checks instead of auditing unchanged input again');
+  const auditItems = factualAuditRequests.flatMap(entry => JSON.parse(entry.messages[1].content).items);
+  assert.ok(auditItems.some(item => item.id === 'global/web-foundations/production'));
+  assert.ok(auditItems.some(item => item.id === 'global/production/capstone'));
+  assert.ok(factualAuditRequests.every(entry => {
+    const task = JSON.parse(entry.messages[1].content);
+    return task.items.every(item => item.kind === 'consistency') || task.evidence.some(source => source.text.includes('conforming document'));
+  }), 'external factual checks must receive the actual read-page text, not only URLs');
+  assert.equal(factualRepairRequests.length, roadmap.stages.length + 1,
+    'a high-confidence factual finding should trigger a saved outline and stage-by-stage repair');
   assert.equal(curriculumJudgeRequests.length, 1,
     'curriculum quality must be judged in a separate pass after factual verification');
-  assert.ok(factualAuditRequests.every((entry) => entry.reasoning_effort === modelFixture.effort && entry.max_tokens === undefined),
-    'factual auditors must use uncapped Thinking max');
-  assert.ok(curriculumJudgeRequests.every((entry) => entry.reasoning_effort === modelFixture.effort && entry.max_tokens === undefined),
-    'the separate curriculum judge must use uncapped Thinking max');
+  assert.ok(factualAuditRequests.every((entry) => entry.reasoning_effort === selectedEffort && entry.max_tokens === undefined),
+    'factual auditors must use the selected reasoning level');
+  assert.ok(curriculumJudgeRequests.every((entry) => entry.reasoning_effort === selectedEffort && entry.max_tokens === undefined),
+    'the separate curriculum judge must use the selected reasoning level');
   assert.ok(factualAuditRequests.every((entry) =>
     !(entry.messages?.find((message) => message.role === 'system')?.content || '').includes('curriculum judge')),
   'the factual auditor must not inherit curriculum-judging responsibilities');
-  if (modelFixture.minimum) assert.ok(startRequests.some((entry) => entry.ctx === modelFixture.minimum),
-    'Roadmap must temporarily restart at this model\'s native Max threshold');
-  else assert.ok(startRequests.every((entry) => entry.ctx === 65536),
-    'Qwen must never inherit the DeepSeek Max context requirement');
-  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('ds4web.settings.v2'))).ctxSize, 65536,
-    'the temporary Roadmap context must not overwrite the learner\'s normal Chat setting');
+  if (selectedMinimum) assert.ok(startRequests.some(entry => entry.ctx === selectedMinimum), 'Explicit Max uses its confirmed context');
+  else assert.ok(startRequests.every(entry => entry.ctx === 65536), 'High/Off must not inherit a forced Max context');
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('ds4web.settings.v2'))).ctxSize, selectedContext,
+    'Learn must preserve the learner\'s selected context');
   assert.ok(webSearchRequests.length >= 4,
     'A Roadmap without links must still run broad Deep Research queries');
   assert.ok(webSearchRequests.every((entry) => entry.cdpOnly === true),
@@ -580,15 +895,15 @@ try {
     'Low-value repository navigation pages must be removed before model source selection');
   const request = finalRoadmapRequests.at(-1);
   assert.equal(request.stream, true);
-  assert.equal(request.think, true, 'Roadmap must enable local model thinking even when global thinking is off');
-  assert.equal(request.reasoning_effort, modelFixture.effort, 'Roadmap must use the selected engine\'s native maximum');
+  assert.equal(request.think, selectedLevel !== 'off', 'Roadmap must honor the selected on/off state');
+  assert.equal(request.reasoning_effort, selectedEffort, 'Roadmap must honor the selected reasoning effort');
   assert.equal(request.max_tokens, undefined,
     'Roadmap must not impose an arbitrary output cap below the model physical context window');
   const system = request.messages.find((message) => message.role === 'system')?.content || '';
   const requestUser = request.messages.find((message) => message.role === 'user' && String(message.content || '').includes('[Roadmap research evidence]'))?.content || '';
   const repairUser = request.messages.findLast((message) => message.role === 'user')?.content || '';
   assert.match(system, /DStudio learning-roadmap protocol/);
-  assert.match(system, /Every roadmap generation MUST be completed with maximum reasoning effort/);
+  assert.match(system, /Use the reasoning level selected by the learner/);
   assert.match(system, /never start from a preset topic catalogue/);
   assert.match(system, /there is no target count, minimum count, maximum count, or uniform stage shape/);
   assert.doesNotMatch(system, /5-8 stages|18-32 topic|3-6 topics per stage/,
@@ -601,10 +916,11 @@ try {
   assert.doesNotMatch(requestUser, /\[Synthesized research report\]|\[Deep research context\]/,
     'Roadmap generation should receive one compact, non-duplicated evidence bundle');
   assert.match(requestUser, /developer\.mozilla\.org|web\.dev|w3\.org/);
-  assert.match(repairUser, /Roadmap quality repair/);
-  assert.match(repairUser, /Re-evaluate granularity semantically/);
+  assert.match(repairUser, /Roadmap phase: stage/);
+  assert.match(finalRoadmapRequests[1].messages.at(-1).content, /Learn phase recovery/);
+  assert.match(finalRoadmapRequests[1].messages.at(-1).content, /Outline needs learner context/);
   assert.doesNotMatch(repairUser, /at least 5 purposeful stages|at least 18 learning topics|Every stage needs at least 3/);
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').thinkLevel), 'off',
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').thinkLevel), selectedLevel,
     'Roadmap max thinking should be a mode guarantee, not a mutation of the Chat preference');
 
   assert.equal(await page.locator('.messages__inner > .msg').count(), 1,
@@ -723,10 +1039,12 @@ try {
     '1 of 20 topics complete', 'Sidebar completion must use the same saved topic state as Learn');
   assert.equal(savedReply?.roadmapVerification?.status, 'verified',
     'the saved Roadmap should expose a completed factual and curriculum verification state');
+  assert.equal(savedReply?.roadmapAudit?.completed, savedReply?.roadmapAudit?.total);
+  assert.ok(savedReply?.roadmapAudit?.records.length > roadmap.stages.length);
   assert.equal(savedReply?.roadmapVerification?.repairRounds, 1,
     'the verification record should retain the factual repair round');
-  assert.equal(savedReply?.roadmapVerification?.effectiveThinking, modelFixture.maximum);
-  assert.equal(savedReply?.roadmapVerification?.requiredContextTokens, modelFixture.minimum);
+  assert.equal(savedReply?.roadmapVerification?.effectiveThinking, selectedEffective);
+  assert.equal(savedReply?.roadmapVerification?.requiredContextTokens, selectedMinimum);
   assert.doesNotMatch(savedReply?.content || '', /HTML permits any number of simultaneous main landmarks/,
     'the persisted Roadmap should contain the repaired claim rather than the rejected draft');
 
@@ -785,9 +1103,9 @@ try {
   );
   assert.equal(blockRequests.length, 2, 'adding a block should keep retrying after a truncated model response');
   const blockRequest = blockRequests[0];
-  assert.equal(blockRequest.think, true, 'block expansion must enable model thinking');
-  assert.equal(blockRequest.reasoning_effort, modelFixture.effort, 'block expansion must use the native maximum');
-  assert.equal(blockRequest.max_tokens, 8192, 'block expansion should reserve a large output budget for max reasoning');
+  assert.equal(blockRequest.think, selectedLevel !== 'off', 'block expansion must honor the selected thinking state');
+  assert.equal(blockRequest.reasoning_effort, selectedEffort, 'block expansion honors the selected reasoning level');
+  assert.equal(blockRequest.max_tokens, undefined, 'block expansion must allow productive reasoning to conclude without an output-token cutoff');
   const blockSystem = blockRequest.messages.find((entry) => entry.role === 'system')?.content || '';
   assert.match(blockSystem, /DStudio roadmap-block expansion protocol/);
   assert.match(blockSystem, /exactly one fenced block whose info string is dstudio-roadmap-block/);
@@ -800,12 +1118,12 @@ try {
   assert.equal(blockPayload.roadmap.targetStage.id, 'web-foundations');
   assert.equal(blockPayload.roadmap.stages, undefined, 'block generation should not resend the entire roadmap graph');
   const retryRequest = blockRequests[1];
-  assert.equal(retryRequest.max_tokens, 8192);
-  assert.equal(retryRequest.reasoning_effort, modelFixture.effort);
-  const retryPayload = JSON.parse(retryRequest.messages.find((entry) => entry.role === 'user')?.content || '{}');
-  assert.equal(retryPayload.retry.attempt, 2);
-  assert.match(retryPayload.retry.failure, /token limit.*truncated/);
-  assert.match(retryPayload.retry.previousDraft, /Bozza troncata/);
+  assert.equal(retryRequest.max_tokens, undefined);
+  assert.equal(retryRequest.reasoning_effort, selectedEffort);
+  const retryPayload = retryRequest.messages.at(-1).content;
+  assert.match(retryPayload, /Learn phase recovery/);
+  assert.match(retryPayload, /Response ended with length/);
+  assert.match(retryPayload, /Bozza troncata/);
 
   // Reorder an existing block before another one with the native drag handle.
   const cssTopic = card.locator('.roadmap-topic[data-topic-id="css-layout"]');
@@ -834,10 +1152,22 @@ try {
   await study.waitFor({ state: 'visible' });
   assert.match(await study.locator('.roadmap-study__title').textContent() || '', /HTML semantico/);
   const tutorThinking = study.locator('.roadmap-study__think');
-  assert.equal(await tutorThinking.inputValue(), modelFixture.minimum ? 'max' : 'normal',
-    'new Tutor rooms should use the native maximum without duplicate equivalent choices');
+  assert.equal(await tutorThinking.inputValue(), selectedLevel === 'off' ? 'off' : selectedLevel === 'max' && modelFixture.minimum ? 'max' : 'normal',
+    'new Tutor rooms inherit the learner\'s choice without duplicate native levels');
   await tutorThinking.selectOption('normal');
   assert.equal(await tutorThinking.inputValue(), 'normal', 'Tutor thinking should be selectable');
+  if (modelFixture.minimum) {
+    await tutorThinking.selectOption('max');
+    await page.locator('#confirm-dialog[open]').waitFor();
+    assert.match(await page.locator('#confirm-body').textContent(), /repetitive reasoning loop/);
+    await page.locator('#confirm-cancel').click();
+    assert.equal(await tutorThinking.inputValue(), 'normal');
+    await tutorThinking.selectOption('max');
+    await page.locator('#confirm-dialog[open]').waitFor(); await page.locator('#confirm-go').click();
+    await page.waitForFunction(() => document.querySelector('.roadmap-study__think')?.value === 'max');
+    await tutorThinking.selectOption('normal');
+  }
+
   assert.equal(await study.locator('.roadmap-study__head .roadmap-study__think').count(), 0,
     'Tutor thinking should live in the composer instead of being duplicated in the header');
   assert.equal(await study.locator('.roadmap-study__controls > .roadmap-study__think').count(), 1);
@@ -1050,7 +1380,9 @@ try {
           finishReason: 'stop',
         },
         { id: 'interrupted-user', role: 'user', content: 'Aggiungi una settimana soltanto per TypeScript avanzato.', createdAt: now },
-        { id: 'interrupted-assistant', role: 'assistant', content: '', streaming: true, roadmapPending: true, createdAt: now },
+        { id: 'interrupted-assistant', role: 'assistant',
+          content: `\`\`\`dstudio-roadmap\n${JSON.stringify({...previousRoadmap, title: 'Unverified replacement'})}\n\`\`\``,
+          roadmapVerification: {status: 'generating'}, streaming: true, roadmapPending: true, createdAt: now },
       ],
     });
     localStorage.setItem('ds4web.chats.v2', JSON.stringify(savedChats));
@@ -1070,7 +1402,7 @@ try {
   assert.equal(await page.locator('.roadmap-card').count(), 1,
     'the previous verified roadmap must remain visible while a replacement is interrupted');
   assert.match(await interruptedState.textContent() || '', /roadmap precedente è ancora disponibile|modello locale è stato interrotto/i);
-  await interruptedState.locator('summary').click();
+  await interruptedState.locator('.roadmap-attempt__prompt > summary').click();
   assert.match(await interruptedState.locator('.roadmap-attempt__prompt').textContent() || '', /TypeScript avanzato/,
     'the learner must be able to inspect the prompt behind an unknown update');
   assert.match(await interruptedState.locator('[data-act="retry"]').textContent() || '', /Riprova l’aggiornamento/);
@@ -1136,14 +1468,60 @@ try {
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).modelEngineDir),
       activeEngineDir, 'The validated checkout repair must persist without invalidating the pending question');
   }
+  const launchPage = await browser.newPage({ viewport: { width: 1360, height: 960 } });
+  launchPage.on('pageerror', error => pageErrors.push(String(error)));
+  await launchPage.addInitScript(fixture => {
+    if (location.origin !== fixture.origin || window !== window.top) return;
+    if (!localStorage.getItem('ds4web.settings.v2')) localStorage.setItem('ds4web.settings.v2', JSON.stringify({
+      v: 2, onboarded: true, theme: 'dark', baseUrl: '', chatBackend: 'local',
+      model: fixture.id, modelGguf: fixture.file, modelEngineDir: fixture.engine,
+      ctxSize: 65536, enginePower: 90, ssdStreaming: 'auto', qualityDefaultsVersion: 1,
+      webSearchBrowserAllowed: true,
+    }));
+    if (!localStorage.getItem('ds4web.chats.v2')) {
+      const now = Date.now();
+      localStorage.setItem('ds4web.chats.v2', JSON.stringify({ v: 2, deleted: [], chats: [{
+        id: 'interrupted-learning-request', mode: 'roadmap', title: 'Learn launch regression fixture', createdAt: now, updatedAt: now,
+        messages: [
+          { id: 'interrupted-user', role: 'user', content: 'Learn launch regression fixture', createdAt: now },
+          { id: 'interrupted-assistant', role: 'assistant', content: '', createdAt: now, finishReason: 'aborted', error: { message: 'Cancelled by the user' } },
+        ],
+      }] }));
+    }
+    // This is the value injected by the native --learn launch, on this origin only.
+    if (sessionStorage.getItem('ds4.learnLaunch') !== 'fixture-one-shot') {
+      window.__ds4LearnLaunch = { prompt: 'Learn launch regression fixture', token: 'fixture-one-shot' };
+    }
+  }, { ...modelFixture, engine: activeEngineDir, origin: `http://127.0.0.1:${port}` });
+  try {
+    await launchPage.goto(`http://127.0.0.1:${port}/`, {waitUntil: 'domcontentloaded'});
+    await launchPage.locator('.roadmap-loading__trace').waitFor({state: 'visible'});
+    assert.match(await launchPage.locator('.chat__title').textContent(), /Learn launch regression fixture/,
+      'an explicit native launch submits the requested topic to Learn');
+    await launchPage.locator('#btn-stop').click();
+    await launchPage.waitForFunction(() => document.querySelector('#btn-stop')?.hidden);
+    const beforeReload = chatRequests.length;
+    await launchPage.reload({waitUntil: 'networkidle'});
+    assert.equal(chatRequests.length, beforeReload, 'reloading must not submit the native launch a second time');
+    const saved = await launchPage.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    assert.equal(saved.chats.filter(chat => chat.mode === 'roadmap' && chat.messages.length).length, 1,
+      'the cancelled learning request resumes in its original conversation');
+    assert.equal(saved.chats.flatMap(chat => chat.messages).filter(message =>
+      message.role === 'user' && message.content === 'Learn launch regression fixture').length, 1);
+  } finally { await launchPage.close(); }
+  assert.deepEqual(pageErrors, [], 'native learning launch must not cause browser errors');
   console.log(`ui_roadmap_playwright_test: ok (${modelFamily}, ${browserName}; simulated engine)`);
   receipt.status = 'PASS';
+  }
 } catch (error) {
   receipt.status = 'FAIL'; receipt.error = String(error.stack || error);
   if (page) writeArtifact(artifacts, 'scroll-trace.json', await page.evaluate(() => window.__roadmapScrollTrace || []).catch(() => []));
   await page?.screenshot({path: path.join(artifacts, 'failure.png')}).catch(() => {});
   throw error;
 } finally {
+  releaseStoreWrite();
+  releaseSourcePicker();
+  releaseResearchRead();
   releaseBlockStart();
   releaseTutorFinish();
   writeArtifact(artifacts, 'results.json', {...receipt, chatRequests, startRequests, missingRequests});

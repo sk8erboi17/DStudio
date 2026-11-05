@@ -347,7 +347,7 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 /* The primary managed checkout always follows the pinned upstream main. GLM
  * 5.3 and DeepSeek Vision-Exp (including native image input) live there, so
  * neither model needs a side checkout. */
-#define DS4_UPSTREAM_COMMIT "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+#define DS4_UPSTREAM_COMMIT "890898cfb437ed256be58ebcf7c58a6dfa8f2f53"
 #define DS4_ARCHIVE_URL "https://codeload.github.com/antirez/ds4/tar.gz/" DS4_UPSTREAM_COMMIT
 
 /* Optional Laguna S 2.1 engine checkout. Laguna lives on its own upstream
@@ -577,9 +577,9 @@ static char g_engine_err[256] = "";       /* why the engine last died, surfaced 
 static void dtg_watchdog_observe_event_line(const char *line);
 static void dtg_agent_owner_release_if_terminal(void);
 static int display_prompt_is_guided_analysis(const char *display);
-static const char *agent_turn_think_preflight(int force_think_max, char *err, size_t errsz);
+static const char *agent_turn_think_preflight(char *err, size_t errsz);
 static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
-                                      const char *display_prompt, int force_think_max,
+                                      const char *display_prompt,
                                       unsigned long long *task_id,
                                       size_t *transcript_from,
                                       char *err, size_t errsz);
@@ -2146,6 +2146,21 @@ static int g_dl_result = 0;          /* 0 running/unknown, 1 completed, -1 faile
  * successful installer/downloader exit remains the completion authority. */
 static char g_dl_directory[DSTUDIO_PATH_MAX] = "";
 static int g_dl_progress_fd = -1, g_dl_phase = 0, g_dl_stop_requested = 0;
+/* A vision-capable model's native encoder is a separate download target, and
+ * one download runs at a time. g_dl_next names the encoder to fetch once the
+ * running model download exits successfully; g_dl_companion_of names the model
+ * whose encoder is the current download (status only). */
+static char g_dl_next[48] = "";
+static char g_dl_companion_of[48] = "";
+#ifndef _WIN32
+typedef struct {
+    const char *status;            /* HTTP status line */
+    const char *error;             /* static reply text */
+    unsigned long long task_id;    /* nonzero only when the reply names the task */
+} model_download_refusal;
+static int model_download_begin(const char *target, unsigned long long *task_out,
+                                model_download_refusal *why);
+#endif
 
 static const char *model_download_phase(void) {
     if (g_dl_pid <= 0) return g_dl_result > 0 ? "complete" :
@@ -2943,6 +2958,33 @@ static const char *native_vision_encoder_rel_for_model(const char *model_rel) {
     if (model_file_is_glm(model_rel)) return MODEL_GLM53_VISION;
     if (model_file_is_deepseek_vision(model_rel)) return MODEL_DSVISION_ENCODER;
 #endif
+    return NULL;
+}
+/* The download target of the native vision encoder a downloadable model needs,
+ * or NULL. It is derived from the encoder the runtime requires for that model
+ * file, so download pairing and runtime pairing cannot disagree (each DeepSeek
+ * V4.1 checkpoint, for example, needs its own sidecar). Support files such as
+ * DSpark are not models and get no encoder. */
+static const char *model_download_vision_companion(const char *target) {
+    static const char *const models[] = {
+        "ds41f-q2", "ds41f-q2-original", "ds41f-q4",
+        "ds4f-vision-q2", "ds4f-vision-q2-q4", "ds4f-vision-mxfp4", "glm53-q2",
+    };
+    static const char *const encoders[] = {
+        "ds41f-1017-vision", "ds41f-vision", "ds4f-vision-encoder", "glm53-vision",
+    };
+    int model = 0;
+    for (size_t i = 0; target && i < sizeof models / sizeof models[0]; i++)
+        if (!strcmp(target, models[i])) model = 1;
+    if (!model) return NULL;
+    char rel[1024], encoder[1024];
+    long long bytes = 0;
+    model_download_details(target, rel, sizeof rel, &bytes);
+    const char *needed = native_vision_encoder_rel_for_model(rel);
+    for (size_t i = 0; needed && i < sizeof encoders / sizeof encoders[0]; i++) {
+        model_download_details(encoders[i], encoder, sizeof encoder, &bytes);
+        if (!strcmp(encoder, needed)) return encoders[i];
+    }
     return NULL;
 }
 static const char *native_selected_vision_encoder(void) {
@@ -4400,6 +4442,33 @@ static void reap_child(void) {
             g_dl_result = code == 0 ? 1 : -1;
             if (g_dl_progress_fd >= 0) { close(g_dl_progress_fd); g_dl_progress_fd = -1; }
             g_dl_pid = -1;   /* keep g_dl_variant so status can report 100 / completion once */
+#ifndef _WIN32
+            /* Only a verified, unstopped model continues with its encoder, in
+             * the same store it was admitted to. Revalidate absence now: the
+             * file may have arrived another way while the model downloaded. */
+            char next[48], finished[48], rel[1024], current[DSTUDIO_PATH_MAX];
+            long long bytes = 0;
+            cstr_copy(next, sizeof next, g_dl_next);
+            cstr_copy(finished, sizeof finished, g_dl_variant);
+            g_dl_next[0] = '\0';
+            if (next[0] && code == 0 && !g_dl_stop_requested) {
+                model_download_details(next, rel, sizeof rel, &bytes);
+                if (!realpath(g_ds4_dir, current) || strcmp(current, g_dl_directory)) {
+                    printf("model: %s finished; its vision encoder %s was not started because "
+                           "another engine checkout is now selected\n", finished, next);
+                } else if (!file_present_in_dir(g_dl_directory, rel)) {
+                    unsigned long long task = 0;
+                    model_download_refusal why = {0};
+                    if (model_download_begin(next, &task, &why)) {
+                        cstr_copy(g_dl_companion_of, sizeof g_dl_companion_of, finished);
+                        printf("model: %s finished; downloading its vision encoder %s\n", finished, next);
+                    } else {
+                        printf("model: %s finished; its vision encoder %s could not start: %s\n",
+                               finished, next, why.error ? why.error : "unknown error");
+                    }
+                }
+            }
+#endif
         }
     }
     if (g_child <= 0) return;
@@ -6646,16 +6715,14 @@ static const char *mode_name(int m) {
 /* POST /api/model/download {target} — fetch a GGUF in the background by
  * running the matching ds4 download script. The percentage is read from the
  * growing file in /api/status. */
-static void api_model_download(int fd, const char *body) {
-#ifdef _WIN32
-    (void)body;
-    send_json(fd, "501 Not Implemented",
-              "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
-    return;
-#else
-    char target[48] = {0};
-    json_get_string(body, "target", target, sizeof target);
-
+#ifndef _WIN32
+/* Admit and spawn one model download. Shared by the API and by the reaper,
+ * which continues a verified model with its vision encoder. Refusals carry
+ * the exact reply the API sends; nothing is started on refusal. */
+static int model_download_begin(const char *target, unsigned long long *task_out,
+                                model_download_refusal *why) {
+#define DL_REFUSE(status_, error_, task_) do { why->status = (status_); why->error = (error_); \
+        why->task_id = (task_); return 0; } while (0)
     /* Whitelist of download_model.sh targets (the different quantizations). */
     static const char *TARGETS[] = {
         "ds41f-q2", "ds41f-q2-original", "ds41f-q4", "ds41f-vision", "ds41f-1017-vision",
@@ -6675,34 +6742,24 @@ static void api_model_download(int fd, const char *body) {
     int valid = catalog_variant != NULL;
     for (size_t i = 0; i < sizeof TARGETS / sizeof TARGETS[0]; i++)
         if (!strcmp(target, TARGETS[i])) valid = 1;
-    if (!valid) {
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"unknown model/target\"}");
-        return;
-    }
+    if (!valid) DL_REFUSE("400 Bad Request", "unknown model/target", 0);
     unsigned long long task_id = task_begin("model-download", "Download model",
                                             target, ENGINE_NONE,
                                             g_ds4_dir, 0, 0);
     if (g_dl_pid > 0) {
         task_mark_failed(task_id, "a download is already running", g_dl_variant);
-        char out[128];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"a download is already running\"}", task_id);
-        send_json(fd, "409 Conflict", out);
-        return;
+        DL_REFUSE("409 Conflict", "a download is already running", task_id);
     }
     char ds4_abs[DSTUDIO_PATH_MAX];
     if (!realpath(g_ds4_dir, ds4_abs)) {
         task_mark_failed(task_id, "ds4 dir not found", g_ds4_dir);
-        char out[128];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"ds4 dir not found\"}", task_id);
-        send_json(fd, "500 Internal Server Error", out);
-        return;
+        DL_REFUSE("500 Internal Server Error", "ds4 dir not found", task_id);
     }
     const int mlx = catalog_variant && variant.engine == QWEN_ENGINE_MLX;
 #if !(defined(__APPLE__) && defined(__aarch64__))
     if (mlx) {
         task_mark_failed(task_id, "MLX needs Apple Silicon", target);
-        send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"The MLX model runs only on Apple Silicon Macs\"}");
-        return;
+        DL_REFUSE("400 Bad Request", "The MLX model runs only on Apple Silicon Macs", 0);
     }
 #endif
     /* Every Qwen download shares one isolated path: managed root, admitted
@@ -6723,8 +6780,7 @@ static void api_model_download(int fd, const char *body) {
         int n = snprintf(ds4_abs, sizeof ds4_abs, "%s/ds4", install_root);
         if (!install_root[0] || n < 0 || (size_t)n >= sizeof ds4_abs || !ds4_dir_valid_path(ds4_abs)) {
             task_mark_failed(task_id, "managed model store unavailable", "this model needs the managed ds4 installation root");
-            send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"This model needs the managed ds4 model store; finish first-run setup\"}");
-            return;
+            DL_REFUSE("409 Conflict", "This model needs the managed ds4 model store; finish first-run setup", 0);
         }
         char store[DSTUDIO_PATH_MAX + 64]; struct stat st;
         snprintf(store, sizeof store, "%s/gguf", ds4_abs);
@@ -6738,8 +6794,7 @@ static void api_model_download(int fd, const char *body) {
         }
         if (stat(store, &st) != 0 || !S_ISDIR(st.st_mode)) {
             task_mark_failed(task_id, "managed model store unavailable", "Finish first-run setup before downloading this model");
-            send_json(fd, "409 Conflict", "{\"ok\":false,\"error\":\"The managed model folder is missing; finish first-run setup\"}");
-            return;
+            DL_REFUSE("409 Conflict", "The managed model folder is missing; finish first-run setup", 0);
         }
         snprintf(store_identity, sizeof store_identity, "%llu:%llu", (unsigned long long)st.st_dev, (unsigned long long)st.st_ino);
         if (pipe(progress) != 0 || fcntl(progress[0], F_SETFL, O_NONBLOCK) != 0 ||
@@ -6747,16 +6802,14 @@ static void api_model_download(int fd, const char *body) {
             if (progress[0] >= 0) close(progress[0]);
             if (progress[1] >= 0) close(progress[1]);
             task_mark_failed(task_id, "could not create download progress pipe", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not prepare the model download\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not prepare the model download", 0);
         }
         cstr_copy(log_path, sizeof log_path, mlx ? "/tmp/dstudio-mlx-download.XXXXXX" : "/tmp/dstudio-qwen27-download.XXXXXX");
         owned_log = mkstemp(log_path);
         if (owned_log < 0) {
             close(progress[0]); close(progress[1]);
             task_mark_failed(task_id, "could not create private download log", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not prepare a private download log\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not prepare a private download log", 0);
         }
         fcntl(owned_log, F_SETFD, FD_CLOEXEC);
     }
@@ -6769,8 +6822,7 @@ static void api_model_download(int fd, const char *body) {
         if (sigprocmask(SIG_BLOCK, &download_signals, &previous_signals) != 0) {
             close(progress[0]); close(progress[1]); close(owned_log);
             task_mark_failed(task_id, "could not isolate download signals", strerror(errno));
-            send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"Could not isolate the model download\"}");
-            return;
+            DL_REFUSE("500 Internal Server Error", "Could not isolate the model download", 0);
         }
     }
     pid_t pid = fork();
@@ -6780,10 +6832,7 @@ static void api_model_download(int fd, const char *body) {
         if (progress[1] >= 0) close(progress[1]);
         if (owned_log >= 0) close(owned_log);
         task_mark_failed(task_id, "fork failed", strerror(errno));
-        char out[160];
-        snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"fork failed\"}", task_id);
-        send_json(fd, "500 Internal Server Error", out);
-        return;
+        DL_REFUSE("500 Internal Server Error", "fork failed", task_id);
     }
     if (pid == 0) {
         if (q27) {
@@ -6828,9 +6877,10 @@ static void api_model_download(int fd, const char *body) {
         if (!strcmp(target, "ds41f-q2") || !strcmp(target, "ds41f-q2-original") ||
             !strcmp(target, "ds41f-1017-vision")) {
             /* DStudio-owned pinned downloader. The vendored download_model.sh
-             * (0aaea5a) still names the original Q2, and upstream 5379c1c, which
-             * renamed it to the 1017 file, kept the old SHA-256. The original
-             * Q2 is pinned here too, independent of the vendored script. */
+             * (890898c) names the 1017 Q2 with its published SHA-256, but it
+             * follows the repository head and has no 1017 vision sidecar.
+             * Here every file is pinned to a repository revision, and the
+             * original Q2 remains available independent of the vendored script. */
             char helper[DSTUDIO_PATH_MAX + 64];
             snprintf(helper, sizeof helper, "%s/scripts/download-ds41-1017.sh", g_web_dir);
             execl("/bin/sh", "sh", helper, target, (char *)NULL);
@@ -6854,7 +6904,43 @@ static void api_model_download(int fd, const char *body) {
     g_dl_qwen = variant; g_dl_qwen_valid = catalog_variant != NULL;
     model_download_details(target, g_dl_rel, sizeof g_dl_rel, &g_dl_expected_bytes);
     printf("model: downloading %s (pid %d) — log %s\n", target, (int)pid, log_path);
-    char out[128];
+    /* Plan the encoder only when it is absent from this store; the reaper
+     * revalidates absence, success and the selected store before starting it. */
+    g_dl_companion_of[0] = '\0';
+    g_dl_next[0] = '\0';
+    const char *companion = model_download_vision_companion(target);
+    if (companion) {
+        char companion_rel[1024];
+        long long companion_bytes = 0;
+        model_download_details(companion, companion_rel, sizeof companion_rel, &companion_bytes);
+        if (!file_present_in_dir(ds4_abs, companion_rel))
+            cstr_copy(g_dl_next, sizeof g_dl_next, companion);
+    }
+    *task_out = task_id;
+    return 1;
+#undef DL_REFUSE
+}
+#endif
+
+static void api_model_download(int fd, const char *body) {
+#ifdef _WIN32
+    (void)body;
+    send_json(fd, "501 Not Implemented",
+              "{\"ok\":false,\"error\":\"model download scripts are not available in the Windows portable build yet\"}");
+#else
+    char target[48] = {0};
+    json_get_string(body, "target", target, sizeof target);
+    unsigned long long task_id = 0;
+    model_download_refusal why = {0};
+    char out[256];
+    if (!model_download_begin(target, &task_id, &why)) {
+        if (why.task_id)
+            snprintf(out, sizeof out, "{\"ok\":false,\"taskId\":%llu,\"error\":\"%s\"}", why.task_id, why.error);
+        else
+            snprintf(out, sizeof out, "{\"ok\":false,\"error\":\"%s\"}", why.error);
+        send_json(fd, why.status, out);
+        return;
+    }
     snprintf(out, sizeof out, "{\"ok\":true,\"taskId\":%llu,\"target\":\"%s\"}", task_id, target);
     send_json(fd, "200 OK", out);
 #endif
@@ -6878,6 +6964,7 @@ static void api_model_download_stop(int fd) {
         return;
     }
     g_dl_stop_requested = 1;
+    g_dl_next[0] = '\0';   /* Stop ends the whole request, including its encoder */
     send_json(fd, "200 OK", "{\"ok\":true,\"stopped\":true}");
 #endif
 }
@@ -7167,6 +7254,7 @@ static void api_status(int fd) {
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,\"downloadPhase\":\"%s\","
+        "\"downloadCompanionOf\":\"%s\","
         "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
         "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
@@ -7183,6 +7271,7 @@ static void api_status(int fd) {
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
         dl_bytes, g_dl_expected_bytes, model_download_phase(),
+        g_dl_variant[0] ? g_dl_companion_of : "",
         paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
         err_esc, line_esc, mf_esc, g_skill, g_design_system,
         native_glm_vision_installed() ? "true" : "false",
@@ -8638,27 +8727,20 @@ static int display_prompt_is_guided_analysis(const char *display) {
     return 0;
 }
 
-static const char *agent_turn_think_preflight(int force_think_max, char *err, size_t errsz) {
+static const char *agent_turn_think_preflight(char *err, size_t errsz) {
     engine_cfg candidate = g_cfg;
-    if (force_think_max) candidate.think = 2;
     return native_think_context_preflight(&candidate, g_mode, current_model_rel(),
                                           g_remote_base_url[0] != '\0', err, errsz);
 }
 
-/* Both native and graph turns use the same pipe control before the prompt.
- * Callers revalidate first, before admitting a turn or changing settings. */
-static int agent_write_turn(const char *prompt, int force_think_max) {
-    static const char think_max_frame[] =
-        "\x1e" "{\"type\":\"control\",\"name\":\"think\",\"value\":\"max\"}\n";
-    if ((force_think_max && !fd_write_all(g_in_fd, think_max_frame, sizeof think_max_frame - 1)) ||
-        !fd_write_all(g_in_fd, prompt, strlen(prompt)) || !fd_write_all(g_in_fd, "\n", 1))
-        return 0;
-    if (force_think_max) g_cfg.think = 2;
-    return 1;
+/* Native and graph turns preserve user-selected control frames in the prompt.
+ * Never promote guided analysis to Max; callers revalidate before admission. */
+static int agent_write_turn(const char *prompt) {
+    return fd_write_all(g_in_fd, prompt, strlen(prompt)) && fd_write_all(g_in_fd, "\n", 1);
 }
 
 static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
-                                      const char *display_prompt, int force_think_max,
+                                      const char *display_prompt,
                                       unsigned long long *task_id,
                                       size_t *transcript_from,
                                       char *err, size_t errsz) {
@@ -8673,11 +8755,11 @@ static int dtg_agent_submit_for_graph(const char *title, const char *prompt,
     }
     /* A queued/recovered graph may now target a different runtime context.
      * Revalidate its original request on every attempt, not just HTTP create. */
-    if (agent_turn_think_preflight(force_think_max, err, errsz)) return 0;
+    if (agent_turn_think_preflight(err, errsz)) return 0;
     unsigned long long operation = task_begin("task-graph-agent",
         title && title[0] ? title : "Task Graph Agent turn", "task-graph",
         ENGINE_AGENT, g_workdir, (int)g_child, 1);
-    if (!agent_write_turn(prompt, force_think_max)) {
+    if (!agent_write_turn(prompt)) {
         snprintf(err, errsz, "write to Agent failed: %s", strerror(errno));
         task_mark_failed(operation, "write to Agent failed", err);
         return 0;
@@ -8763,14 +8845,8 @@ static void api_agent_send(int fd, const char *body) {
         api_agent_send_state_error(fd, "409 Conflict", "a Task Graph owns the Agent turn lease", 0);
         return;
     }
-    int force_think_max = g_mode == ENGINE_AGENT && display_prompt_is_guided_analysis(display);
-    if (g_mode == ENGINE_AGENT && !strcmp(orchestration, "goal")) {
-        char objective[DTG_GOAL_MAX];
-        if (json_get_string(body, "goalObjective", objective, sizeof objective) &&
-            display_prompt_is_guided_analysis(objective)) force_think_max = 1;
-    }
     char think_error[256] = "";
-    const char *think_code = agent_turn_think_preflight(force_think_max, think_error, sizeof think_error);
+    const char *think_code = agent_turn_think_preflight(think_error, sizeof think_error);
     if (think_code) {
         char escaped[768], out[1024];
         json_escape_into(escaped, sizeof escaped, think_error, strlen(think_error));
@@ -8804,7 +8880,7 @@ static void api_agent_send(int fd, const char *body) {
                                             target, g_mode, g_workdir, (int)g_child, 1);
     size_t from = g_alen;
     /* send on the agent's stdin + newline as turn terminator */
-    if (!agent_write_turn(prompt, force_think_max)) {
+    if (!agent_write_turn(prompt)) {
         snprintf(g_engine_err, sizeof g_engine_err, "write to agent/design failed: %s", strerror(errno));
         task_mark_failed(task_id, "write to agent/design failed", g_engine_err);
         api_agent_send_state_error(fd, "500 Internal Server Error", "write to agent/design failed", task_id);
@@ -9953,6 +10029,8 @@ static void store_file_path(char *out, size_t n) {
     snprintf(out, n, "%s/.local/share/flashcards/ds4web-store.json", home ? home : ".");
 #endif
 }
+#include "dstudio_chat_store.c"
+
 static void store_load(void) {
     char p[2048];
     store_file_path(p, sizeof p);
@@ -9961,7 +10039,7 @@ static void store_load(void) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     rewind(f);
-    if (sz > 0 && sz < 64L * 1024 * 1024) {
+    if (sz > 0 && sz <= 64L * 1024 * 1024) {
         char *b = malloc((size_t)sz + 1);
         if (b && fread(b, 1, (size_t)sz, f) == (size_t)sz) {
             b[sz] = '\0';
@@ -9969,22 +10047,6 @@ static void store_load(void) {
             g_store = b; g_store_len = (size_t)sz; g_store_rev = 1;
         } else free(b);
     }
-    fclose(f);
-}
-static void store_save(void) {
-    char p[2048];
-    store_file_path(p, sizeof p);
-    char dir[2048];
-    snprintf(dir, sizeof dir, "%s", p);
-    char *s = strrchr(dir, '/');
-#ifdef _WIN32
-    char *bs = strrchr(dir, '\\');
-    if (!s || (bs && bs > s)) s = bs;
-#endif
-    if (s) { *s = '\0'; mkpath(dir); }
-    FILE *f = fopen(p, "wb");
-    if (!f) return;
-    if (g_store && g_store_len) fwrite(g_store, 1, g_store_len, f);
     fclose(f);
 }
 /* GET → {"rev":N,"data":<the stored blob, raw JSON | null>} */
@@ -10000,13 +10062,8 @@ static void api_store_get(int fd) {
     free(out);
 }
 /* POST: replaces the store with `body` (ownership transferred here), persists it. */
-static void api_store_set(int fd, char *body, size_t len) {
-    free(g_store);
-    g_store = body; g_store_len = len; g_store_rev++;
-    store_save();
-    char out[64];
-    snprintf(out, sizeof out, "{\"ok\":true,\"rev\":%ld}", g_store_rev);
-    send_json(fd, "200 OK", out);
+static int api_store_set(int fd, char *body, size_t len, long revision) {
+    return chat_store_begin(fd, body, len, revision, 0, 0);
 }
 
 static int lan_client_id_ok(const char *id) {
@@ -10142,9 +10199,16 @@ static void clear_dir(const char *path) {       /* delete the contents, keep the
 /* "Clear all conversations": empties the shared chat store, and (when no engine
  * is running, so it's not in use) the on-disk KV cache. Behind the anti-CSRF
  * header. The page wipes its own localStorage separately. */
-static void api_wipe(int fd) {
-    free(g_store); g_store = NULL; g_store_len = 0; g_store_rev++;
-    store_save();
+static int api_wipe(int fd) {
+    struct timespec stamp; timespec_get(&stamp, TIME_UTC);
+    long long epoch = (long long)stamp.tv_sec * 1000 + stamp.tv_nsec / 1000000;
+    char json[160];
+    snprintf(json, sizeof json, "{\"v\":2,\"chats\":[],\"deleted\":[],\"clearedAt\":%lld}", epoch);
+    char *empty = strdup(json);
+    if (!empty) { send_json(fd, "503 Service Unavailable", "{\"ok\":false,\"error\":\"Conversation wipe could not be prepared\"}"); return 0; }
+    return chat_store_begin(fd, empty, strlen(empty), g_store_rev, 1, epoch);
+}
+static void chat_store_wipe_committed(int fd, long long clear_epoch) {
     int kv_cleared = 0;
     if (g_child <= 0) {        /* the engine isn't running → the KV files are free */
         /* A crashed Agent leaves its completed output in the launcher's
@@ -10157,8 +10221,8 @@ static void api_wipe(int fd) {
         clear_dir(kvroot);
         kv_cleared = 1;
     }
-    char out[80];
-    snprintf(out, sizeof out, "{\"ok\":true,\"kvCleared\":%s}", kv_cleared ? "true" : "false");
+    char out[144];
+    snprintf(out, sizeof out, "{\"ok\":true,\"durable\":true,\"rev\":%ld,\"clearedAt\":%lld,\"kvCleared\":%s}", g_store_rev, clear_epoch, kv_cleared ? "true" : "false");
     send_json(fd, "200 OK", out);
 }
 
@@ -11543,7 +11607,6 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/lan")) { api_lan(fd, body); return 200; }
     if (!strcmp(path, "/api/http-port")) { api_http_port(fd, body); return 200; }
     if (!strcmp(path, "/api/remote")) { api_remote_control(fd, body); return 200; }
-    if (!strcmp(path, "/api/wipe")) { api_wipe(fd); return 200; }
     send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"unknown endpoint\"}");
     return 404;
 }
@@ -11785,6 +11848,14 @@ static void handle_connection(int fd) {
         return;
     }
 
+    if (!strcmp(method, "POST") && !strcmp(path, "/api/wipe")) {
+        if (!header_has(req, header_len, "x-requested-with: ds4web")) {
+            send_json(fd, "403 Forbidden", "{\"ok\":false,\"error\":\"unauthorized\"}"); close(fd); return;
+        }
+        if (!api_wipe(fd)) close(fd);
+        return;
+    }
+
     /* POST /api/store carries the whole chat history → can be large, so it also
      * runs before the small BODY_MAX cap, reading the full body into a buffer. */
     if (!strcmp(method, "POST") && !strcmp(path, "/api/store")) {
@@ -11799,8 +11870,20 @@ static void handle_connection(int fd) {
             close(fd);
             return;
         }
-        api_store_set(fd, buf, off);   /* takes ownership of buf */
-        close(fd);
+        long revision = -1;
+        char expected[40];
+        int revision_header = request_header_value(req, header_len, "x-dstudio-store-revision", expected, sizeof expected);
+        if (revision_header < 0) {
+            free(buf); send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"Invalid conversation revision header\"}"); close(fd); return;
+        }
+        if (revision_header == 1) {
+            char *end = NULL; errno = 0;
+            revision = strtol(expected, &end, 10);
+            if (errno || revision < 0 || end == expected || !end || *end) {
+                free(buf); send_json(fd, "400 Bad Request", "{\"ok\":false,\"error\":\"Invalid conversation revision\"}"); close(fd); return;
+            }
+        }
+        if (!api_store_set(fd, buf, off, revision)) close(fd);
         return;
     }
 
@@ -12214,6 +12297,7 @@ int main(int argc, char **argv)
     }
 
     while (!g_stop) {
+        chat_store_tick();
         reap_child();
         resident_tick();
         drain_child(); /* also consumes a retained stdout suffix after upload pressure */
@@ -12237,7 +12321,7 @@ int main(int argc, char **argv)
         /* Reaping a canceled helper must not delay the next admitted request.
          * Windows anonymous pipes have no writable poll event in this host;
          * their nonblocking writes are retried with a bounded active cadence. */
-        int poll_ms = g_model_rpc && g_model_rpc->stopping ? 10 : 200;
+        int poll_ms = g_store_write || (g_model_rpc && g_model_rpc->stopping) ? 10 : 200;
 #ifdef _WIN32
         if (g_model_rpc) poll_ms = 10;
 #endif
@@ -12265,6 +12349,7 @@ int main(int argc, char **argv)
         sse_flush();
     }
     sse_close_all();
+    chat_store_shutdown();
     model_rpc_shutdown();
     launch_preparation_shutdown();
     image_runtime_shutdown();

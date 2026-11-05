@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
       parentRunDir: body.parentRunDir || '',
       iteration: runSeq,
       targetUrl: body.targetUrl || '',
-      think: 'max',
+      think: 'high',
       candidateCount: 2,
       truncated: false,
       prompt: 'SELECTION_PROMPT',
@@ -300,7 +300,7 @@ try {
       theme: 'light',
       model: 'deepseek-v4-flash',
       modelVariant: 'flash',
-      thinkLevel: 'max',
+      thinkLevel: 'high',
       ctxSize: 65536,
       gsaMode: 'on',
       gsaLoop: 'on',
@@ -317,6 +317,16 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-agent').click();
+  await page.locator('.cbar-think-btn').click();
+  await page.locator('.cbar-think-item').nth(0).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'off');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel), 'off',
+    'Guided analysis must allow lower reasoning levels');
+  await page.locator('.cbar-think-btn').click();
+  await page.locator('.cbar-think-item').nth(1).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel === 'high');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.settings.v2')).thinkLevel), 'high');
+
   await page.waitForFunction(() => !document.querySelector('#agent-view')?.hidden);
   await page.locator('#btn-workflow').click();
   await page.locator('#wf-tools').click();
@@ -347,7 +357,7 @@ try {
 
   assert.equal(gsaPhases.map((p) => p.phase).slice(0, 4).join(','), 'selection,preflight,validation,report');
   assert.equal(gsaStarts[1].parentRunDir, '/tmp/dstudio-gsa-ui-test/.dstudio/gsa/runs/run-1');
-  assert.ok(sends.every((s) => /"value":"max"/.test(s.prompt || '')), 'every GSA send should force thinking max');
+  assert.ok(sends.every((s) => /"value":"high"/.test(s.prompt || '')), 'every GSA send should use the selected high reasoning level');
 
   await page.locator('#workflow-surface').waitFor({ state: 'visible' });
   await page.locator('#wf-back').click();

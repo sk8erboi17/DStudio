@@ -1,9 +1,9 @@
 #!/bin/sh
 # DStudio-owned downloader for the DeepSeek V4.1 Flash 1017 checkpoint:
-#   ds41f-q2           antirez's official 1017 Q2, the file upstream ds4 5379c1c's
-#                      ds41f-q2 downloads (the vendored 0aaea5a download_model.sh
-#                      still names the original Q2, and 5379c1c kept that file's
-#                      SHA-256, so the digest here is the published 1017 one).
+#   ds41f-q2           antirez's official 1017 Q2, the file the vendored
+#                      download_model.sh (890898c) names for ds41f-q2, with the
+#                      same published 1017 SHA-256; here it is also pinned to a
+#                      repository revision.
 #   ds41f-1017-vision  the community 1017 vision sidecar (antirez publishes none);
 #                      source revision 1bae0e10, the same as the 1017 Q2.
 #   ds41f-q2-original  the original V4.1 Q2 (source revision df42c109), still
@@ -80,108 +80,199 @@ case "$OUT_DIR" in
     *) OUT_DIR="$ROOT/$OUT_DIR" ;;
 esac
 OUT="$OUT_DIR/$FILE"
-STAMP="$OUT.verified"
 
-find_hf_command() {
-    if command -v hf >/dev/null 2>&1; then
-        printf '%s\n' hf
-        return 0
-    fi
-    for dir in "$HOME"/Library/Python/*/bin "$HOME"/.local/bin; do
-        if [ -x "$dir/hf" ]; then
-            printf '%s\n' "$dir/hf"
-            return 0
-        fi
-    done
-    return 1
-}
+# Keep the transport here so installed bundles and the root CLI use the same
+# implementation. HF Hub 1.19 uses a fresh random temporary on every attempt;
+# disabling Xet alone therefore does not restore resume. Reuse the exact pinned
+# cache partial in place, under HF's per-file lock, and use curl's range resume.
+# Tokens reach curl through stdin, never argv. Existing weights are not moved.
+HF_TOKEN=$TOKEN
+export HF_TOKEN
+exec python3 - "$OUT" "$EXPECTED_BYTES" "$EXPECTED_SHA" "$REPO" "$REVISION" <<'PY'
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import signal
+import stat
+import subprocess
+import sys
+import time
+from urllib.parse import quote, urlsplit
 
-file_size() { wc -c < "$1" | tr -d ' '; }
-file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
-sha_of() {
-    if command -v sha256sum >/dev/null 2>&1; then
-        sum=$(sha256sum < "$1")
-    else
-        sum=$(shasum -a 256 < "$1")
-    fi
-    printf '%s\n' "${sum%% *}"
-}
+out = Path(sys.argv[1])
+size, sha, repo, revision = int(sys.argv[2]), *sys.argv[3:]
+CHUNK = 1024 * 1024
 
-# Set to 1 only after THIS run's `hf download` produced $OUT. It is the only case in which a failed
-# verification deletes anything: the file this script just downloaded, by its exact path. A file that
-# was already there (the stock app's weights folder is shared) is never removed or renamed.
-JUST_DOWNLOADED=0
+def identity(info):
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
-reject() {
-    # Never accept the file. Remove the stamp (our own marker) and, if we just downloaded the bad
-    # file, delete exactly that file so no multi-hundred-GB copy lingers in the shared folder.
-    rm -f "$STAMP"
-    echo "$1" >&2
-    if [ "$JUST_DOWNLOADED" = 1 ]; then
-        rm -f -- "$OUT"
-        echo "The download failed verification and was deleted: $OUT. Run the download again." >&2
-    else
-        echo "This file was not downloaded by this run, so it was left untouched: $OUT" >&2
-        echo "Delete it yourself if it is incomplete or corrupt, then run the download again." >&2
-    fi
-    exit 1
-}
+def regular(parent, name, flags=os.O_RDONLY, allow_links=False):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or (not allow_links and info.st_nlink != 1):
+        os.close(fd)
+        raise RuntimeError(f'Not a regular file with one link; preserved: {name}')
+    return fd
 
-stamp_ok() {
-    [ -f "$STAMP" ] || return 1
-    read -r s_size s_mtime s_sha < "$STAMP" || return 1
-    [ "$s_size" = "$EXPECTED_BYTES" ] && [ "$s_sha" = "$EXPECTED_SHA" ] &&
-        [ "$s_size" = "$(file_size "$OUT")" ] && [ "$s_mtime" = "$(file_mtime "$OUT")" ]
-}
+def verify(fd):
+    before = os.fstat(fd)
+    if before.st_size != size:
+        raise RuntimeError(f'Incorrect file size: {out}; file preserved.')
+    print(f'Verifying SHA-256: {out.name}', flush=True)
+    os.lseek(fd, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    remaining = size
+    while remaining:
+        chunk = os.read(fd, min(CHUNK, remaining))
+        if not chunk:
+            raise RuntimeError('File shortened during verification; preserved.')
+        digest.update(chunk)
+        remaining -= len(chunk)
+    if identity(before) != identity(os.fstat(fd)):
+        raise RuntimeError('File changed during verification; preserved.')
+    if digest.hexdigest() != sha:
+        raise RuntimeError('Checksum mismatch; file preserved, not accepted.')
+    return identity(before)
 
-verify() {
-    if [ "$(file_size "$OUT")" -ne "$EXPECTED_BYTES" ]; then
-        reject "Incorrect file size: $OUT (expected $EXPECTED_BYTES bytes)."
-    fi
-    if stamp_ok; then
-        return 0
-    fi
-    echo "Verifying SHA-256: $OUT"
-    actual=$(sha_of "$OUT")
-    if [ "$actual" != "$EXPECTED_SHA" ]; then
-        reject "Checksum mismatch: $OUT."
-    fi
-    printf '%s %s %s\n' "$EXPECTED_BYTES" "$(file_mtime "$OUT")" "$EXPECTED_SHA" > "$STAMP.tmp.$$"
-    mv "$STAMP.tmp.$$" "$STAMP"
-}
+def transfer(fd, url, token):
+    start = os.fstat(fd).st_size
+    config = 'header = ' + json.dumps('Authorization: Bearer ' + token) + '\n' if token else ''
+    protocol = '=http' if url.startswith('http://127.0.0.1:') else '=https'
+    command = ['curl', '--disable', '--fail', '--location', '--silent', '--show-error',
+               '--proto', protocol, '--proto-redir', protocol, '--connect-timeout', '30',
+               '--speed-limit', '1024', '--speed-time', '60', '--continue-at', str(start),
+               '--max-filesize', str(size - start), '--output', '-', '--config', '-', url]
+    os.lseek(fd, start, os.SEEK_SET)
+    child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        child.stdin.write(config.encode('ascii'))
+        child.stdin.close()
+        written = start
+        while chunk := child.stdout.read1(CHUNK):
+            if len(chunk) > size - written:
+                raise RuntimeError('Download exceeds pinned size; partial preserved.')
+            data = memoryview(chunk)
+            while data:
+                count = os.write(fd, data)
+                if count <= 0:
+                    raise RuntimeError('Partial write failed; preserved.')
+                data = data[count:]
+                written += count
+        return child.wait(timeout=5)
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
+        child.stdout.close()
+        child.stdin.close()
 
-mkdir -p "$OUT_DIR"
+def stop(_signal, _frame):
+    raise KeyboardInterrupt
 
-if [ -s "$OUT" ]; then
-    verify
-    echo "Already downloaded: $OUT"
-    exit 0
-fi
+def main():
+    token = os.environ.get('HF_TOKEN', '')
+    if len(token) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in token):
+        raise ValueError('Invalid Hugging Face token')
+    hub = 'https://huggingface.co'
+    if os.environ.get('DSTUDIO_DS41_1017_TEST_MODE') == '1':
+        hub = os.environ.get('DSTUDIO_DS41_1017_TEST_URL', hub)
+        parsed = urlsplit(hub)
+        if hub != 'https://huggingface.co' and not (
+                parsed.scheme == 'http' and parsed.hostname == '127.0.0.1' and
+                not parsed.username and not parsed.password and parsed.path == ''):
+            raise ValueError('Test URL must be a loopback HTTP fixture')
+    url = f'{hub}/{repo}/resolve/{revision}/{quote(out.name)}'
+    out.parent.mkdir(parents=True, exist_ok=True)
+    destination = out.parent.resolve()
+    with contextlib.ExitStack() as handles:
+        root = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+        handles.callback(os.close, root)
+        cache = root
+        for name in ('.cache', 'huggingface', 'download'):
+            try:
+                os.mkdir(name, 0o700, dir_fd=cache)
+            except FileExistsError:
+                pass
+            cache = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=cache)
+            handles.callback(os.close, cache)
+        lock = regular(cache, out.name + '.lock', os.O_RDWR | os.O_CREAT)
+        handles.callback(os.close, lock)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Download already active for this file')
+        try:
+            existing = regular(root, out.name, allow_links=True)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            handles.callback(os.close, existing)
+            checked = verify(existing)
+            if identity(os.stat(out.name, dir_fd=root, follow_symlinks=False)) != checked:
+                raise RuntimeError('Existing file changed; not accepted.')
+            print(f'Already downloaded and verified: {out}', flush=True)
+            return
+        # Same digest matching and bounded enumeration as host progress. A retry
+        # continues the largest existing copy, never creates a hidden second one.
+        partial_name, largest = f'dstudio.{sha}.http.incomplete', -1
+        with os.scandir(cache) as entries:
+            for i, entry in enumerate(entries):
+                if i >= 512:
+                    raise RuntimeError('Too many download cache entries; preserved.')
+                if f'.{sha}.' not in entry.name or not entry.name.endswith('.incomplete'):
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise RuntimeError('Linked download partial; preserved.')
+                if info.st_size > size:
+                    raise RuntimeError('Oversized download partial; preserved.')
+                if info.st_size > largest:
+                    partial_name, largest = entry.name, info.st_size
+        partial = regular(cache, partial_name, os.O_RDWR | os.O_CREAT)
+        handles.callback(os.close, partial)
+        print(f'Downloading {out.name}: resuming at {os.fstat(partial).st_size} / {size} bytes over HTTP', flush=True)
+        # Bound retries of failed/stalled connections, not the total duration of
+        # a healthy multi-hour transfer. Each attempt obtains fresh redirect URLs.
+        for attempt in range(5):
+            if os.fstat(partial).st_size == size:
+                break
+            code = transfer(partial, url, token)
+            os.fsync(partial)
+            if code == 0 and os.fstat(partial).st_size == size:
+                break
+            if code in (18, 28, 52, 55, 56, 92) and attempt < 4:
+                print(f'Connection interrupted ({code}); retrying from {os.fstat(partial).st_size} bytes', flush=True)
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            raise RuntimeError(f'Download failed ({code}); partial preserved for resume.')
+        checked = verify(partial)
+        if identity(os.stat(partial_name, dir_fd=cache, follow_symlinks=False)) != checked:
+            raise RuntimeError('Partial changed; not published.')
+        current, owned = os.stat(destination), os.fstat(root)
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise RuntimeError('Model store changed; not published.')
+        # Publication never overwrites existing weights. No large copy or rename
+        # of the user's partial is needed, and only verified bytes become a model.
+        os.link(partial_name, out.name, src_dir_fd=cache, dst_dir_fd=root, follow_symlinks=False)
+        os.fsync(root)
+        os.unlink(partial_name, dir_fd=cache)
+        os.fsync(cache)
+        print(f'Verified: {out}', flush=True)
 
-HF_CMD=$(find_hf_command || true)
-if [ -z "$HF_CMD" ]; then
-    echo "Large GGUF downloads require the official Hugging Face CLI." >&2
-    echo "Install it with:" >&2
-    echo "  python3 -m pip install -U huggingface_hub hf_xet" >&2
-    exit 1
-fi
-
-echo "Downloading $FILE"
-echo "from https://huggingface.co/$REPO (revision $REVISION)"
-echo "using $HF_CMD download"
-echo "If the download stops, run the same command again to resume it."
-
-# The token goes to hf through the environment, never argv (visible to every local user via ps).
-if [ -n "$TOKEN" ]; then
-    HF_TOKEN=$TOKEN
-    export HF_TOKEN
-fi
-"$HF_CMD" download "$REPO" "$FILE" --repo-type model --revision "$REVISION" --local-dir "$OUT_DIR" --max-workers 1
-JUST_DOWNLOADED=1
-
-if [ ! -s "$OUT" ]; then
-    echo "Hugging Face download finished but expected file is missing: $OUT" >&2
-    exit 1
-fi
-verify
-echo "Verified: $OUT"
+signal.signal(signal.SIGTERM, stop)
+try:
+    main()
+except KeyboardInterrupt:
+    print('Download stopped; partial preserved for resume.', file=sys.stderr)
+    sys.exit(130)
+except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+    print(str(error), file=sys.stderr)
+    sys.exit(1)
+PY

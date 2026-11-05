@@ -18,7 +18,7 @@
       "derivedSHA256": "e6295ed7ff77c87605805f987cf37ebd2e64fe53b97523f34db0de84d3a254fc",
       "oracle": "Upstream's GET /json/list and PUT /json/new target recovery, plus bounded fragmented CDP replies and DStudio visual evidence. Upstream target recovery supersedes the former duplicate-target adapter; no historical byte-parity claim.",
       "equivalentSourceRevisions": [
-        "0aaea5a238fb41a35106a551e73c8409dfb751ac"
+        "890898cfb437ed256be58ebcf7c58a6dfa8f2f53"
       ]
     },
     {

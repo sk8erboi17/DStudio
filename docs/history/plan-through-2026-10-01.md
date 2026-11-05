@@ -714,7 +714,7 @@ latest commit, and no commit. Details: [QWEN_CHECKPOINT.md](../QWEN_CHECKPOINT.m
 - Assessment correction: `q36_engine_uses_vulkan_runtime` already includes
   Metal. The name and message were misleading; MRoPE and the encoder's
   GPU operations were missing, and it used CPU matmul/attention. The
-  [q36 patch](../../patch/q36-metal-runtime/README.md) now completes those
+  [q36 patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-metal-runtime/README.md) now completes those
   operations. The shared span path still needs testing with an LLM.
 - A single atomic `runtime.patch`, pinned ABI, F16 weights reread from fd/offset,
   FP32 activations, 64 MiB scratch (128 MiB transiently during resize),
@@ -2537,16 +2537,16 @@ the archive contents before qualification.
 
 | Evidence | Retained result | What it does NOT prove |
 | --- | --- | --- |
-| [Engine acceptance of September 5](../ENGINE_ACCEPTANCE.md) | Flash 11/12, Laguna 10/12, Qwen3.8 12/12 | General quality, numerical equivalence, four modes, or new main |
-| [Headless E2E of installed models](../HEADLESS_E2E.md) | Nine checkpoints, three checks each; **Qwen3.6 3/3 real** | Native desktop, 100 questions, Agent/Learn/Cowork, or visual understanding |
+| [Engine acceptance of September 5](engine-acceptance-2026-09-05.md) | Flash 11/12, Laguna 10/12, Qwen3.8 12/12 | General quality, numerical equivalence, four modes, or new main |
+| [Headless E2E of installed models](headless-e2e-2026-09-05.md) | Nine checkpoints, three checks each; **Qwen3.6 3/3 real** | Native desktop, 100 questions, Agent/Learn/Cowork, or visual understanding |
 | Private receipt `installed-models-URjDda/results.json` | Initial run FAIL: eight models passed, Qwen3.8 failed a UI check | Must not be rewritten as nine passed |
 | Receipt `installed-models-8aPJcF/results.json` | Targeted Qwen3.8 retry 3/3 | Does not replace the first run or requalify the other eight |
-| [GLM M2 report](../../patch/ds4-glm53-m2max/PERF_GLM53_M2MAX96.md) | 100 continuations, 11,559 tokens, NLL 0.458046251, first-token 89/100, mean greedy prefix 7.110 | Does not mean 100 correct answers; the reference provides no logprob; does not qualify `c0a6119` |
-| [Main update of September 5](../DS4_MAIN_UPDATE_2026-09-05.md) | 36/36 measured outputs correct; total including auxiliary cases **44/48** | Not an all-green campaign or measurements of September 7 main |
-| [Main update of September 7](../DS4_MAIN_UPDATE_2026-09-07.md) | Native builds, patches, 27,979 PLD checks with a double, small Metal tests, and network setup of main | No new complete inference or CUDA/ROCm parity |
+| [GLM M2 report](glm53-m2max-performance-through-2026-09-05.md) | 100 continuations, 11,559 tokens, NLL 0.458046251, first-token 89/100, mean greedy prefix 7.110 | Does not mean 100 correct answers; the reference provides no logprob; does not qualify `c0a6119` |
+| [Main update of September 5](ds4-main-update-2026-09-05.md) | 36/36 measured outputs correct; total including auxiliary cases **44/48** | Not an all-green campaign or measurements of September 7 main |
+| [Main update of September 7](ds4-main-update-2026-09-07.md) | Native builds, patches, 27,979 PLD checks with a double, small Metal tests, and network setup of main | No new complete inference or CUDA/ROCm parity |
 | [Real PLD](../../extension/prompt-lookup/bench/README.md) | 78 attempts: 66 PASS / 12 FAIL; Cowork newline defects retained | Universal batch speed/correctness, or results updated to the latest main |
 | [Task Graph](../../extension/task-graph/README.md) | 50 tasks; direct DStudio baseline 42/50, checked/Pi/OpenCode 50/50 | The baseline named Native is NOT clean upstream ds4-agent |
-| [Design](../DESIGN_AGENT_EXPERIMENT.md) | Real comparisons and defects retained; workshop regeneration timed out | An attractive screenshot or working controls do not turn a timeout into successful delivery |
+| [Design](design-agent-experiment-2026-09-06.md) | Real comparisons and defects retained; workshop regeneration timed out | An attractive screenshot or working controls do not turn a timeout into successful delivery |
 | [PDF library](../PDF_LIBRARY_BENCHMARK.md) | Extraction/retrieval with real documents and embeddings | Correctness of the generated answer or understanding of pixels |
 
 The cited private receipts are under `tests/.artifacts/`. Do not publish their

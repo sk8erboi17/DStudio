@@ -28,7 +28,7 @@ and failed receipts remain unchanged. This resumes only the requested software
 work, not every acceptance item in the full plan.
 
 - **27B, q36 `1305843`:** the installed
-  [parallel F16 attention overlay](../../patch/q36-f16-attention/README.md) now uses
+  [parallel F16 attention overlay](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-f16-attention/README.md) now uses
   bounded key tiles and FP32 online softmax. The original GPU shader remains the
   differential oracle, with independent FP64 samples. All 18 Metal input cases
   pass (708,420 checks); maximum scaled GPU error is 4.0676e-5 against the stated
@@ -36,7 +36,7 @@ work, not every acceptance item in the full plan.
   empty-root pinned-source download/build and repeated installation pass without
   weights. This does not yet prove a real long prompt finishes within 900 seconds.
 - **3.6, vagrillo `73434c4`:** the
-  [64-token prefill overlay](../../patch/ds4-qwen35-prefill/README.md) batches native
+  [64-token prefill overlay](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/ds4-qwen35-prefill/README.md) batches native
   projection/MoE work and projects the vocabulary once per chunk. All ten real
   Metal synthetic hybrid-session cases match original decode logits, recurrent
   state and F16 KV byte for byte, with cancellation/resumption and 25 allocation
@@ -124,7 +124,7 @@ expert weights (the two high bits were right).
 Test first: a probe runs the production kernels on synthetic blocks against an
 independent oracle that must also agree with the fork's dense kernel. The
 original source fails (2,785 of 4,608 gate/up outputs wrong; RED retained in
-`qwen35-moe-q6/run-CDOrsl`); the three-line [patch](../../patch/ds4-qwen35-q6k-moe/README.md)
+`qwen35-moe-q6/run-CDOrsl`); the three-line [patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/ds4-qwen35-q6k-moe/README.md)
 passes (`run-Ue13RZ`, max relative error 4e-4). New installs apply it after the
 catalog patch; existing installs receive it in the launch-preparation worker,
 and a drifted shader fails closed. On the user's real installation the worker
@@ -445,7 +445,7 @@ write test instead fails on both original upstream and the adaptation: command
 status control is still behind the mutex. Receipts are retained; this does not
 qualify the monitor, model, long context or a final `.app`.
 
-The subsequent [`monitor-owner` patch](../../patch/q36-agent-tty/README.md) fixes
+The subsequent [`monitor-owner` patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-agent-tty/README.md) fixes
 that path: I/O outside the mutex, a single monitor writer, Stop independent
 of writes, PID identity retained through signaling, deduplicated terminal
 receipts and no EOF busy loop. New native runs,
@@ -502,7 +502,7 @@ these results neither qualify nor disqualify other engines, models or backends.
 
 ### New F16 patch: operators verified, real replay still fails
 
-The [separate patch](../../patch/q36-f16-attention/README.md) partitions the positions
+The [separate patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-f16-attention/README.md) partitions the positions
 visited by each command, not only queries. It preserves the prompt, F16
 precision, context and original arithmetic order. It is not yet in the managed
 download or installed `.app`.
@@ -726,7 +726,7 @@ engine remain unchanged.
 
 The new upstream CLI failed on macOS with `NO_TERMINAL`: it closed the last
 slave descriptor of the private terminal before the command opened `/dev/tty`.
-The [dedicated patch](../../patch/q36-agent-tty/README.md) keeps it until the job
+The [dedicated patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-agent-tty/README.md) keeps it until the job
 closes, without handing ordinary stdin to the terminal or changing the
 DStudio desktop loop. Baseline still FAIL and candidate PASS with the same
 oracle: seven **fake** password scenarios, no sudo or real credentials.
@@ -743,7 +743,7 @@ and terminal secrecy/restoration checks were not removed.
 A three-second OS sample during case 91 mainly identifies waits for attention
 GPU tiles to complete. It does not by itself identify the command responsible
 for the watchdog. The new
-[optional diagnostics](../../patch/q36-metal-diagnostics/README.md) record encoder
+[optional diagnostics](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-metal-diagnostics/README.md) record encoder
 phase and state within fixed limits; they are disabled by default. The
 `q36-metal-diagnostics/run-5p3pcw` gate passes with real Metal commands and
 explicitly simulated error receipts. The separate diagnostic binary builds,
@@ -1446,7 +1446,7 @@ other requests (`run-yOjMQq`, 11/13) yield the same error. Diagnosis
 same tokens and numerical agreement within the original limits, but **both
 answer incorrectly**. The test remains FAIL; agreement is not declared quality.
 
-For the 27B candidate, the [q36 Metal patch](../../patch/q36-metal-runtime/README.md)
+For the 27B candidate, the [q36 Metal patch](https://github.com/sk8erboi17/DStudio/blob/fcae49ca1fb8a9536e2e783655e7c70a29b9a3a3/patch/q36-metal-runtime/README.md)
 fixes MRoPE linking and implements projector matmul/attention in Metal.
 The upstream helper's name was misleading: the shared runtime already included
 Metal; spans were not prohibited by definition. The first full-model test

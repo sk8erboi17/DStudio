@@ -13,8 +13,10 @@ const run=artifactRunDir('main-qwen-download'), bin=path.join(run,'bin'), out=pa
 fs.mkdirSync(bin); fs.mkdirSync(out);
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 const releases=[
-  {target:'ds41f-q2', file:'DeepSeek-V4.1-Flash-Q2.gguf', bytes:365713686528,
-    sha:'1ce6a8f8806205c13330d7ca287bd198331dc5ca35ccc5d8a9a92a188a6f6f42', repo:'antirez/deepseek-v4.1-flash-gguf', revision:'dd8a266f7145edc19e2334b46e19b6821f221dc7'},
+  // Upstream 5379c1c made ds41f-q2 the 1017 checkpoint. It is absent at the
+  // earlier dd8a266f pin; this revision also serves the unchanged Q4 parts and Vision.
+  {target:'ds41f-q2', file:'DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf', bytes:365713686528,
+    sha:'5296e85ff64b42ecb62c8d0c0c54e1caa07e3df8e93112f2365ebbaed62ce93a', repo:'antirez/deepseek-v4.1-flash-gguf', revision:'9dcee51692e6540f697141fc98b097e3c96492a3'},
   {target:'qwen38-q2', file:'Qwen3.8-Flash-Next-Q2.gguf', bytes:147207127040,
     sha:'b1b93fa69aca5f187b0fb813aca8f3ec1beb5cf8cf0bd38cf041b93e0b6ccac9', repo:'antirez/qwen3.8-flash-next-gguf', revision:'d600fe1a43d2e1cdcadb85144ce3142f66f9eefe'},
   {target:'qwen38-q4k', file:'Qwen3.8-Flash-Next-Q4.gguf', bytes:177280286720,

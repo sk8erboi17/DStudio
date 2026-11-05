@@ -47,7 +47,7 @@ No commit, checkout, fetch or pull was performed during that original port.
 Unrelated ongoing Cowork/PDF/UI/PLD changes were preserved, not incorporated as
 new GLM optimizations.
 
-Current main support is `0aaea5a238fb41a35106a551e73c8409dfb751ac`, using
+Current main support is `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`, using
 [`native-decode-main-qwen.patch`](native-decode-main-qwen.patch),
 `build-main-current.patch` and
 [`hotlist-main-layout.patch`](hotlist-main-layout.patch).
@@ -57,6 +57,13 @@ its unchanged 256 KiB bound, with full-width priorities and int32 GPU inputs.
 The independent ASan/UBSan layout oracle covers all 40,448 IDs; native Metal
 fixtures pass. This is not a new full-model quality or throughput result.
 
+The runtime delta was rebased onto `890898c` on November 3, 2026 with two
+resolved conflicts, both parallel additions: upstream's per-step decode logits
+hash in `ds4_bench.c` now precedes the patch's `cycle_start`, and the direct
+down-sum admission in `ds4_metal.m` accepts upstream's tensor-parallel full
+expert bind or the M2 GLM top-8 stream shape. The build and hot-list hunks were
+unchanged. The earlier M2 Max measurements were not rerun on the new base.
+
 The hook combines the runtime delta with `build-main-current.patch` and
 `hotlist-main-layout.patch` and applies or restores them as one atomic patch,
 rejecting drift. Support for earlier main layouts (`f62ca29`, `c0a6119`, the
@@ -64,7 +71,7 @@ September 5 build layout and its expert-logging correction) and the skip rule
 for the retired standalone Qwen fork were removed on October 27, 2026. The
 private `b4c3550` fork build had shown that its different layer/expert bounds
 needed their own variant; increasing the scratch-memory bound was not an
-accepted fix. See [the update report](../../docs/DS4_MAIN_UPDATE_2026-09-07.md).
+accepted fix. See [the update report](../../docs/history/ds4-main-update-2026-09-07.md).
 
 The macOS hook `scripts/apply-ds4-glm53-m2max.sh` applies the complete patch
 after the existing GLM runtime patch and restores it before that patch during
@@ -147,7 +154,7 @@ binary. Do not restore/apply patches concurrently with another build or update.
 
 The model-free tests do not prove full session error atomicity, continuation
 quality or absence of silent full-model errors. The historical QA record is
-[`PORT_QA.md`](PORT_QA.md), copied unchanged from the prior, then-unapplied
+[`PORT_QA.md`](../../docs/history/glm53-m2max-port-2026-09-05.md), copied unchanged from the prior, then-unapplied
 delivery. Its statement that the destination is unapplied describes that earlier
 phase, not the current managed build.
 
@@ -156,7 +163,7 @@ phase, not the current managed build.
 No inference benchmark was run during this integration. Native raw decode,
 MTP disabled: **no new tok/s, p50/p95 or first-token number**. Historical source
 measurements (not validation of these rebuilt DStudio binaries) are preserved in
-[`PERF_GLM53_M2MAX96.md`](PERF_GLM53_M2MAX96.md): 7.46 tok/s median
+[`PERF_GLM53_M2MAX96.md`](../../docs/history/glm53-m2max-performance-through-2026-09-05.md): 7.46 tok/s median
 (7.26..7.75), 16 actual raw prompt tokens, 131072 allocation, automatic SSD
 streaming. The historical completed scorer records NLL 0.458046251,
 first-token match 89/100 and mean greedy prefix 7.110.
@@ -208,4 +215,5 @@ The live-model QA gate remains open regardless of directory cleanup.
 `src/dstudio_updates.c`, `tests/integration/glm53_m2max_patch_test.mjs`,
 `tests/unit/lan_unit.c`, `Makefile`, `README.md`, `patch/README.md`, and this
 `patch/ds4-glm53-m2max/` package. The engine patch's eight paths are listed in
-`PORT_QA.md`. No direct hand-edited engine delta exists outside that patch.
+the [archived port delivery](../../docs/history/glm53-m2max-port-2026-09-05.md).
+No direct hand-edited engine delta exists outside that patch.

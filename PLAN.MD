@@ -1,6 +1,6 @@
 # DStudio — remaining macOS completion work
 
-Updated October 25, 2026. This document contains only unfinished implementation
+Updated November 4, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete and paused; this
 documentation update does not resume it. The owner reserves the complete
 quality-suite rerun.
@@ -12,6 +12,13 @@ Use [the WIP](docs/WORK_IN_PROGRESS.md) for the shorter backlog,
 [engine admission](docs/ENGINE_UPSTREAM_ALIGNMENT.md) for release requirements.
 Removing a completed task from this backlog does not qualify the entire model.
 
+**Documentation ownership.** This is the canonical detailed list of unfinished
+campaign requirements and retained failures. [README](README.md) is the product
+entry point; [the WIP](docs/WORK_IN_PROGRESS.md) is a short navigation page.
+[Test guides](tests/README.md) own commands and verification scope, while
+[historical reports](docs/history/README.md) retain dated results. Updating those
+summaries does not change this plan's acceptance criteria or denominators.
+
 <a id="scope"></a>
 ## Scope and order
 
@@ -22,16 +29,16 @@ in this campaign.
 
 | Selection | Engine pin | Execution order |
 | --- | --- | --- |
-| DeepSeek V4 Flash Vision-Exp IQ2XXS | main 0aaea5a | First group |
+| DeepSeek V4 Flash Vision-Exp IQ2XXS | main 890898c | First group |
 | Laguna S 2.1 Q4_K_M | laguna 448d569 | First group |
 | Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.8-27B UD-Q6_K_XL | llama.cpp f5027fb (b11836) | First group |
 | Qwen3.6-35B-A3B MXFP8 | MLX: mlx 0.32.4 36969c0, mlx-lm 0.32.2 93e6d4a | First group (added October 25) |
-| Qwen3.8-Flash-Next single-file Q4 | main 0aaea5a | First group |
-| Qwen3.8-Flash-Next single-file Q2 | main 0aaea5a | First group; not qualified |
-| DeepSeek V4.1 Flash 1017 Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
-| DeepSeek V4.1 Flash Q4 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
-| GLM 5.3 Flash Q2 | main 0aaea5a | Contributor hardware ([below](#contributors)) |
+| Qwen3.8-Flash-Next single-file Q4 | main 890898c | First group |
+| Qwen3.8-Flash-Next single-file Q2 | main 890898c | First group; not qualified |
+| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
+| DeepSeek V4.1 Flash Q4 | main 890898c | Contributor hardware ([below](#contributors)) |
+| GLM 5.3 Flash Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
 
 These are recorded pins, not a claim that remote tips were rechecked for this
 update. Exact revisions, patches and release targets live in
@@ -47,6 +54,12 @@ to `b11836` (`f5027fb`). On `b11836` Qwen3.6 passed the same six production-host
 checks again (`run-7Ad19x`); an earlier attempt (`run-RpFauU`) stopped on a
 stale test assertion that predated transcript restoration and is retained.
 Qwen3.8-27B has not been rerun on `b11836`; `b11371` results do not transfer.
+
+The retained Next Q4 common-100 result (75/100, including 8/8 long cases)
+belongs to main `0aaea5a`. It is not qualification of the current `890898c`
+pin. The November 4 V4.1 HTTP-resume correction and a verified full 1017 Q2
+transfer are recorded in [the change note](docs/changes/2026-11-04.md);
+download integrity does not close any model-quality or vision gate.
 
 Since October 22 the Q2 row is the official antirez 1017 checkpoint
 (`ds41f-q2`, revision `9dcee516`) with the community 1017 vision sidecar. The
@@ -71,7 +84,7 @@ exist: GLM 5.3's 100 reference continuations on an earlier main revision and a
 complete qualification is left to contributors. The three selections stay in
 scope and in every denominator as BLOCKED, never as passed or excluded.
 A contributor with an Apple Silicon Mac that can run them is welcome to take
-them on: use the recorded pins (ds4 main `0aaea5a` with the versioned patches),
+them on: use the recorded pins (ds4 main `890898c` with the versioned patches),
 the frozen cases and the evidence contract below; keep every failed attempt;
 record the machine, unified memory, effective memory mode (resident, SSD
 expert streaming, Engram, disk KV), context and settings; and share only
@@ -291,6 +304,45 @@ models and the MLX Qwen3.6, with development checks only.
    research → curriculum → audit → lesson/exercise/correction, actual references,
    progress and reopen. No hidden DeepSeek fallback or generic DeepSeek-only
    context policy imposed on Qwen.
+   November 4 implementation: roadmap generation saves an outline and each
+   developed stage; streamed generation/audits/repairs/block expansion detect
+   substantial exact reasoning cycles and recover the current phase. Automatic
+   retries are bounded by count, with no elapsed-work or productive-reasoning
+   token cutoff. Interrupted drafts and incomplete verification remain visible
+   and saved. Model-free checks are documented in
+   [Learn UI coverage](tests/docs/ui.md); real-weight qualification remains open.
+   November 5 retains a later real V4.1 audit failure: reordered repeated
+   paragraphs escaped that first guard, and the auditor lacked read-source
+   excerpts. Factual verification now uses finite evidence-backed batches,
+   saved verdicts and complete stage-pair/capstone consistency checks; unresolved
+   evidence blocks publication. Reordered-paragraph recovery is covered by a
+   private replay and synthetic negatives. See the
+   [audit correction](docs/changes/2026-11-05.md). Complete real-weight Learn
+   qualification, including the retained six-stage draft, is still open.
+   A further real first-batch stall is also retained. At the owner's request,
+   High is now the default and Learn/GSA/RSA reasoning is selectable rather
+   than forced to Max. Max requires a loop warning and any context-increase
+   confirmation. Model-free Off/High/Max request and guided-turn checks pass;
+   this does not qualify the stalled draft at High.
+   Retry now uses one current workspace view with collapsed attempt history.
+   Saved authored stages are keyed to learner input/instructions/evidence,
+   independently of runtime effort/context; audit receipts remain bound to
+   model/settings/evidence. The retained six-stage draft loads in a read-only
+   replay. Full real verification of that draft remains open.
+   The real High attempt later stopped at 46/122 checks after three responses
+   omitted one requested id. Partial-response recovery now saves independently
+   valid verdicts and requests only missing/invalid ids within the original
+   three-request budget. A private response replay retains those 46 checks and
+   the next three valid ids; this is not a new real inference acceptance run.
+   A subsequent storage failure was independent of model speed: the browser
+   history quota was exhausted while the native file still had free disk space.
+   Shared history now migrates to IndexedDB without emergency text deletion;
+   native saves acknowledge checked atomic publication, and Learn waits for a
+   durable checkpoint before advancing. Retry refuses unavailable storage before
+   appending another draft. Real browser/native-file tests cover all five modes,
+   Tutor payloads, failures, restart and competing windows. A private replay
+   preserves all 23 attempts, six stages and 46 checks. These storage checks do
+   not complete real-roadmap acceptance or engine KV reuse.
 4. Rerun the retained Next Learn incident with the intended effective reasoning
    request. Its diagnostic harness is corrected, but the real non-thinking
    loop/completion outcome is not established.
@@ -616,7 +668,7 @@ comparisons, justified profiling and reviewed final-build publication.
 <a id="proposals"></a>
 ## Proposed modules and improvements (outside P0–P11)
 
-Added October 25, 2026. None is implemented or scheduled: these are candidates,
+Added October 25, 2026; proposal 13 added November 4. None is implemented or scheduled: these are candidates,
 not acceptance requirements of P0–P11, and starting one is the owner's decision.
 Each statement about the current code was checked against the source. Effort is
 a rough estimate (S/M/L), not a measurement.
@@ -701,3 +753,13 @@ a rough estimate (S/M/L), not a measurement.
     (FSEvents/kqueue), waiting for writes to settle, symlink confinement,
     bounded preparation (digest, extraction) outside locks, and no model run
     until the user confirms. Effort M.
+13. **Base Chat prompt review.** The current ordinary Chat request combines a
+    custom system prompt with explanation, mathematical typesetting and
+    file/image/video routing protocols in `extension/search/runtime.js`.
+    Proposed, not implemented: simplify general style and case-specific ASCII
+    instructions, retain explicit uncertainty and action-result discipline,
+    derive available media capabilities from the selected runtime, and preserve
+    the existing output contracts. Compare the current and candidate prompts
+    on held-out short answers, teaching, math, code, attachment and media-intent
+    cases with independently checked outputs; preserve every failed attempt.
+    No rewrite, quality improvement or performance gain is claimed. Effort S–M.

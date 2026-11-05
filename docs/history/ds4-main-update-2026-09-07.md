@@ -1,5 +1,7 @@
 # ds4 main update — September 7, 2026
 
+> Historical report. Results and commands below belong to the recorded revisions and configurations; they do not qualify current engines. See [current sources and admission](../ENGINE_UPSTREAM_ALIGNMENT.md).
+
 The first-install pin is now
 [`f62ca29a308724cde5bc99134ede19104b2a3260`](https://github.com/antirez/ds4/commit/f62ca29a308724cde5bc99134ede19104b2a3260),
 checked on September 7. The earlier update that day advanced from `f4d03f6` to
@@ -23,7 +25,7 @@ server, headers, shaders and build rules are unchanged in this small delta.
 
 [Complete upstream comparison](https://github.com/antirez/ds4/compare/f4d03f6cf9f11c1e7b630bcb160853acfba7c52a...c0a6119f363ef82125877142f13fb3fe491cba14).
 This update has **no new real-model speed or quality benchmark**. The
-[September 5 measurements](DS4_MAIN_UPDATE_2026-09-05.md) remain historical;
+[September 5 measurements](ds4-main-update-2026-09-05.md) remain historical;
 they must not be presented as results for this revision.
 
 ## DStudio compatibility

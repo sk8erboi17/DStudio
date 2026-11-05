@@ -22,7 +22,7 @@
 +    # Preserve native size/SHA verification and bind each model family to its
 +    # own immutable release. Qwen is NOT a V4.1 repository revision.
 +    case "$REPO" in
-+        "$DS41_REPO") hf_revision=dd8a266f7145edc19e2334b46e19b6821f221dc7 ;;
++        "$DS41_REPO") hf_revision=9dcee51692e6540f697141fc98b097e3c96492a3 ;;
 +        "$QWEN38_REPO") hf_revision=d600fe1a43d2e1cdcadb85144ce3142f66f9eefe ;;
 +        *) hf_revision=main ;;
 +    esac

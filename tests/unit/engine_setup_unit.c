@@ -38,7 +38,27 @@ static void check_prompt_catalog(int mode, int structured) {
     free(prompt);
 }
 
+static void check_selected_reasoning_on_guided_turns(void) {
+    int saved_fd = g_in_fd, saved_think = g_cfg.think;
+    const char *prompts[] = {"/gsa inspect a local fixture", "/rsa inventory a local fixture"};
+    for (int level = 0; level <= 2; level++) {
+        for (size_t i = 0; i < sizeof prompts / sizeof prompts[0]; i++) {
+            int fds[2]; assert(pipe(fds) == 0); g_in_fd = fds[1]; g_cfg.think = level;
+            assert(agent_write_turn(prompts[i]));
+            close(fds[1]);
+            char output[256] = {0}; ssize_t bytes = read(fds[0], output, sizeof output - 1);
+            close(fds[0]);
+            char expected[256]; snprintf(expected, sizeof expected, "%s\n", prompts[i]);
+            assert(bytes == (ssize_t)strlen(expected));
+            assert(!strcmp(output, expected));
+            assert(g_cfg.think == level); /* no hidden Max frame or promotion */
+        }
+    }
+    g_in_fd = saved_fd; g_cfg.think = saved_think;
+}
+
 int main(void) {
+    check_selected_reasoning_on_guided_turns();
     assert(model_file_is_auxiliary("DeepSeek-V4.1-Flash-Vision.gguf"));
     assert(!model_file_is_supported(MODEL_DS41_VISION));
     /* Only official weights: modified derivatives are refused even when present. */
@@ -172,7 +192,10 @@ int main(void) {
     g_store = strdup("{\"profile\":\"isolated-first-launch\"}");
     assert(g_store);
     g_store_len = strlen(g_store);
-    store_save();
+    chat_store_write candidate = {0};
+    store_file_path(candidate.path, sizeof candidate.path);
+    candidate.body = g_store; candidate.len = g_store_len;
+    assert(chat_store_write_file(&candidate));
     free(g_store); g_store = NULL; g_store_len = 0;
     store_load();
     assert(g_store && !strcmp(g_store, "{\"profile\":\"isolated-first-launch\"}"));

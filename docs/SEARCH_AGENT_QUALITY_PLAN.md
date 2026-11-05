@@ -1,10 +1,19 @@
 # Search, Research and product comparisons — remaining work
 
-Updated October 1, 2026. Completed search/evidence/review corrections, matched
+Updated November 4, 2026. Completed search/evidence/review corrections, matched
 development replays and original rejected attempts are preserved in
 [the archived report](history/search-agent-quality-through-2026-10-01.md).
 The full campaign remains incomplete and paused; this cleanup starts no
 model, media worker, benchmark or competitor.
+
+On the local desktop, Search and Deep Research normally use the native
+Chrome/CDP helper, with HTTP/search-provider fallbacks when permitted. Learn's
+roadmap job requests mandatory Deep Research with `cdpOnly: true`: local
+search and source reads must remain browser-backed. The resulting evidence
+feeds roadmap generation and audits. Tutor replies then use the selected
+model, study-block context, attachments and thread history; they do not start
+a new web search on every turn. This is the implemented request routing,
+not completion of the held-out Learn/Search quality gates below.
 
 ## Remaining answer-quality acceptance
 
@@ -27,9 +36,10 @@ model, media worker, benchmark or competitor.
    timings with every original failure and retry. Complete matched comparisons
    only after independent correctness checks pass.
 
-The current application bounds Search to six queries/eight page attempts and
-Research to eighteen queries/twenty-four attempts/twelve follow-up actions,
-with source/byte limits. Discovery, model synthesis and review have no automatic
+The current application bounds Search to six queries and Research to eighteen
+queries/twelve follow-up actions. Page-attempt budgets are configurable in
+Settings: defaults are eight for Search and twenty-four for Research, with
+bounded source/byte limits. Discovery, model synthesis and review have no automatic
 application elapsed-work cutoff. Stop and actual transport failures remain
 effective; individual external web requests and isolated benchmark/fault tests
 may retain their declared deadlines. The archived 10/30-minute admission,
