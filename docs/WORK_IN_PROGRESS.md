@@ -63,6 +63,9 @@ release-summary work. These roadmaps do not authorize new platform/media runs.
   [former README checkbox list](history/readme-checklist-2026-11-04.md).
 - [November 4 implementation and scoped checks](changes/2026-11-04.md).
 - [November 5 Learn audit and shared history corrections](changes/2026-11-05.md).
+- [November 6 Learn evidence retrieval and final-project scope](changes/2026-11-06.md).
+- [November 8 Learn graph edits, draft access and bounded recovery](changes/2026-11-08.md).
+- [November 10 Learn workspace, messages during generation and resume](changes/2026-11-10.md).
 
 Private documents, prompts, transcripts, weights, personal paths and raw test
 artifacts remain ignored. An unfinished, failed or blocked requirement cannot

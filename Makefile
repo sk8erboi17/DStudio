@@ -390,6 +390,10 @@ test-roadmap-request:
 	@node tests/unit/roadmap_request_test.mjs
 	@node tests/unit/roadmap_generation_test.mjs
 	@node tests/unit/roadmap_audit_test.mjs
+	@node tests/unit/roadmap_evidence_test.mjs
+	@node tests/unit/roadmap_edit_test.mjs
+	@node tests/unit/roadmap_notes_test.mjs
+	@node tests/unit/roadmap_view_test.mjs
 check-fast: test-roadmap-request
 
 .PHONY: test-ui-learn-audit test-real-roadmap-audit
@@ -401,8 +405,20 @@ test-ui-learn-audit:
 	@DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
 	@DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
 
+.PHONY: test-ui-learn-notes
+test-ui-learn-notes:
+	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
 test-real-roadmap-audit: $(BIN)
 	@DSTUDIO_LIVE_ROADMAP_AUDIT=1 node tests/live/real_roadmap_audit_test.mjs $(BIN)
+
+# Real weights: Learn learner-message reply and targeted stage rewrite. Uses
+# DSTUDIO_LIVE_HOST when set (an already running host whose engine must report
+# effective SSD streaming); otherwise starts an isolated host with SSD streaming.
+.PHONY: test-real-roadmap-notes
+test-real-roadmap-notes: $(BIN)
+	@DSTUDIO_LIVE_ROADMAP_NOTES=1 node tests/live/real_roadmap_notes_test.mjs $(BIN)
 
 .PHONY: test-ui-learn-recovery
 test-ui-learn-recovery:

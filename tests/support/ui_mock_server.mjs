@@ -31,8 +31,10 @@ export async function uiMockServer(handle = () => false, { document } = {}) {
         nativeVisionActive: true, variant: 'flash', variants: { flash: true },
         config: { ctx: context, power: 100, think: 'off', ssdStreaming: 'auto' },
       });
+      // Mirror the host contract: an accepted write is acknowledged as
+      // durable (src/dstudio_chat_store.c); a read returns the saved data.
       if (url.pathname === '/api/store') {
-        if (req.method === 'POST') { data = await requestBody(req); rev++; }
+        if (req.method === 'POST') { data = await requestBody(req); rev++; return jsonReply(res, { ok: true, durable: true, rev }); }
         return jsonReply(res, { ok: true, rev, data });
       }
       if (url.pathname === '/api/storerev') return jsonReply(res, { rev });

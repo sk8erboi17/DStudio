@@ -53,6 +53,7 @@ function json(res, data, status = 200) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(data));
 }
+let storeRev = 0;
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (req.method === 'POST') {
@@ -69,6 +70,10 @@ const server = http.createServer(async (req, res) => {
       json(res, { ok: true, mode: 'server', taskId: 1 });
       return;
     }
+    // Mirror the host contract (src/dstudio_chat_store.c): an accepted
+    // history write is acknowledged as durable. A non-durable reply raises a
+    // persistence warning that this layout test would measure instead.
+    if (url.pathname === '/api/store') { storeRev += 1; json(res, { ok: true, durable: true, rev: storeRev }); return; }
     json(res, { ok: true }); return;
   }
   if (url.pathname === '/api/status') {
@@ -92,8 +97,8 @@ const server = http.createServer(async (req, res) => {
     json(res, { ok: true, checkouts: [[main, 'ds4', 'main']]
       .map(([dir, name, branch]) => ({ dir, name, branch, hasServer: true, active: engineDir === dir })) }); return;
   }
-  if (url.pathname === '/api/store') { json(res, { rev: 0, data: null }); return; }
-  if (url.pathname === '/api/storerev') { json(res, { rev: 0 }); return; }
+  if (url.pathname === '/api/store') { json(res, { ok: true, rev: storeRev, data: null }); return; }
+  if (url.pathname === '/api/storerev') { json(res, { rev: storeRev }); return; }
   if (url.pathname === '/v1/models') { json(res, { data: [{ id: current.file === qwen27File ? 'qwen3.8-27b' :
     current.file === qwenFile ? 'qwen3.6-35b-a3b' : 'glm-5.3-flash', context_length: config.ctx }] }); return; }
   if (url.pathname === '/api/video/status') { json(res, { ok: true, supported: true, installed: false }); return; }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { chromium, webkit, firefox } from 'playwright';
 import { uiMockServer, jsonReply, requestBody, seedUi, sseDelta, sseDone } from '../support/ui_mock_server.mjs';
+import { studyTopic } from '../support/learn_ui.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
@@ -106,7 +107,7 @@ try {
       let scroller = '#messages', paragraphs = '.msg--assistant .msg__content p';
       if (mode === 'tutor') {
         await page.locator('#tab-roadmap').click();
-        await page.getByRole('button', { name: 'Study Text selection', exact: true }).click();
+        await studyTopic(page, 'Text selection');
         scroller = '.roadmap-study__scroll'; paragraphs = '.roadmap-study-msg--assistant .md p';
         await page.locator('.roadmap-study__input').fill('Selection fixture');
         await page.locator('.roadmap-study__send').click();

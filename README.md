@@ -137,6 +137,22 @@ downloadable build; to use it today, [build from source](#build-from-source).
 
 **Recent changes**
 
+- **Learn workspace and messages during generation (November 10).** Learn
+  has one status panel with factual-check progress and a single *Resume draft*
+  action. It adds a stage map beside the curriculum, collapsible stages, and
+  quiet block rows whose actions appear on hover or focus. Write to the model
+  while a roadmap is generated: each message gets an answer at the next step
+  without restarting the roadmap, and agreed changes rewrite only the named
+  stages and are audited again. The first draft is readable as soon as its
+  structure is saved. Simulated UI checks plus one real-weight check of the
+  message phases; [scope and limits](docs/changes/2026-11-10.md).
+- **Learn evidence and final-project scope (November 6).** Saved source text
+  is selected across all items in an audit batch, with literal passages and
+  shared bounded capacity. Final projects are checked as whole-roadmap work;
+  needing later-stage skills is expected. Changed contracts retire dependent
+  audit receipts while preserving authored drafts. Newly authored text is
+  refused when overlong rather than silently clipped. Model-free checks only;
+  [scope and remaining gaps](docs/changes/2026-11-06.md).
 - **Selectable reasoning (November 5).** High is the default in Learn and
   guided analysis. Off/High/Max can be chosen where supported; GSA/RSA no
   longer override the level. Selecting Max warns about repetitive reasoning

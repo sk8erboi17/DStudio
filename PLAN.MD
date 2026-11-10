@@ -343,6 +343,15 @@ models and the MLX Qwen3.6, with development checks only.
    Tutor payloads, failures, restart and competing windows. A private replay
    preserves all 23 attempts, six stages and 46 checks. These storage checks do
    not complete real-roadmap acceptance or engine KV reuse.
+   November 6 corrects false evidence gaps caused by fixed prefix-heavy
+   excerpts and clarifies whole-roadmap final-project scope. Retrieval now
+   shares the existing bounded batch capacity across literal passages; changed
+   content/project contracts retire dependent verdicts while preserving authored
+   work and compatible stage-pair receipts. Overlong newly authored fields are
+   refused instead of silently clipped. Authored regressions and a private
+   model-free witness replay pass; real revised-auditor quality, genuine source
+   gaps and full-roadmap acceptance remain open. See the
+   [scoped correction](docs/changes/2026-11-06.md).
 4. Rerun the retained Next Learn incident with the intended effective reasoning
    request. Its diagnostic harness is corrected, but the real non-thinking
    loop/completion outcome is not established.
