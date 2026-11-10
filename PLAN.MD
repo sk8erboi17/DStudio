@@ -783,12 +783,14 @@ anything is removed, the following inputs from that pass must be resolved:
   Some check a grader or harness that other tests depend on; decide per file
   whether that is its stated purpose (then say so in its guide) or whether it
   is removed under item 5.
-- Assertions that cannot fail: the "did not stop its own worker" checks in
-  `http_lan_test.sh` (`wait` precedes `kill -0`), two assertions in
-  `engine_acceptance.mjs` on a field that is never set, and one in
-  `ui_roadmap_playwright_test.mjs`. `ui_live_vision_playwright_test.mjs`
-  attaches no image and grades no reply. `harness_live_test.mjs` passes its
-  outside-workspace check when no read is attempted.
+- Assertions that could not fail, corrected on November 11: the "did not stop
+  its own worker" checks in `http_lan_test.sh` now observe the worker for a
+  bounded time; the Learn test's rejected-claim pattern now matches the
+  rejected text and the repaired practice is required; the harness live test
+  no longer passes its outside-workspace case when no read is attempted (not
+  yet rerun on real weights); two assertions in `engine_acceptance.mjs` on a
+  field nothing set are removed. Still open:
+  `ui_live_vision_playwright_test.mjs` attaches no image and grades no reply.
 - Guide statements wider than what runs, to correct in the guides or by
   extending the test: case counts that drifted (`test-launch-preflight`,
   `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,

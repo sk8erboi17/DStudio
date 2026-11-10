@@ -18,6 +18,17 @@ sleep_a=""
 sleep_b=""
 image_sleep_a=""
 image_sleep_b=""
+# A server must end its own worker when it stops. `wait` alone also returns
+# when the 60-second fixture ends by itself, so a worker that was never
+# stopped would look stopped: observe the process for a bounded time instead,
+# then reap it. Returns 1 if it is still running after five seconds.
+worker_gone() {
+  for _ in $(seq 1 50); do
+    if ! kill -0 "$1" >/dev/null 2>&1; then wait "$1" >/dev/null 2>&1 || true; return 0; fi
+    sleep 0.1
+  done
+  return 1
+}
 cleanup() {
   for child in "${sleep_a}" "${sleep_b}" "${image_sleep_a}" "${image_sleep_b}"; do
     if [ -n "${child}" ] && kill -0 "${child}" >/dev/null 2>&1; then
@@ -1313,8 +1324,7 @@ printf '%s\n' "${sleep_a}" >"${job_a}/worker.pid"
 kill "${pid2}"
 wait "${pid2}" || true
 pid2=""
-wait "${image_sleep_b}" >/dev/null 2>&1 || true
-if kill -0 "${image_sleep_b}" >/dev/null 2>&1; then
+if ! worker_gone "${image_sleep_b}"; then
   echo "second server did not stop its own image worker" >&2
   exit 1
 fi
@@ -1323,8 +1333,7 @@ if ! kill -0 "${image_sleep_a}" >/dev/null 2>&1; then
   echo "second server stopped the first server's image worker" >&2
   exit 1
 fi
-wait "${sleep_b}" >/dev/null 2>&1 || true
-if kill -0 "${sleep_b}" >/dev/null 2>&1; then
+if ! worker_gone "${sleep_b}"; then
   echo "second server did not stop its own H3 worker" >&2
   exit 1
 fi
@@ -1338,14 +1347,12 @@ fi
 kill "${pid}"
 wait "${pid}" || true
 pid=""
-wait "${image_sleep_a}" >/dev/null 2>&1 || true
-if kill -0 "${image_sleep_a}" >/dev/null 2>&1; then
+if ! worker_gone "${image_sleep_a}"; then
   echo "first server did not stop its own image worker" >&2
   exit 1
 fi
 image_sleep_a=""
-wait "${sleep_a}" >/dev/null 2>&1 || true
-if kill -0 "${sleep_a}" >/dev/null 2>&1; then
+if ! worker_gone "${sleep_a}"; then
   echo "first server did not stop its own H3 worker" >&2
   exit 1
 fi

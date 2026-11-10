@@ -203,7 +203,6 @@ async function inference(id, entry) {
     }
     const model=models.data[0].id;
     if(commonQuality){
-      assert.notEqual(entry.inference.catalogIdentity?.status,'fail','native catalog misidentifies the selected model');
       entry.quality.report.runtime={engine:id,binarySha256:entry.inference.binarySha256,
         model:entry.inference.model,installer:entry.inference.installer,argv:args,
         memoryMode:entry.inference.mode,hardware:report.host};
@@ -314,7 +313,6 @@ async function inference(id, entry) {
       assert.ok(parsed.some(e=>e.choices?.[0]?.finish_reason==='stop'));streamRow.status='pass';
     }catch(e){streamRow.status='fail';streamRow.error=e.message;}
     entry.inference.cases.push(streamRow);save();
-    assert.notEqual(entry.inference.catalogIdentity?.status,'fail','native catalog misidentifies the loaded Qwen model');
     assert.notEqual(entry.inference.stateReplay?.status,'fail','the same deterministic prompt changed after unrelated requests');
     assert.ok(entry.inference.cases.every(c=>c.status==='pass'),'one or more answer/protocol checks failed');
   } finally {
