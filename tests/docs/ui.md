@@ -397,6 +397,87 @@ protocol. Changing a stage reopens its content batch and affected global pairs;
 unchanged checks remain saved. A continuously active stream also periodically
 flushes progress instead of indefinitely postponing a trailing debounce.
 
+November 6 replaces Learn's shared leading-term excerpt query with bounded
+per-item queries and literal passage selection. Navigation and duplicate link
+tails no longer consume the same space as substantive page text. Each item gets
+a selection turn, with resource-attribution claims before proposed exercise
+counts. The packet retains at most eight sources and 14,400 evidence characters;
+each source receives at most 3,600 characters and 24 selected passages. This
+redistributes the former eight-by-1,800 ceiling, so a six-source batch can use
+more text than its former six fixed slices. At most the first 256,000 characters
+of each selected page are prepared. Preparation and selection yield between
+pages and revalidate Stop and run ownership. This temporary per-batch index is
+discarded after use; full read-source text remains authoritative. The generic
+Search selector is unchanged.
+
+Final-project pairs now carry explicit whole-roadmap scope and the remaining
+stage ids; a project needing later-stage skills is not itself contradictory.
+Content checks distinguish author-proposed learning tasks from external claims,
+while embedded factual assertions still require evidence. Requested/canonical
+URLs reach the actual audit request. Receipt identities bind these per-job
+instructions and context: older content/project verdicts remain retained but
+must run again; unchanged stage-pair contracts can reuse exact receipts. New
+outline/stage text exceeding existing field limits is refused for bounded phase
+recovery instead of silently clipped. Existing drafts remain available.
+
+`tests/unit/roadmap_evidence_test.mjs`, included in `make test-roadmap-request`,
+executes production retrieval against authored long menus, late named/numeric
+facts and reordered four-item batches. It checks literal spans, Unicode,
+character/count limits, canonical URLs, final-project context and deterministic
+cancellation/stale ownership during both page preparation and selection. Its
+simulated reviewer checks the produced contract, not real model quality. A
+private model-free replay of five saved batches recovered nine missing witness
+fragments; it neither admits new verdicts nor modifies the user's draft.
+
+November 8 adds prerequisite-safe edits and explicit draft access; see the
+[scoped correction](../../docs/changes/2026-11-08.md). `make test-roadmap-request`
+includes the production graph-edit checks. The normal browser scenario now
+refuses a drag before a prerequisite and deletion of a referenced block, accepts
+an independent move, and verifies that a reload keeps edited graphs marked
+unverified. The missing-evidence scenario displays a labeled draft, keeps edit
+controls disabled and permits **Study draft** after the audit stops, without
+promoting its unresolved verdicts to success. Run normal, partial and
+missing-evidence scenarios in both Chromium and WebKit; replies are simulated.
+
+November 10 routes Learn prompts sent during generation to notes on the
+running request; see the [scoped change](../../docs/changes/2026-11-10.md).
+`tests/unit/roadmap_notes_test.mjs` executes reply admission, the JSON-bounded
+notes request, lazy stage guidance, targeted stage rewrites and partial draft
+previews. `make test-ui-learn-notes` runs `DSTUDIO_TEST_LEARN_NOTES=1` in Chromium and WebKit. It holds a
+real stage request and an audit request in flight, and checks:
+
+- the readable partial draft;
+- a durable note that neither aborts the step nor creates a new turn;
+- the answer at the next boundary, and guidance only in later stages;
+- one targeted rewrite with re-audit, and a single verified attempt.
+
+Replies are simulated.
+
+The November 10 Learn workspace redesign is covered by the same production
+scenarios:
+
+- the normal scenario checks the stage map, map navigation and stage
+  collapse, header chips, the verified and modified notices, the block
+  details, and menu-based add/delete;
+- recovery and missing-evidence scenarios check the single status panel;
+- `ui_roadmap_hover_controls_playwright_test.mjs` checks that hover and
+  keyboard focus reveal *Study* and the **⋯** menu without moving them, and
+  that arrow keys and Escape work in the menu;
+- `tests/support/learn_ui.mjs` reaches block actions the way a learner does;
+- `tests/unit/roadmap_view_test.mjs` executes the audit, hour, dependency,
+  short-title and lossless checkpoint helpers.
+
+Host mocks used by browser tests acknowledge an accepted history write as
+`{"ok":true,"durable":true,"rev":N}`, as `src/dstudio_chat_store.c` does.
+A mock that omits `durable` produces a persistence warning, which layout
+assertions would then measure instead of the composer.
+
+`make test-real-roadmap-notes` is the explicit real-weight check of the
+message reply and targeted rewrite phases with an authored curriculum. It
+reuses `DSTUDIO_LIVE_HOST` when set (an already running host whose engine must
+report effective SSD streaming); otherwise it starts an isolated host and KV
+directory with SSD streaming.
+
 Within a completed response, verdict admission is now independent per id. A
 three-of-four reply durably retains the three valid checks, then requests only
 the missing id. Invalid quotes, duplicate/conflicting ids and malformed siblings

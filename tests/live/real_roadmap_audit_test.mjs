@@ -71,7 +71,7 @@ try{
  for(const group of groups){
   const controller=new AbortController();signals.add(controller);const started=Date.now();let latest;
   const task={scope:group.id,items:group.items,evidence:group.evidence.map(({id,title,url,text})=>({id,title,url,text}))};
-  const result=await api.completeRoadmapPhase({request:{messages:[{role:'system',content:api.ROADMAP_FACT_AUDIT_PROTOCOL},{role:'user',content:JSON.stringify(task)}],thinkLevel:'max'},
+  const result=await api.completeRoadmapPhase({request:{messages:[{role:'system',content:api.roadmapAuditProtocol(group.items)},{role:'user',content:JSON.stringify(task)}],thinkLevel:'max'},
    signal:controller.signal,label:group.id,stream,normalize:raw=>api.normalizeRoadmapCheckBatch(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')),group.items,group.evidence),
    onProgress(snapshot){latest=snapshot;if(snapshot.settled)writeArtifact(artifacts,`${group.id}-attempt-${snapshot.attempt}.json`,snapshot);},
    onRetry(attempt,issue,snapshot){receipt.attempts.push({case:group.id,attempt,issue,repetition:snapshot.repetition});writeArtifact(artifacts,'results.json',receipt);},

@@ -9,6 +9,7 @@ import { chromium, webkit, firefox } from 'playwright';
 import { seedUi } from '../support/ui_mock_server.mjs';
 import { streamSeed, uiStreamFixture } from '../support/ui_stream_fixture.mjs';
 import { NATIVE_TITLEBAR_PX, simulateNativeTitlebar, windowStripReport } from '../support/native_titlebar.mjs';
+import { studyTopic } from '../support/learn_ui.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
@@ -30,8 +31,7 @@ try {
       await page.locator('#composer-input').waitFor();
       assert.deepEqual(await windowStripReport(page, 'body'), { inset: NATIVE_TITLEBAR_PX, controlsInStrip: [] });
       await page.locator('#tab-roadmap').click();
-      const study = page.getByRole('button', { name: 'Study Selezione del testo', exact: true });
-      await study.click();
+      await studyTopic(page, 'Selezione del testo');
       await page.locator('#roadmap-study').waitFor({ state: 'visible' });
       assert.deepEqual(await windowStripReport(page, '#roadmap-study', '#roadmap-study .roadmap-study__head'),
         { inset: NATIVE_TITLEBAR_PX, controlsInStrip: [], barTop: 0, barCoversStrip: true });

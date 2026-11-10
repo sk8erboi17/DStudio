@@ -15,6 +15,25 @@ for (let i = 0; i < 700; i++) assert.equal(varied.push(`Step ${i}: a distinct ex
 assert.equal(api.createRoadmapRepetitionGuard().push('A repeated short quotation. '.repeat(10)), null);
 assert.ok(api.createRoadmapRepetitionGuard().push('yes '.repeat(3000)), 'Short-cycle degeneration is also detected once the repeated suffix is substantial');
 
+// Long paragraphs with changing labels previously evaded both the paragraph
+// window and exact periodic suffix. The repeated sentence, not elapsed time,
+// must trigger recovery independently of SSE chunk boundaries.
+const labelledCycle = Array.from({length: 40}, (_, i) => `Pass ${i}. ` +
+  'The same unresolved assumption is reconsidered without delivering a verdict. '.repeat(35) +
+  `End pass ${i}.\n\n`).join('');
+for (const chunk of [37, 512, 4096, labelledCycle.length]) {
+  const detector = api.createRoadmapRepetitionGuard(); let hit;
+  for (let at = 0; at < labelledCycle.length && !hit; at += chunk)
+    hit = detector.push(labelledCycle.slice(at, at + chunk));
+  assert.ok(hit, `Changing labels cannot hide long-paragraph degeneration (chunk ${chunk})`);
+}
+const longDistinct = api.createRoadmapRepetitionGuard();
+for (let i = 0; i < 180; i++) {
+  const paragraph = Array.from({length: 35}, (_, j) =>
+    `For specimen ${i}, observation ${j} has independently measured value ${i * 79 + j * 13} and uncertainty ${i + j + 1}.`).join(' ');
+  assert.equal(longDistinct.push(paragraph + '\n\n'), null, 'Long productive paragraphs are not cycles');
+}
+
 const paragraphs = Array.from({length: 12}, (_, i) => `Reconsider source item ${i}: its definitions and exercise have already been checked against the supplied passage; no additional defect or missing prerequisite has been identified.`);
 const reordered = Array.from({length: 12}, (_, round) => [
   ...paragraphs.slice(round % 12), ...paragraphs.slice(0, round % 12),
@@ -128,6 +147,45 @@ const roadmap = {version: 2, title: 'Fixture curriculum', goal: 'Learn a precise
   capstone: {title: 'Integrated artifact', description: 'Combine and verify the acquired skills.', deliverables: ['Working artifact', 'Evidence report'], successCriteria: ['Correctness', 'Reproducibility', 'Explanation']}};
 const outline = api.normalizeRoadmapOutline(JSON.stringify(roadmap));
 assert.equal(outline.stages[0].topics[0].summary, undefined);
+for (const field of ['estimatedDuration','assumptions']) {
+ const overlong=structuredClone(roadmap);
+ if(field==='assumptions')overlong.assumptions=['A complete learner assumption. '.repeat(20)];
+ else overlong.estimatedDuration='One complete duration description. '.repeat(10);
+ assert.throws(()=>api.normalizeRoadmapOutline(JSON.stringify(overlong)),/exceeds .* characters/,
+  'An authored field must be retried rather than silently truncated');
+}
+const longStage=structuredClone(roadmap.stages[0]);longStage.topics[0].assessment='Complete assessment requirement. '.repeat(30);
+assert.throws(()=>api.normalizeRoadmapStage(JSON.stringify(longStage),outline,0,sources),/exceeds .* characters/);
+const crowdedOutline = structuredClone(roadmap);
+crowdedOutline.stages[0].topics = Array.from({length: 14}, (_, i) => ({
+  ...topic(`foundation-${i}`, null), prerequisites: i === 13 ? Array.from({length: 13}, (_, j) => `foundation-${j}`) : [],
+}));
+assert.throws(() => api.normalizeRoadmapOutline(JSON.stringify(crowdedOutline)), /prerequisites.*12/i,
+  'An overlong prerequisite list must be refused, not silently changed');
+for (const [field, count] of [['resources', 7], ['keyConcepts', 11]]) {
+  const crowdedStage = structuredClone(roadmap.stages[0]);
+  crowdedStage.topics[0][field] = Array.from({length: count}, (_, i) => field === 'resources'
+    ? {title: `Reference ${i}`, url: 'https://example.org/a'} : `Concept ${i}`);
+  assert.throws(() => api.normalizeRoadmapStage(JSON.stringify(crowdedStage), outline, 0, sources), /exceeds.*items/i,
+    'Authored lists must retain their full meaning or request bounded recovery');
+}
+for (const [field, count] of [['assumptions',7],['objectives',9],['deliverables',11],['successCriteria',9]]) {
+  const tooMany=structuredClone(roadmap);
+  const owner=field==='assumptions'?tooMany:field==='objectives'?tooMany.stages[0]:tooMany.capstone;
+  owner[field]=Array.from({length:count},(_,i)=>`Complete requirement ${i}.`);
+  assert.throws(()=>api.normalizeRoadmapOutline(JSON.stringify(tooMany)),/exceeds.*items/);
+}
+const longEffort=structuredClone(roadmap.stages[0]);longEffort.topics[0].estimatedHours=300;
+assert.throws(()=>api.normalizeRoadmapStage(JSON.stringify(longEffort),outline,0,sources),/exceeds 240/);
+const block={...topic('custom-block',null),keyConcepts:['One','Two','Three']};
+assert.equal(api.parseRoadmapBlockDirective(JSON.stringify(block),'','',[...sources]).title,block.title);
+for(const field of ['keyConcepts','resources']) {
+  const tooMany=structuredClone(block);
+  tooMany[field]=Array.from({length:field==='resources'?7:11},(_,i)=>field==='resources'
+    ?{title:`Reference ${i}`,url:'https://example.org/a'}:`Concept ${i}`);
+  assert.throws(()=>api.parseRoadmapBlockDirective(JSON.stringify(tooMany),'','',[...sources]),/exceeds.*items/,
+    'A manual generated block uses the same non-clipping admission policy');
+}
 let phaseCalls = [], checkpoints = [];
 const complete = async ({messages, normalize}) => {
   const phase = messages.at(-1).content;

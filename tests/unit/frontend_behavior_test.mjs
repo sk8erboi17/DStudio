@@ -1,30 +1,11 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import {extractFunction} from '../support/real_harness.mjs';
 const html = fs.readFileSync('web/index.html','utf8');
 function scriptSource() {
   const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
   assert.ok(m, 'module script not found');
   return m[1];
-}
-
-function extractFunction(src, name) {
-  let start = src.indexOf(`function ${name}`);
-  assert.notEqual(start, -1, `${name} not found`);
-  const asyncPrefix = 'async ';
-  if (src.slice(Math.max(0, start - asyncPrefix.length), start) === asyncPrefix) {
-    start -= asyncPrefix.length;
-  }
-  const brace = src.indexOf('{', start);
-  assert.notEqual(brace, -1, `${name} body not found`);
-  let depth = 0;
-  for (let i = brace; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}') {
-      depth--;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  throw new Error(`${name} body is not balanced`);
 }
 
 const js = scriptSource();

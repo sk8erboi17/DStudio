@@ -1,6 +1,7 @@
 // Model-free, bounded stream fixture shared by browser regressions and the
 // operator-driven browser preview. No proxy, subprocess or model installation.
 import { uiMockServer, jsonReply, requestBody, sseDelta, sseDone } from './ui_mock_server.mjs';
+import { studyTopic } from './learn_ui.mjs';
 
 export const streamText = '# Risposta simulata\n\nTesto con **grassetto**, _corsivo_ e una formula $x^2 + y^2$.\n\n'
   + '| Colonna | Valore |\n| --- | --- |\n| Caffè | 42 |\n\n'
@@ -31,7 +32,7 @@ export async function startFixtureStream(page, mode, prompt = 'Verifica della se
   let scroller = '#messages', paragraphs = '.msg--assistant .msg__content p', input = '#composer-input';
   if (mode === 'tutor') {
     await page.locator('#tab-roadmap').click();
-    await page.getByRole('button', { name: 'Study Selezione del testo', exact: true }).click();
+    await studyTopic(page, 'Selezione del testo');
     scroller = '.roadmap-study__scroll'; paragraphs = '.roadmap-study-msg--assistant .md p'; input = '.roadmap-study__input';
     await page.locator(input).fill(prompt); await page.locator('.roadmap-study__send').click();
   } else {

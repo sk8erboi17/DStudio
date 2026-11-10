@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { uiMockServer, jsonReply, requestBody, seedUi, sseDelta, sseDone } from '../support/ui_mock_server.mjs';
 import { chromium, webkit, firefox } from 'playwright';
+import { studyTopic } from '../support/learn_ui.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
@@ -318,7 +319,7 @@ try {
   });
   await run('tutor-preparation-and-gallery', async page => {
     await page.goto(server.origin); await page.locator('#tab-roadmap').click();
-    await page.getByRole('button', { name: 'Study Images', exact: true }).click();
+    await studyTopic(page, 'Images');
     const picker = page.locator('.roadmap-study__file-input');
     await picker.setInputFiles({ name: 'corrupt.png', mimeType: 'image/png', buffer: Buffer.from('invalid image') });
     await page.locator('.roadmap-study__file').filter({ hasText: 'Could not read' }).waitFor();
@@ -352,7 +353,7 @@ try {
     await page.waitForFunction(() => document.querySelector('.composer__file')?.getAttribute('aria-busy') === 'false');
     await page.locator('#chat-file-input').setInputFiles({ name: 'tardy-main.png', mimeType: 'image/png', buffer: fs.readFileSync(inputs[1]) });
     await page.waitForFunction(() => typeof window.releaseReads['tardy-main.png'] === 'function');
-    await page.getByRole('button', { name: 'Study Images', exact: true }).click();
+    await studyTopic(page, 'Images');
     await page.locator('.roadmap-study__file-input').setInputFiles({ name: 'tardy-tutor.png', mimeType: 'image/png', buffer: fs.readFileSync(inputs[1]) });
     await page.waitForFunction(() => typeof window.releaseReads['tardy-tutor.png'] === 'function');
     assert.equal(await page.locator('.roadmap-study__send').isEnabled(), false);
@@ -362,14 +363,14 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('.composer__file[aria-busy="false"]').length === 2);
     assert.equal(await page.locator('.composer__file').count(), 2, 'closing Tutor retains earlier ready main attachments and discards both late imports');
     assert.ok(await page.evaluate(() => window.revokedUrls.length >= 2), 'cancelled original blob URLs are retired');
-    await page.getByRole('button', { name: 'Study Images', exact: true }).click();
+    await studyTopic(page, 'Images');
     assert.equal(await page.locator('.roadmap-study__file').count(), 0, 'a closed room cannot acquire a late attachment');
   }, { chats: [learnChat] });
 
   await run('tutor-close-cancels-blocked-send-preparation', async page => {
     pdfBarrier = [];
     await page.goto(server.origin); await page.locator('#tab-roadmap').click();
-    await page.getByRole('button', { name: 'Study Images', exact: true }).click();
+    await studyTopic(page, 'Images');
     await page.locator('.roadmap-study__file-input').setInputFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nSimulated bytes\n%%EOF') });
     await page.waitForFunction(() => document.querySelector('.roadmap-study__file')?.getAttribute('aria-busy') === 'false');
     await page.locator('.roadmap-study__input').fill('Read the file.');
@@ -380,7 +381,7 @@ try {
     await page.locator('#chat-file-input').setInputFiles(inputs[2]);
     await page.waitForFunction(() => document.querySelector('.composer__file')?.getAttribute('aria-busy') === 'false');
     for (const response of pdfBarrier) jsonReply(response, pdfResult);
-    await page.getByRole('button', { name: 'Study Images', exact: true }).click();
+    await studyTopic(page, 'Images');
     await page.locator('.roadmap-study__input').fill('New draft after closing.');
     assert.equal(chatRequests.length, before, 'a closed Tutor cannot dispatch a late prepared request');
     assert.equal(await page.locator('.roadmap-study-msg--user').count(), 0, 'late preparation does not publish in a reopened room');

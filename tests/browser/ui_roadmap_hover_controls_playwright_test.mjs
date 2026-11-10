@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { chromium, webkit, firefox } from 'playwright';
 import { seedUi } from '../support/ui_mock_server.mjs';
 import { streamSeed, uiStreamFixture } from '../support/ui_stream_fixture.mjs';
+import { studyTopic, topicAction, topicMenu } from '../support/learn_ui.mjs';
 
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
@@ -41,34 +42,59 @@ try {
       await page.locator('#tab-roadmap').click();
       await page.locator('#backdrop').waitFor({ state: 'hidden' });
       if (narrowDrawer) assert.equal(await menu.getAttribute('aria-expanded'), 'false', 'mode selection closes the narrow drawer accessibly');
-      const study = page.getByRole('button', { name: 'Study Selezione del testo', exact: true });
-      await study.waitFor();
+      const study = topicAction(page, 'Study Selezione del testo');
+      const row = page.locator('.roadmap-topic[data-topic-id="selezione"] .roadmap-topic__node');
+      await row.waitFor();
       await page.mouse.move(4, 4); await paint(page);
+      assert.equal(await study.isVisible(), false, 'block actions stay quiet until the row is pointed at or focused');
       before = await study.boundingBox(); await capture();
-      const point = { x: before.x + before.width / 2, y: before.y + before.height / 2 };
-      // Use the user's original target. Locator.click() may retry against a
-      // moved control and conceal that a single real click hits Delete instead.
-      await page.mouse.move(point.x, point.y); await paint(page);
+      const rowBox = await row.boundingBox();
+      await page.mouse.move(rowBox.x + 60, rowBox.y + rowBox.height / 2); await paint(page);
       after = await study.boundingBox(); await capture();
-      assert.equal(await study.evaluate((node, p) => node.contains(document.elementFromPoint(p.x, p.y)), point), true,
-        'the first visible Study target must remain under the pointer when other actions appear');
+      assert.equal(await study.isVisible(), true, 'pointing at a row reveals its Study action');
       assert.ok(Math.abs(before.x - after.x) <= 1 && Math.abs(before.y - after.y) <= 1,
-        'hover does not move the Study control');
+        'revealing the actions does not move them');
+      // Use the user's original target. Locator.click() may retry against a
+      // moved control and conceal that a single real click hits another action.
+      const point = { x: after.x + after.width / 2, y: after.y + after.height / 2 };
+      await page.mouse.move(point.x, point.y); await paint(page);
+      assert.equal(await study.evaluate((node, p) => node.contains(document.elementFromPoint(p.x, p.y)), point), true,
+        'the revealed Study target stays under the pointer');
       await page.mouse.down(); await page.mouse.up();
       await page.locator('#roadmap-study').waitFor({ state: 'visible' });
       await page.locator('.roadmap-study__input').fill('Bozza Learn conservata alla riapertura.');
       await capture();
       await page.getByRole('button', { name: 'Back to roadmap', exact: true }).click();
-      await study.waitFor();
+      await row.waitFor();
       await page.mouse.move(4, 4); await paint(page);
       const keyboardBefore = await study.boundingBox();
       // macOS WebKit uses Option-Tab to include buttons in keyboard traversal.
-      await study.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab'); await paint(page);
+      const tab = browserName === 'webkit' ? 'Alt+Tab' : 'Tab', backTab = browserName === 'webkit' ? 'Alt+Shift+Tab' : 'Shift+Tab';
+      await page.locator('.roadmap-topic[data-topic-id="selezione"] .roadmap-topic__toggle').focus();
+      await page.keyboard.press(tab); await paint(page);
+      assert.equal(await study.evaluate(node => document.activeElement === node), true, 'keyboard focus moves from the block title to Study');
       const keyboardAfter = await study.boundingBox();
       assert.ok(Math.abs(keyboardBefore.x - keyboardAfter.x) <= 1, 'keyboard focus reveals actions without moving Study');
-      assert.equal(await page.getByRole('button', { name: 'Add a block to the left branch after Selezione del testo', exact: true })
-        .evaluate(node => document.activeElement === node), true, 'the next keyboard action is reachable');
-      await page.keyboard.press(browserName === 'webkit' ? 'Alt+Shift+Tab' : 'Shift+Tab'); await page.keyboard.press('Enter');
+      await page.keyboard.press(tab);
+      assert.equal(await page.getByRole('button', { name: 'More actions: Selezione del testo', exact: true })
+        .evaluate(node => document.activeElement === node), true, 'the action menu is the next keyboard stop');
+      const menuButton = page.getByRole('button', { name: 'More actions: Selezione del testo', exact: true });
+      await page.keyboard.press('Enter');
+      const addItem = page.getByRole('menuitem', { name: 'Add a block after Selezione del testo', exact: true });
+      await addItem.waitFor();
+      // The details toggle event is queued; wait for the announced state.
+      await page.waitForFunction(() => document.querySelector('[aria-label="More actions: Selezione del testo"]')?.getAttribute('aria-expanded') === 'true');
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await addItem.evaluate(node => document.activeElement === node), true, 'ArrowDown enters the menu');
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await page.getByRole('menuitem', { name: 'Delete Selezione del testo', exact: true })
+        .evaluate(node => document.activeElement === node), true, 'ArrowDown moves to the next action');
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await addItem.evaluate(node => document.activeElement === node), true, 'the menu wraps around');
+      await page.keyboard.press('Escape');
+      assert.equal(await menuButton.getAttribute('aria-expanded'), 'false');
+      assert.equal(await menuButton.evaluate(node => document.activeElement === node), true, 'Escape returns focus to the menu button');
+      await page.keyboard.press(backTab); await page.keyboard.press('Enter');
       await page.locator('#roadmap-study').waitFor({ state: 'visible' });
       assert.equal(await page.locator('.roadmap-study__input').inputValue(), 'Bozza Learn conservata alla riapertura.',
         'mouse and keyboard reopening keep the owned study draft');
@@ -87,7 +113,7 @@ try {
         'actual mouse input selects the first study heading and description');
       await capture();
       await page.getByRole('button', { name: 'Back to roadmap', exact: true }).click();
-      await page.getByRole('button', { name: 'Study Secondo blocco', exact: true }).click();
+      await studyTopic(page, 'Secondo blocco');
       await page.locator('#roadmap-study').waitFor({ state: 'visible' }); await paint(page);
       assert.equal(await page.locator('.roadmap-study__title').textContent(), 'Secondo blocco');
       assert.equal(await page.locator('.roadmap-study__context h2').textContent(), 'Secondo blocco',
@@ -97,8 +123,7 @@ try {
       await page.getByRole('button', { name: 'Back to roadmap', exact: true }).click();
       const topic = page.locator('.roadmap-topic[data-topic-id="selezione"]');
       await topic.locator('.roadmap-topic__check').click();
-      await topic.locator('.roadmap-topic__node').hover();
-      await topic.getByRole('button', { name: /^Add a block/ }).click();
+      await topicMenu(page, 'Selezione del testo', 'Add a block after Selezione del testo');
       const addForm = topic.locator('.roadmap-add');
       await addForm.locator('input').fill('Bozza di un blocco da conservare');
       await addForm.locator('textarea').fill('Descrizione ancora in modifica.');

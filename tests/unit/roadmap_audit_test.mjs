@@ -26,8 +26,7 @@ const evidenceSources = await api.roadmapAuditSources([source,{...source,url:'ht
 assert.equal(evidenceSources.length, 1);
 const attached = await api.roadmapAuditSources([{...source,url:'',reader:'attachment-extract'}]);
 assert.equal(attached[0].fullText, source.content, 'Prepared text attachments remain available as evidence without a web URL');
-const selectExcerpt = text => text;
-const evidence = api.roadmapAuditEvidence(jobs[0].items, evidenceSources, selectExcerpt);
+const evidence = await api.roadmapAuditEvidence(jobs[0].items, evidenceSources);
 assert.equal(evidence[0].fullText, source.content);
 const checksFor = task => task.items.map(item => ({id:item.id, verdict:'supported',reason:'The supplied reference/input establishes this check.',
   evidence:[{sourceId:item.kind==='consistency'?'input':task.evidence[0].id, quote:item.kind==='consistency'?item.text.slice(0,80):task.evidence[0].text.slice(0,80)}], finding:null}));
@@ -58,13 +57,30 @@ const complete=async ({messages,normalize})=>{
  return normalize(JSON.stringify({checks:checksFor(task)}));
 };
 const run=opts=>api.runRoadmapFactualChecks({roadmap,sources:[source],modelIdentity:{model:'fixture',revision:'one'},complete,
-  signal:new AbortController().signal,selectExcerpt,onCheckpoint:value=>{ledger=structuredClone(value);},...opts});
+  signal:new AbortController().signal,onCheckpoint:value=>{ledger=structuredClone(value);},...opts});
 await assert.rejects(run({sources:[],complete:async()=>{assert.fail('No model call without read-source evidence');}}),error=>error.name==='RoadmapIncompleteError');
 const initial=await run();
 assert.ok(initial.stageAudits.every(audit=>audit.pass));assert.equal(initial.globalAudit.pass,true);
 assert.equal(ledger.completed,ledger.total);const coldCalls=calls.length;
 calls=[];await run({initial:ledger});assert.equal(calls.length,0,'Identical checks and evidence are revalidated and reused');
 const saved=structuredClone(ledger);
+// Old content instructions and the ambiguous final-project scope cannot
+// authorize new verdicts. Unchanged stage-pair checks keep their exact key.
+const legacy=structuredClone(saved);
+for(let index=0;index<jobs.length;index++) {
+ const items=jobs[index].items.map(item=>{const copy={...item};delete copy.context;return copy;});
+ const e=await api.roadmapAuditEvidence(items,evidenceSources);
+ legacy.records[index].key=await api.roadmapAuditDigest(JSON.stringify({schema:2,protocol:api.ROADMAP_FACT_AUDIT_PROTOCOL,
+  modelIdentity:{model:'fixture',revision:'one'},learner:{goal:roadmap.goal,audience:roadmap.audience},items,
+  evidence:e.map(({id,digest,text})=>({id,digest,text}))}));
+}
+const untouchedLegacy=structuredClone(legacy);
+calls=[];await run({initial:legacy});
+assert.equal(calls.length,coldCalls-1);
+assert.ok(!calls.some(task=>task.items[0].id==='global/stage-0/stage-1'),
+ 'Only the unchanged pair contract can reuse a prior verdict');
+assert.ok(calls.some(task=>task.items[0].context?.capstoneScope==='whole-roadmap'));
+assert.deepEqual(legacy,untouchedLegacy,'Retained earlier verdicts are never rewritten in place');
 const altered=structuredClone(roadmap);altered.stages[0].topics[0].practice+=' Explain a corrected example.';
 calls=[];await run({roadmap:altered,initial:saved});
 assert.ok(calls.length>0 && calls.length<coldCalls);
