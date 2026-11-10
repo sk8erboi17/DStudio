@@ -371,6 +371,13 @@ static char *ds4_strndup_local(const char *s, size_t n) {
 #define LLAMA_UPSTREAM_COMMIT "f5027fb21307eb264aed483242603d68c87b0fe3"
 #define LLAMA_ARCHIVE_URL "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/" LLAMA_UPSTREAM_COMMIT
 #define LLAMA_DIR_NAME "llama.cpp"
+/* The bundled MLX runtime is installed from verified wheels in
+ * src/engines/mlx, not built from an archive. These are the upstream
+ * revisions those wheels were released from (mlx-lm 0.32.2, mlx 0.32.4),
+ * as recorded in that manifest; they are exported for release admission. */
+#define MLX_LM_UPSTREAM_COMMIT "93e6d4a6447b3080861985947f0820e76fcb957d"
+#define MLX_LM_ARCHIVE_URL "https://codeload.github.com/ml-explore/mlx-lm/tar.gz/" MLX_LM_UPSTREAM_COMMIT
+#define MLX_UPSTREAM_COMMIT "36969c094354086e15d2a327a9c50feb20b9cf11"
 #define MODEL_QWEN27 "gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf"
 /* Qwen3.6 MoE for the bundled MLX runtime: a directory of safetensors
  * (mlx-community/Qwen3.6-35B-A3B-mxfp8), not a GGUF file. */

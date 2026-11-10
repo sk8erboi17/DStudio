@@ -27,6 +27,11 @@ static int setup_engine_pins_cli(int argc) {
         printf("%s{\"id\":\"%s\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\",\"bundled\":true,\"sourceDirectory\":\"src/engines/%s\"}",
                i ? "," : "", s->id, s->name, s->commit, s->url, s->name);
     }
+    /* MLX: mlx-lm is the source DStudio patches and runs; the mlx core it
+     * needs comes from the same verified wheel set. */
+    printf(",{\"id\":\"mlx\",\"directory\":\"%s\",\"commit\":\"%s\",\"archiveURL\":\"%s\",\"bundled\":true,"
+           "\"sourceDirectory\":\"src/engines/%s\",\"wheels\":true,\"runtimeCommit\":\"%s\"}",
+           RESIDENT_MLX_DIR, MLX_LM_UPSTREAM_COMMIT, MLX_LM_ARCHIVE_URL, RESIDENT_MLX_DIR, MLX_UPSTREAM_COMMIT);
     printf("]}\n");
     return ferror(stdout) ? 1 : 0;
 }

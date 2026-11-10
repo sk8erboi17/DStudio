@@ -14,7 +14,9 @@
     "V4.1 adds Metal-only Q2/Q4 candidates. Its weights, native disk Engram and expert streaming require distinct real-load and correctness evidence; new rows do not imply qualification.",
     "q36's installer now targets 1305843 (upstream September 24): the reviewed 8362010 runtime rebased with three resolved conflicts, plus the unchanged monitor/monitor-owner/cache-usage patches; existing 8362010 and d67687e installs upgrade in place. Earlier 8362010 real-model receipts do not qualify the new binary. The Qwen3.6 fork additionally carries a Q6_K MoE shader correction.",
     "Since upstream's September 14 merge (9139e2a), Qwen3.8 Flash Next is part of antirez/ds4 main; the active 890898c pin is upstream's November 2 revision. The retired fork and its separate Q4 PLE format are not active installer targets. New Q2/Q4 single-file BF16 n-gram releases need fresh real-model qualification; older fork receipts are historical, not relabeled.",
-    "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. The vendored 890898c download_model.sh names it with the same published SHA-256 but follows the repository head; scripts/download-ds41-1017.sh downloads it at a pinned revision, together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights."
+    "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. The vendored 890898c download_model.sh names it with the same published SHA-256 but follows the repository head; scripts/download-ds41-1017.sh downloads it at a pinned revision, together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights.",
+    "Since November 11, 2026 the MLX Qwen3.6-35B-A3B MXFP8 selection has a target. MLX is installed from verified PyPI wheels (src/engines/mlx), not built from an archive: its tracks record the upstream revisions those wheels were released from (mlx-lm 0.32.2 and mlx 0.32.4), with no later commit under review, and its patch set is the three versioned mlx-lm adaptations. The same day the three host-served targets (llama.cpp Qwen3.6, llama.cpp Qwen3.8-27B and MLX) gained the gates the campaign requires of every selection: numerics, quality-100, install-upgrade, learn, desktop and design-runtime, plus textual-isolation for the text-only ones and vision-pdf-50 for 27B. No receipt was added.",
+    "On November 11, 2026 thirteen patch-set entries (seven files of the main and Laguna sets) no longer matched their recorded SHA-256: the patches had changed without this manifest being refreshed, so the checker would have reported CONTENT_CHANGED. The hashes were refreshed to the files shipped at that commit. No receipt existed that was bound to the earlier patch-set digests."
   ],
   "tracks": [
     {
@@ -37,6 +39,20 @@
       "ref": "refs/heads/master",
       "base": "f5027fb21307eb264aed483242603d68c87b0fe3",
       "recordedTip": "f5027fb21307eb264aed483242603d68c87b0fe3"
+    },
+    {
+      "id": "mlx-lm",
+      "repository": "https://github.com/ml-explore/mlx-lm",
+      "ref": "refs/heads/main",
+      "base": "93e6d4a6447b3080861985947f0820e76fcb957d",
+      "recordedTip": "93e6d4a6447b3080861985947f0820e76fcb957d"
+    },
+    {
+      "id": "mlx",
+      "repository": "https://github.com/ml-explore/mlx",
+      "ref": "refs/heads/main",
+      "base": "36969c094354086e15d2a327a9c50feb20b9cf11",
+      "recordedTip": "36969c094354086e15d2a327a9c50feb20b9cf11"
     }
   ],
   "patchSets": {
@@ -51,7 +67,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/build.mk",
-        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+        "sha256": "c32d04b955c26582e7b0c1b15b3ca364f23cb63a0fd332537eb2399345a58d56"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld.h",
@@ -87,7 +103,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
-        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+        "sha256": "00085238ca97e1154082108be9390f8708bd4c95a11388e64a62ec959dda5d48"
       },
       {
         "path": "patch/ds4-web-runtime/browser-main.patch",
@@ -103,11 +119,11 @@
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
-        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+        "sha256": "63e01aa56679e4a8ba08398ecb642ef1c70c6bd3a574b9e918ff70dac85c11f0"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.h",
-        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+        "sha256": "9e4a0f0f30f3cb0ddde43361739eabd4cb2bfc69f0fc16359cc74dc52ddf6f57"
       },
       {
         "path": "src/harness/cowork/ds4_cowork.c",
@@ -119,7 +135,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/main-qwen.patch",
-        "sha256": "1edc14b6834e4c3ca566421f1b8835bc6690e8d391b8c05fcef0ac1d20349979",
+        "sha256": "8f425d64e69f15e909c6b50cb6d07ac492f4804be285847017a2fa15ca8487ba",
         "check": "apply"
       },
       {
@@ -160,7 +176,7 @@
       },
       {
         "path": "src/harness/design/ds4_design.c",
-        "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
+        "sha256": "ec39dd84de6f531f5ef96c1bd6b325b67f28e55220bb2a0a1d5824bc2c3dbffa"
       },
       {
         "path": "src/harness/design/build-design.sh",
@@ -220,7 +236,7 @@
       },
       {
         "path": "scripts/download-ds41-1017.sh",
-        "sha256": "8766d7bef7878ba149beecbcdfb1b36a4c15177e999606647a88809c9d15750a"
+        "sha256": "8deadfb1f814c3a3a3ba11608ec213392bc6ec82584428398ddc1769775baa1a"
       }
     ],
     "laguna": [
@@ -238,7 +254,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/build.mk",
-        "sha256": "9bec378229ee15798748db1b0db1ce292f7bfc54cb3400623904842074bf43cd"
+        "sha256": "c32d04b955c26582e7b0c1b15b3ca364f23cb63a0fd332537eb2399345a58d56"
       },
       {
         "path": "patch/ds4-agent-jsonl/pld.h",
@@ -274,7 +290,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
-        "sha256": "a24864131a02198b48866b3cf7af3e824dbf7e9d890e3b37a8544e7fb32ae558"
+        "sha256": "00085238ca97e1154082108be9390f8708bd4c95a11388e64a62ec959dda5d48"
       },
       {
         "path": "patch/ds4-web-runtime/browser.patch",
@@ -290,11 +306,11 @@
       },
       {
         "path": "extension/remote/dstudio_remote_llm.c",
-        "sha256": "cfa634a84dc6bf222b35d9ecbd37b2836eec97033058711b813f675703e761d0"
+        "sha256": "63e01aa56679e4a8ba08398ecb642ef1c70c6bd3a574b9e918ff70dac85c11f0"
       },
       {
         "path": "extension/remote/dstudio_remote_llm.h",
-        "sha256": "4f6a03700de4cf761bf2b2d552d2544230ef774852919ba7acebe95aec4b7f7a"
+        "sha256": "9e4a0f0f30f3cb0ddde43361739eabd4cb2bfc69f0fc16359cc74dc52ddf6f57"
       },
       {
         "path": "src/harness/cowork/ds4_cowork.c",
@@ -306,7 +322,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/laguna.patch",
-        "sha256": "dca0239e29286cce6d90092d5ee74fad8f9342cd518d1b5ee3d6bd5f20161930",
+        "sha256": "e6ecad642c7c9595e327716ae006ea0bbffac668d4695619845f8dcd5b04c8e6",
         "check": "apply"
       },
       {
@@ -343,7 +359,7 @@
       },
       {
         "path": "src/harness/design/ds4_design.c",
-        "sha256": "9aee345bee7d5468c79398d18112345fd0f24bb05cb20a40d0baebaee1abdf80"
+        "sha256": "ec39dd84de6f531f5ef96c1bd6b325b67f28e55220bb2a0a1d5824bc2c3dbffa"
       },
       {
         "path": "src/harness/design/build-design.sh",
@@ -360,6 +376,20 @@
       {
         "path": "scripts/apply-ds4-v41-vision-pairing.sh",
         "sha256": "762ec8a15bd4ea484a64dea8d879580c24e614f23f30615c964930c219f57f5b"
+      }
+    ],
+    "mlx": [
+      {
+        "path": "patch/mlx-lm-single-model/single-model.patch",
+        "sha256": "d2160c1d750399deb2d68e257392f216dfd5362ecd9233e7d0c8c86491a8682e"
+      },
+      {
+        "path": "patch/mlx-lm-reasoning-content/reasoning-content.patch",
+        "sha256": "725e4c94ab795fa4890368ce3c87a3641f91dc635a4da26345ff3f4b91d5524d"
+      },
+      {
+        "path": "patch/mlx-lm-tool-streaming/tool-streaming.patch",
+        "sha256": "711c76048cf503de01b1f5a42ce87cab47dc04a009cd2d5461292b7d4c860fce"
       }
     ]
   },
@@ -611,12 +641,19 @@
       "patches": [],
       "requiredGates": [
         "native-build",
+        "numerics",
+        "quality-100",
         "install-fresh",
+        "install-upgrade",
         "chat",
         "agent",
+        "learn",
         "cowork",
+        "desktop",
+        "design-runtime",
         "owner-death",
-        "weight-selection"
+        "weight-selection",
+        "textual-isolation"
       ],
       "receipts": [],
       "reviews": [],
@@ -636,13 +673,52 @@
       "patches": [],
       "requiredGates": [
         "native-build",
+        "numerics",
+        "quality-100",
         "install-fresh",
+        "install-upgrade",
         "chat",
         "agent",
+        "learn",
         "cowork",
+        "desktop",
+        "design-runtime",
         "owner-death",
         "weight-selection",
-        "vision"
+        "vision",
+        "vision-pdf-50"
+      ],
+      "receipts": [],
+      "reviews": [],
+      "platform": "macos"
+    },
+    {
+      "id": "mlx/macos/metal/qwen36-mxfp8",
+      "sourceTrack": "mlx-lm",
+      "installerId": "mlx",
+      "revision": "93e6d4a6447b3080861985947f0820e76fcb957d",
+      "backend": "metal",
+      "checkpoint": "qwen36-mxfp8",
+      "tracks": [
+        "mlx-lm",
+        "mlx"
+      ],
+      "patchSet": "mlx",
+      "requiredGates": [
+        "patch-lifecycle",
+        "numerics",
+        "quality-100",
+        "install-fresh",
+        "install-upgrade",
+        "chat",
+        "agent",
+        "learn",
+        "cowork",
+        "desktop",
+        "design-runtime",
+        "owner-death",
+        "weight-selection",
+        "textual-isolation"
       ],
       "receipts": [],
       "reviews": [],

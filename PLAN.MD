@@ -308,12 +308,13 @@ patch migrations and retired-Next removal are implemented.
    explicitly recheck remote revisions and record the date/SHA; never make
    setup fetch or pull a moving upstream tree.
 2. Resolve the missing release receipts/reviews in
-   [the matrix](docs/engine-upstream.json). On October 25 it declares nine macOS
-   targets with 107 required gate slots and zero linked receipts (117 before
-   the Qwen targets moved to llama.cpp). This is incomplete qualification, not
-   107 failed tests. MLX, now the tenth selection, has no target yet: add it
-   with its required gates. Link existing evidence only when
-   its exact engine/patch/model/binary identities and scope match.
+   [the matrix](docs/engine-upstream.json). Since November 11 it declares ten
+   macOS targets with 135 required gate slots and zero linked receipts (nine
+   targets and 107 slots before). This is incomplete qualification, not 135
+   failed tests. MLX now has its target, and the three host-served targets
+   carry the gates required of every selection
+   ([what changed](docs/ENGINE_UPSTREAM_ALIGNMENT.md)). Link existing evidence
+   only when its exact engine/patch/model/binary identities and scope match.
 3. Complete Agent/Cowork dependency signatures, coordinated crash-safe
    publication of the runtime pair and verified recovery of legacy patched
    source markers. Preserve originals, backups and unrelated checkout edits.

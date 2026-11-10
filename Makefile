@@ -780,6 +780,14 @@ test-engine-upstream:
 test-engine-pins: $(TEST_SERVER)
 	@node tests/integration/engine_pins_test.mjs "$(TEST_SERVER)"
 
+# The shipped admission manifest against the shipped patches and the built
+# app's installer pins. No network or Git history: not the source review.
+.PHONY: test-engine-upstream-manifest
+test-engine-upstream-manifest: $(TEST_SERVER)
+	@node tests/integration/engine_upstream_manifest_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-engine-upstream-manifest
+
 check-fast: test-engine-upstream test-engine-pins
 
 .PHONY: test-qwen27-download test-qwen27-download-host test-ui-qwen27-download test-qwen27-download-settings-live
