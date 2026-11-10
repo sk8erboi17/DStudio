@@ -4,7 +4,8 @@ Updated November 10, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete. On November 10, 2026
 the owner resumed it: complete every item of this plan and of
 [the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
-([P12](#p12)). This authorizes the campaign's sequential real-model runs on the
+([P12](#p12)) and, once that is finished, rewrite the README and re-record its
+media ([P13](#p13)). This authorizes the campaign's sequential real-model runs on the
 maintainer's Mac, including the owner-reserved quality reruns; it does not turn
 an unfinished, failed or blocked requirement into a pass.
 
@@ -183,7 +184,7 @@ adapter. Check the original checkpoint, matching processor/projector/encoder,
 engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
-Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12.
+Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12 → P13.
 V4.1 1017 Q2 follows the first group on the maintainer's Mac, with SSD expert
 streaming only ([its scope](#v41-ssd)). V4.1 Q4 and GLM stay in the denominator
 as BLOCKED until a contributor runs them ([contributor hardware](#contributors)).
@@ -769,10 +770,39 @@ recorded reason and passing differential evidence; the reduction (files, lines,
 build time, binary size) is reported as measured; no requirement, failure or
 capability disappeared.
 
+<a id="p13"></a>
+## P13 — Rewrite the README and re-record every GIF and screenshot
+
+Status: TO_DO. Added November 11, 2026 at the owner's request, to be done once
+P0–P12 are finished.
+
+1. Rewrite `README.md` in full from the verified outcomes of the finished
+   campaign: what the app does, what was measured, on which models and
+   configurations, and what is still unsupported or blocked. No claim without
+   its receipt; retained failures stay visible.
+2. Re-record every GIF and screenshot used by the README and the documentation
+   with headless Playwright and ffmpeg, from committed recording scripts, so
+   that each one can be regenerated. They must be presentable: zoom into the
+   part that matters, a camera that follows the caret while text is typed, and
+   smooth animated transitions between steps.
+3. Record the production page. Where a recording uses authored model replies
+   instead of a real engine, say so next to it; never present a simulated
+   reply as model output. No private documents, prompts, paths or
+   conversations in any frame.
+4. Inspect the rendered frames and the final files, not only the script's exit
+   status: legible text at the published size, both themes where relevant,
+   sensible duration and file size, no leftover debug overlay.
+5. Replace the old media, update every reference, and remove files nothing
+   links any more.
+
+Acceptance: every image and GIF in the README and documentation comes from a
+committed script and was inspected after rendering; the README states only
+verified outcomes; no dead link or orphaned media file remains.
+
 <a id="closure"></a>
 ## Closure
 
-Every P0–P12 row remains open until its remaining implementation and exact
+Every P0–P13 row remains open until its remaining implementation and exact
 acceptance evidence are complete. A completed scoped fix is removed from the
 implementation backlog while its invalidated or missing acceptance checks stay.
 Missing authority, credentials, permissions, compatible reference or Mac
@@ -786,10 +816,10 @@ comparisons, justified profiling, reviewed final-build publication and the
 final simplification with its passing usage-case matrix.
 
 <a id="proposals"></a>
-## Proposed modules and improvements (outside P0–P12)
+## Proposed modules and improvements (outside P0–P13)
 
 Added October 25, 2026; proposal 13 added November 4. None is implemented or scheduled: these are candidates,
-not acceptance requirements of P0–P12, and starting one is the owner's decision.
+not acceptance requirements of P0–P13, and starting one is the owner's decision.
 Each statement about the current code was checked against the source. Effort is
 a rough estimate (S/M/L), not a measurement.
 

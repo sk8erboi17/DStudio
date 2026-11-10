@@ -488,6 +488,22 @@ test-census:
 
 check-fast: test-census
 
+# The gate runner: `node tests/support/gate_run.mjs check-fast` runs a gate one
+# target at a time and keeps a receipt and a log per target.
+.PHONY: test-gate-run
+test-gate-run:
+	@node tests/unit/gate_run_test.mjs
+
+check-fast: test-gate-run
+
+# The usage-case matrix (every way the app is used and the test that executes
+# it): `node tests/support/usage_matrix.mjs` prints its coverage.
+.PHONY: test-usage-matrix
+test-usage-matrix:
+	@node tests/unit/usage_matrix_test.mjs
+
+check-fast: test-usage-matrix
+
 # Real host HTTP and process groups with tiny fixture download scripts: a
 # vision-capable model download continues with its own encoder. No weights.
 .PHONY: test-model-vision-companion

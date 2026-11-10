@@ -18,6 +18,7 @@ not close a model-quality gate.
 | Native desktop and generated Design projects | [P7](../PLAN.MD#p7--complete-the-real-desktop-matrix), [P8](../PLAN.MD#p8--finish-the-design-auditor-and-generated-project-matrix) |
 | Agent comparisons, profiling and final publication | [P9](../PLAN.MD#p9--complete-six-agent-comparisons), [P10](../PLAN.MD#p10--profile-and-retain-justified-optimizations), [P11](../PLAN.MD#p11--qualify-the-final-build-and-reviewed-publication) |
 | Final step: remove unnecessary complexity and really useless tests, with every usage case tested before and after | [P12](../PLAN.MD#p12--remove-unnecessary-complexity-and-prove-nothing-regressed) |
+| After everything above: rewrite the README and re-record every GIF and screenshot with headless Playwright and ffmpeg | [P13](../PLAN.MD#p13--rewrite-the-readme-and-re-record-every-gif-and-screenshot) |
 
 ## Remaining verification and retained failures
 

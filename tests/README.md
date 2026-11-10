@@ -44,6 +44,16 @@ target starts; their commands are here so that they are accounted for:
 A file reached by nothing is not evidence of anything: wire it to a target,
 give its command in a guide, or remove it in the final simplification step.
 
+`node tests/support/gate_run.mjs check-fast` runs a gate one target at a time
+(`--only TARGET,...` reruns some of them). Each invocation owns a new directory
+in ignored `tests/.artifacts/gate-runs/` with one log per target and a
+`results.json`: exit status, duration, the case lines each target printed as
+passed or failed, and the lines in which it reported something as not run or
+blocked. The verdict of a target is its exit status, never its printed lines.
+A rerun does not replace an earlier run, so an intermittent failure stays on
+record beside the rerun that passed. `make test-gate-run` checks the runner on
+a synthetic Makefile.
+
 ## Topic guides and section links
 
 The anchors below retain existing links to this index. Project links point
