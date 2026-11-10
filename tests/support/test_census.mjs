@@ -89,17 +89,22 @@ export function census(root) {
   const rows = files.map((file) => {
     const targets = targetsReaching(file);
     const via = [...reachedBy.get(file)];
-    return { file, kind: file.split('/')[1], targets: [...direct.get(file)].sort(),
+    // `targets` are the named targets that run the file: the ones that name it
+    // and, for a compiled test, the ones that depend on its build product.
+    const built = [...direct.get(file)].filter((target) => target.includes('/'));
+    const runners = [...rules].filter(([target, rule]) => !target.includes('/') && rule.prerequisites.some((p) => built.includes(p))).map(([target]) => target);
+    return { file, kind: file.split('/')[1], targets: [...new Set([...direct.get(file)].filter((target) => !target.includes('/')).concat(runners))].sort(),
+      buildProducts: built.sort(),
       gates: Object.keys(gates).filter((gate) => [...targets].some((target) => gates[gate].has(target))),
       reachedByTests: via.sort(), reached: targets.size > 0 || via.length > 0 };
   });
   // Reached only through another test: inherit that test's reachability.
   for (let changed = true; changed;) { changed = false;
-    for (const row of rows) if (row.reached && row.targets.length === 0) {
+    for (const row of rows) if (row.reached && row.targets.length === 0 && row.buildProducts.length === 0) {
       const parents = row.reachedByTests.map((file) => rows.find((r) => r.file === file));
       const inherited = [...new Set(parents.flatMap((p) => p.gates))].sort();
       if (inherited.join() !== row.gates.join() && inherited.length > row.gates.length) { row.gates = inherited; changed = true; }
-      if (!parents.some((p) => p.targets.length || p.reachedByTests.length)) { row.reached = false; }
+      if (!parents.some((p) => p.targets.length || p.buildProducts.length || p.reachedByTests.length)) { row.reached = false; }
     }
   }
   // An explicit runner started by hand is still accounted for when a guide

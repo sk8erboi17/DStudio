@@ -25,6 +25,10 @@ assert.match(errorsOf((m) => { m.areas[2].cases[1].id = m.areas[2].cases[0].id; 
 assert.match(errorsOf((m) => { m.areas[2].cases[0].use = 'short'; }).join('\n'), /describe the usage/);
 assert.match(errorsOf((m) => { delete m.areas[2].cases[0].tests; }).join('\n'), /tests must be a list/);
 
+// A hand-run live runner whose command a guide gives can be named; a compiled test is named with its make target.
+assert.deepEqual(errorsOf((m) => { m.areas[3].cases[0].tests = [{ file: 'tests/live/desktop_chat_e2e.mjs', evidence: 'real-model', covers: 'one real Chat workflow in the desktop window' }]; }), []);
+assert.deepEqual(errorsOf((m) => { m.areas[3].cases[0].tests = [{ file: 'tests/unit/chat_store_unit.c', target: 'test-chat-store-unit', evidence: 'model-free', covers: 'the native conversation store' }]; }), []);
+
 // An uncovered case is valid to record and is reported; simulated-only evidence is reported separately.
 const gaps = build((m) => { m.areas[0].cases[0].tests = []; m.areas[0].cases[1].tests[0].evidence = 'simulated'; });
 const checked = validateUsageMatrix(gaps, root);

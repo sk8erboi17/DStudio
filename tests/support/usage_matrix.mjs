@@ -45,7 +45,8 @@ export function validateUsageMatrix(matrix, root) {
         if (!EVIDENCE.includes(test.evidence)) fail(`${where}: evidence must be one of ${EVIDENCE.join(', ')}`);
         const row = files.get(test.file);
         if (!row) { fail(`${where}: ${test.file} is not a test file`); continue; }
-        if (!row.reached) fail(`${where}: ${test.file} is reached by no target or documented command`);
+        // A hand-run runner counts when a guide gives its command (the census lists where).
+        if (!row.reached && !(row.documentedIn || []).length) fail(`${where}: ${test.file} is reached by no target or documented command`);
         if (test.target && !row.targets.includes(test.target)) fail(`${where}: target ${test.target} does not run ${test.file}`);
         if (test.evidence === 'real-model' && row.kind !== 'live') fail(`${where}: real-model evidence must come from tests/live, not ${test.file}`);
         if (typeof test.covers !== 'string' || test.covers.trim().length < 8) fail(`${where}: say what ${test.file} executes for this case`);

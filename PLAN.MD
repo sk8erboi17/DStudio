@@ -765,6 +765,42 @@ proved by tests over every way the app is used.
 7. Rebuild and rerun whatever this step changes in the build qualified by P11;
    an earlier PASS does not transfer to changed code.
 
+Recorded on November 11, 2026, when the matrix was first written
+(`tests/fixtures/usage_matrix.json`; `node tests/support/usage_matrix.mjs`
+prints its coverage). It lists 628 usage cases in sixteen areas: 574 have at
+least one test, **54 have none**, and 243 are covered only by tests with
+authored model replies. Coverage was confirmed by reading the guides and the
+test files; it is a first complete pass, not yet reviewed row by row. Before
+anything is removed, the following inputs from that pass must be resolved:
+
+- The 54 uncovered cases each get a behavioral test, or an explicit recorded
+  reason why the case cannot be exercised on the maintainer's Mac.
+- Tests that execute only test-support code and no production behavior:
+  `research_http_cancel_test.mjs`, `roadmap_request_test.mjs`,
+  `http_deadline_test.mjs`, `rsa_collectors_matrix_test.mjs`,
+  `design_control_probe_test.mjs`, `design_resume_checkpoint_test.mjs`,
+  `design_pages_release_gate_test.mjs`, `lumen_disclosure_contract_test.mjs`.
+  Some check a grader or harness that other tests depend on; decide per file
+  whether that is its stated purpose (then say so in its guide) or whether it
+  is removed under item 5.
+- Assertions that cannot fail: the "did not stop its own worker" checks in
+  `http_lan_test.sh` (`wait` precedes `kill -0`), two assertions in
+  `engine_acceptance.mjs` on a field that is never set, and one in
+  `ui_roadmap_playwright_test.mjs`. `ui_live_vision_playwright_test.mjs`
+  attaches no image and grades no reply. `harness_live_test.mjs` passes its
+  outside-workspace check when no read is attempted.
+- Guide statements wider than what runs, to correct in the guides or by
+  extending the test: case counts that drifted (`test-launch-preflight`,
+  `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,
+  first launch, stream scenarios, `test-llama-resident-live`); suites
+  described as Chromium and WebKit that `check-fast` runs in Chromium only
+  (`ui_agent_design`, `ui_model_picker`, `ui_think_max_context`, plan mode,
+  `ui_gsa`, `ui_rsa`); `test-setup-live` and `test-engine-acceptance` described
+  for four engines; Qwen branches described for `test-agent-compaction` and
+  `test-agent-continuation`; patch-migration base counts;
+  `test-ui-lan-cowork` described as the same flow as its HTTP test; the 64 MiB
+  and 64-caller history limits that no test executes.
+
 Acceptance: the usage-case matrix passes before and after; every removal has a
 recorded reason and passing differential evidence; the reduction (files, lines,
 build time, binary size) is reported as measured; no requirement, failure or
