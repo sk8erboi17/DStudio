@@ -20,6 +20,30 @@ The detailed unfinished acceptance requirements remain in [PLAN.MD](../PLAN.MD).
 [Current admission](../docs/ENGINE_UPSTREAM_ALIGNMENT.md) and
 [historical reports](../docs/history/README.md) keep their separate evidence.
 
+## Suite census
+
+`node tests/support/test_census.mjs` lists every test file and how it is
+reached: by `check-fast`, by `check-real`, only by an explicit `make` target,
+only by a hand-run command given in a guide, or by nothing. It executes no test
+and judges no result (`make test-census` checks the census itself on a
+synthetic tree). On November 10, 2026 it counted 276 files: 172 reached by
+`check-fast`, 3 by `check-real`, 84 by an explicit target only and 13 by a
+documented manual command only. Four more are explicit diagnostics that no
+target starts; their commands are here so that they are accounted for:
+
+- `node tests/live/main_decode_comparison.mjs LABEL ENGINE COMMIT MODE OUTPUT`:
+  real sequential native prefill/decode measurement of one engine revision;
+  its metric parsing is checked by `make test-main-decode-metrics`.
+- `node tests/live/heavy_media_benchmark.mjs --kind KIND --output DIR -- COMMAND`:
+  wall time and memory of one media worker command. The Ideogram, Hunyuan and
+  MiniMax workers are outside the macOS completion campaign.
+- `python3 tests/live/hunyuan_first_step_probe.py` and
+  `python3 tests/live/hunyuan_reasoning_finite_probe.py`: diagnostic-only
+  probes that locate the first non-finite Hunyuan stage; they approve no output.
+
+A file reached by nothing is not evidence of anything: wire it to a target,
+give its command in a guide, or remove it in the final simplification step.
+
 ## Topic guides and section links
 
 The anchors below retain existing links to this index. Project links point

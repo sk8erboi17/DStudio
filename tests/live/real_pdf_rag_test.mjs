@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import {
-  artifactDir,
+  artifactRunOrResume,
   csrfHeaders,
   jsonFetch,
   startDStudio,
@@ -15,18 +15,17 @@ const booksDir = path.resolve(process.env.DSTUDIO_RAG_BOOKS_DIR ||
   path.join(os.homedir(), 'Desktop', 'Books'));
 assert.ok(fs.statSync(booksDir).isDirectory(), `Books directory not found: ${booksDir}`);
 
-const artifacts = artifactDir('pdf-rag-real');
 const keepArtifacts = process.env.DSTUDIO_RAG_KEEP_ARTIFACTS === '1';
+// A new run directory (and so a clean PDF cache) per invocation;
+// DSTUDIO_RAG_KEEP_ARTIFACTS=1 continues the most recent one with its cache.
+// Earlier runs, failed ones included, are never erased.
+const artifacts = artifactRunOrResume('pdf-rag-real', keepArtifacts);
+console.log(`Receipts: ${artifacts}`);
 let previousReport = null;
 if (keepArtifacts) {
   try {
     previousReport = JSON.parse(fs.readFileSync(path.join(artifacts, 'report.json'), 'utf8'));
   } catch {}
-}
-if (!keepArtifacts) {
-  for (const name of fs.readdirSync(artifacts)) {
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-  }
 }
 const cacheDir = path.join(artifacts, 'cache');
 fs.mkdirSync(cacheDir, { recursive: true });

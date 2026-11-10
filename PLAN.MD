@@ -239,15 +239,34 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    actually installed bundle to a receipt. A surrounding repository's Git
    identity cannot identify an engine snapshot. Revalidate all configured paths
    and working integrations against the current content.
+   On November 10 the maintainer's Laguna checkout turned out to be a legacy
+   in-place patched tree without a source receipt, whose `ds4.c`, `ds4.h` and
+   `ds4_metal.m` differ from the pinned install. It was moved aside unchanged
+   and Laguna was installed again from the bundled `448d569` sources, so its
+   results can be bound to the pin. The native common-100 runner now takes the
+   engine revision from DStudio's source receipt and refuses an engine without
+   one. Compiler/options and the installed app bundle are not yet bound.
 3. Complete the case-level census of unit, integration, browser, live, upstream
-   and publication suites, including prerequisites and exclusions. Correct any
-   runner that still overwrites earlier results before running it.
+   and publication suites, including prerequisites and exclusions. Since
+   November 10 `node tests/support/test_census.mjs` lists every test file and
+   the target, gate or documented manual command that reaches it (276 files,
+   none reached by nothing; see [the test index](tests/README.md#suite-census)),
+   and the four live runners that erased their earlier receipts now write a
+   new run directory each time. Still open: the census is per file, not per
+   case, and does not yet record each suite's prerequisites and exclusions.
 4. Complete the coordinator using existing runners and the frozen
-   [common corpus](tests/fixtures/common_model_quality_cases.py). The planned
-   `tests/live/quality_multihardware.mjs` and public report directory
-   `docs/benchmarks/quality-multihardware/` do not yet exist. A coordinator
-   checks coverage, identities, exit states and denominators; it is not another
-   inference implementation or application scheduler.
+   [common corpus](tests/fixtures/common_model_quality_cases.py).
+   `tests/live/quality_multihardware.mjs` exists since November 10: it reads
+   the ten selections of `tests/fixtures/quality_campaign.json` and every
+   common-100 receipt, reports coverage and denominators on the current engine
+   pin, model and memory mode, and starts the owning runner one model at a time
+   ([how it counts](tests/docs/model-quality.md#common-100-answer-quality)).
+   It covers the common-100 suite only: the product, numerical, vision and
+   desktop suites are not in its matrix yet, and the public report directory
+   `docs/benchmarks/quality-multihardware/` does not exist until reviewed
+   results do. A coordinator checks coverage, identities, exit states and
+   denominators; it is not another inference implementation or application
+   scheduler.
 5. Perform resource preflight before each heavy run and retain its baseline,
    requests, answers, screenshots and original generated files under
    `tests/.artifacts/quality-multihardware/<run-id>/`. Stop only verified

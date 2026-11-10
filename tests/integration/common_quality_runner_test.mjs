@@ -14,6 +14,7 @@ const golden = JSON.parse(execFileSync('python3', ['-B', '-c',
 let scenario = 'full', index = 0, inFlight = 0, peak = 0;
 let expectedManifest;
 const errors = [];
+const seenExtras = [];
 const server = http.createServer(async (req, res) => {
   inFlight++; peak = Math.max(peak, inFlight);
   try {
@@ -28,6 +29,7 @@ const server = http.createServer(async (req, res) => {
     assert.equal(packet.seed, 20260909);
     assert.equal(packet.think, false);
     assert.deepEqual(packet.thinking, { type: 'disabled' });
+    seenExtras.push(packet.chat_template_kwargs);
     const current = index++;
     if (scenario.startsWith('http-failure') && (current === 2 || (scenario === 'http-failure-limit' && current === 3))) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -112,6 +114,24 @@ try {
       }});
     assert.equal(index, 3); assert.equal(rejected.report.recoveries[0].status, 'fail');
     assert.deepEqual(rejected.report.summary, {denominator: 100, passed: 2, failed: 1, notRun: 97, pending: 0});
+  }
+
+  // An engine-specific template switch travels with every request and is
+  // recorded; it can never replace a frozen request field.
+  scenario = 'extras'; index = 0; seenExtras.length = 0;
+  const extras = createCommonQuality(path.join(run, 'request-extras')); expectedManifest = extras.manifest;
+  await runCommonQuality(extras, {base, model: 'fixture-not-a-real-model',
+    requestExtras: {chat_template_kwargs: {enable_thinking: false}}});
+  assert.equal(index, 100); assert.equal(seenExtras.length, 100);
+  assert.ok(seenExtras.every(value => value && value.enable_thinking === false), 'every request carries the engine switch');
+  assert.deepEqual(extras.report.requestExtras, {chat_template_kwargs: {enable_thinking: false}});
+  assert.deepEqual(extras.report.summary, {denominator: 100, passed: 100, failed: 0, notRun: 0, pending: 0});
+  for (const frozen of ['think', 'max_tokens', 'temperature', 'messages']) {
+    const refused = createCommonQuality(path.join(run, `extras-refused-${frozen}`)); index = 0;
+    await assert.rejects(runCommonQuality(refused, {base, model: 'fixture-not-a-real-model', requestExtras: {[frozen]: true}}),
+      /frozen field/);
+    assert.equal(index, 0, 'a refused request shape sends nothing');
+    assert.equal(refused.report.status, 'pending');
   }
 
   const absent = createCommonQuality(path.join(run, 'missing-weights'));

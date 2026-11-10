@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  artifactDir,
+  artifactRunDir,
   completeText,
   createWebPipeline,
   modelJudge,
@@ -11,10 +11,9 @@ import {
   writeArtifact,
 } from '../support/real_harness.mjs';
 
-const artifacts = artifactDir('search-research-real');
-for (const name of fs.readdirSync(artifacts)) {
-  fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-}
+// A new run directory per invocation: an earlier run, failed ones included, is never erased.
+const artifacts = artifactRunDir('search-research-real');
+console.log(`Receipts: ${artifacts}`);
 const server = await startDStudio({ binaryArg: process.argv[2], label: 'dstudio-search-real' });
 
 function hasReadGithubRepo(sources) {

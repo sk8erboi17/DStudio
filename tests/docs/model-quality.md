@@ -82,6 +82,54 @@ against its fixed table and records the engine revision. Retained Qwen27B and
 Qwen3.6 receipts from the retired `q36`/`ds4-qwen35` engines stay unchanged as
 history; they are not llama.cpp results.
 
+Models that only the host can serve use the production launch path instead:
+
+```bash
+node tests/live/host_common_quality.mjs --model gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf
+node tests/live/host_common_quality.mjs --model mlx/Qwen3.6-35B-A3B-mxfp8
+node tests/live/host_common_quality.mjs \
+  --model gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf --ssd-streaming on
+```
+
+`host_common_quality.mjs` (`make test-host-common-quality HOST_QUALITY_ARGS=...`)
+starts a task-owned headless host with a private profile and engine port, asks
+it to launch the selected model alone and sends the same frozen corpus through
+its `/v1` proxy. The corpus, grader, deadlines and request fields are unchanged.
+For llama.cpp and MLX Qwen models it adds `chat_template_kwargs`
+`enable_thinking: false`, the switch the app's Chat request uses, and records
+it; an extra can never replace a frozen request field. It verifies pinned
+weights against `scripts/qwen-variants.json`, records the engine's own
+`/props` or model list, DStudio's source receipt, binary hashes, the shipped
+patch-set digest and the effective memory mode. A requested SSD-streaming mode
+that the runtime does not report as effective stops the run before the first
+case. Receipts stay in `tests/.artifacts/host-common-quality/`.
+
+The native path now reads the engine revision from DStudio's
+`.dstudio-source.json` receipt. A managed engine is installed from bundled
+sources and is not a Git checkout; a common-100 run on an engine directory
+without that receipt fails as unbound instead of borrowing another identity.
+
+Both runners take a resource snapshot before starting a model
+(`tests/support/heavy_preflight.mjs`, checked by `make test-heavy-preflight`).
+It judges a foreign engine by the memory it holds: an idle router without a
+loaded model is recorded and allowed, a process holding a model or one whose
+footprint cannot be measured blocks the run. It never stops a process. The
+host runner repeats the snapshot afterwards and marks the run contaminated if
+another engine loaded a model meanwhile.
+
+`node tests/live/quality_multihardware.mjs status` is the campaign coordinator:
+it reads the ten selections of `tests/fixtures/quality_campaign.json` and every
+common-100 receipt, and prints per selection what ran on the current engine
+pin, model and memory mode. Receipts from retired engines, earlier pins or
+another memory mode are listed as not counted with the reason. The first
+terminal result on the current identities is the one counted: a later rerun of
+unchanged deterministic work is listed but does not replace an initial
+failure. Contributor selections and missing weights are BLOCKED, and an
+interrupted run leaves all 100 cases not run. `... run [--only ID,...]` starts
+the owning runner for each cell without a terminal result, one model at a
+time; it is REAL inference and is not part of `check-real`.
+`make test-quality-campaign` checks this accounting with synthetic receipts.
+
 A patch answer whose last diff line lacks only its newline terminator is
 accepted after exactly one newline is restored; prose, fences, wrong paths and
 broken hunk counts still fail. That correction changed the corpus identity to

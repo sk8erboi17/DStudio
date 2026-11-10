@@ -27,6 +27,18 @@ export function artifactRunDir(name) {
   return fs.mkdtempSync(path.join(artifactDir(name), 'run-'));
 }
 
+// A run owns a new directory. A declared continuation (a cache-preserving or
+// resumed run) reuses the most recent one, or the parent when only receipts
+// written before run directories exist. Nothing is erased in either case.
+export function artifactRunOrResume(name, resume) {
+  const base = artifactDir(name);
+  if (!resume) return artifactRunDir(name);
+  const runs = fs.readdirSync(base).filter((entry) => entry.startsWith('run-')).map((entry) => path.join(base, entry))
+    .filter((entry) => fs.statSync(entry).isDirectory())
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return runs[0] || base;
+}
+
 export function writeArtifact(dir, name, data) {
   mkdirp(dir);
   const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
