@@ -1,6 +1,7 @@
 # Engine and DeepSeek V4.1 — remaining qualification
 
-Updated November 10, 2026. The wider macOS campaign is incomplete and paused.
+Updated November 10, 2026. The wider macOS campaign is incomplete; the owner
+resumed it on November 10 ([plan](../PLAN.MD)).
 On November 10 the owner returned DeepSeek V4.1 1017 Q2, and only that
 checkpoint, to the maintainer's execution plan, with expert SSD streaming only
 ([conditions](../PLAN.MD#v41-ssd)): results on the maintainer's M2 Max (96 GB)

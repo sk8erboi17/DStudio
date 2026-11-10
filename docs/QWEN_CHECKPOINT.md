@@ -1,6 +1,7 @@
 # Qwen — remaining implementation and qualification
 
-Updated November 4, 2026. The full campaign remains incomplete and paused.
+Updated November 10, 2026. The full campaign remains incomplete; the owner
+resumed it on November 10 ([plan](../PLAN.MD)).
 
 On October 3 the Qwen3.6 and Qwen3.8-27B engines changed: the vagrillo/ds4
 fork (`ds4-qwen35`) and Ninnix/q36 were retired, and both models now run on the
@@ -11,7 +12,7 @@ results. The llama.cpp path has passed only the development gate
 (`make test-llama-resident-live`): 10/10 on each model on `b11371`, and the
 current six cases on Qwen3.6 on `b11836`. Qwen3.8-27B has not been rerun on
 `b11836`.
-The owner reserves the complete quality-suite rerun. This checkpoint removes
+On November 10 the owner authorized the complete quality-suite rerun. This checkpoint removes
 completed implementation tasks from the active backlog while retaining their
 missing full-model acceptance checks.
 

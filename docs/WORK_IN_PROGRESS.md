@@ -1,9 +1,10 @@
 # Remaining work — November 10, 2026
 
-The macOS/Apple Silicon campaign is incomplete and paused. [PLAN.MD](../PLAN.MD)
-is the canonical detailed acceptance list; this page is its short index. The
-owner-controlled complete quality rerun has not resumed. A documentation,
-download-integrity or simulated UI pass does not close a model-quality gate.
+The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
+resumed it: complete every item below, then the final simplification step.
+[PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
+its short index. A documentation, download-integrity or simulated UI pass does
+not close a model-quality gate.
 
 ## Remaining implementation
 
@@ -16,6 +17,7 @@ download-integrity or simulated UI pass does not close a model-quality gate.
 | Answer quality, Learn/Tutor, long tasks and steering | [P6](../PLAN.MD#p6--complete-numerical-answer-and-product-quality) |
 | Native desktop and generated Design projects | [P7](../PLAN.MD#p7--complete-the-real-desktop-matrix), [P8](../PLAN.MD#p8--finish-the-design-auditor-and-generated-project-matrix) |
 | Agent comparisons, profiling and final publication | [P9](../PLAN.MD#p9--complete-six-agent-comparisons), [P10](../PLAN.MD#p10--profile-and-retain-justified-optimizations), [P11](../PLAN.MD#p11--qualify-the-final-build-and-reviewed-publication) |
+| Final step: remove unnecessary complexity and really useless tests, with every usage case tested before and after | [P12](../PLAN.MD#p12--remove-unnecessary-complexity-and-prove-nothing-regressed) |
 
 ## Remaining verification and retained failures
 

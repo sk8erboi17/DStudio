@@ -1,9 +1,12 @@
 # DStudio — remaining macOS completion work
 
 Updated November 10, 2026. This document contains only unfinished implementation
-and acceptance work. The full campaign remains incomplete and paused; this
-documentation update does not resume it. The owner reserves the complete
-quality-suite rerun.
+and acceptance work. The full campaign remains incomplete. On November 10, 2026
+the owner resumed it: complete every item of this plan and of
+[the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
+([P12](#p12)). This authorizes the campaign's sequential real-model runs on the
+maintainer's Mac, including the owner-reserved quality reruns; it does not turn
+an unfinished, failed or blocked requirement into a pass.
 
 Completed tranches, superseded reconnaissance, original failures and exact
 receipt identities are in the [archived plan](docs/history/plan-through-2026-10-01.md).
@@ -120,7 +123,8 @@ and stays BLOCKED ([above](#contributors)).
   their retained failures ([P3](#p3), [change notes](docs/changes/2026-11-10.md)).
   Neither qualifies a selection.
 
-The campaign stays paused: returning 1017 Q2 to the plan starts no run.
+Returning 1017 Q2 to the plan started no run by itself; its runs follow the
+first group in the resumed campaign.
 
 Since October 25 the MLX Qwen3.6-35B-A3B MXFP8 path (Apple Silicon, macOS 26,
 text only) is the tenth selection and part of the maintainer's execution plan.
@@ -179,12 +183,12 @@ adapter. Check the original checkpoint, matching processor/projector/encoder,
 engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
-Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11.
+Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12.
 V4.1 1017 Q2 follows the first group on the maintainer's Mac, with SSD expert
 streaming only ([its scope](#v41-ssd)). V4.1 Q4 and GLM stay in the denominator
 as BLOCKED until a contributor runs them ([contributor hardware](#contributors)).
 Source builds sharing a checkout and heavy inference sharing the GPU are
-sequential. No model run, download, app restart or push is part of this cleanup.
+sequential.
 
 <a id="baseline"></a>
 <a id="order"></a>
@@ -490,8 +494,8 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    Qwen3.6 and Qwen3.8-27B on llama.cpp, and for Qwen3.6 on MLX,
    with compatible model/quant-specific numerical references. The 27B
    online-softmax and 3.6 batched-prefill overlays retired with their engines;
-   their operator checks do not carry over. These corpus reruns remain
-   owner-controlled.
+   their operator checks do not carry over. The owner authorized these
+   corpus reruns on November 10.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
    Address software-caused failures and report answer/format failures honestly.
@@ -690,10 +694,58 @@ is complete; it is not a new outstanding source-push task.
    Final commits/push, app installation and restart require their applicable
    user authorization; this document cleanup performs none of them.
 
+<a id="p12"></a>
+## P12 — Remove unnecessary complexity and prove nothing regressed
+
+Status: TO_DO. Added November 10, 2026 at the owner's request as the last step:
+remove all unnecessary complexity and the tests that are really useless,
+without degrading or regressing the application's quality or functionality,
+proved by tests over every way the app is used.
+
+1. Build the usage-case matrix before removing anything. It lists every way
+   the app is used: Chat, Agent, Cowork, Design and Learn; Search/Research;
+   PDF, images and vision; model download, selection, loading and switching;
+   settings; saved conversations, sessions and reopening; Stop, steering,
+   Goals and resume; pi/OpenCode harnesses; Task Graph; Blueprint; LAN, remote
+   and cloud endpoints; first launch, installation, upgrade and recovery. Each
+   entry has its normal, boundary, failure and recovery cases and the
+   behavioral test that executes it through production code. A usage case
+   without such a test gets one first; a simulated-model test is labeled as
+   simulated and does not stand in for a real-model case.
+2. Record a reference execution of the whole matrix on the unchanged build:
+   outputs, tool effects, persisted data, wire messages and errors.
+3. List the removal candidates with their evidence: code no production path
+   reaches, settings and flags nothing sets, duplicate implementations,
+   indirection with a single consumer, handling kept only for retired engines
+   or old installations, endpoints and assets nothing calls, unused
+   dependencies. Establish reachability by execution, coverage and a search of
+   every consumer and bundle, never by a name search alone.
+4. Remove in small tranches that can be reviewed and tested on their own; do
+   not mix mass moves or renames with behavioral changes. After each tranche,
+   compare the matrix with the reference execution and rerun the affected
+   gates. A difference is a regression until proved to be an intended removal.
+5. Remove only tests that are really useless: tests that execute no production
+   behavior (assertions on source text, names, comments or CSS declarations),
+   exact duplicates of another test's inputs and assertions, and tests of code
+   removed in this step. A slow, flaky or failing test is not useless: repair
+   it or keep it with its failure. Keep the behavioral coverage of a mixed
+   test. Record each removed test, the reason, and the test that still covers
+   the behavior.
+6. Remove no supported capability, model, mode, error path, recovery path,
+   confinement check or durable format. Lower no baseline, deadline or
+   denominator, and keep every failed receipt.
+7. Rebuild and rerun whatever this step changes in the build qualified by P11;
+   an earlier PASS does not transfer to changed code.
+
+Acceptance: the usage-case matrix passes before and after; every removal has a
+recorded reason and passing differential evidence; the reduction (files, lines,
+build time, binary size) is reported as measured; no requirement, failure or
+capability disappeared.
+
 <a id="closure"></a>
 ## Closure
 
-Every P0–P11 row remains open until its remaining implementation and exact
+Every P0–P12 row remains open until its remaining implementation and exact
 acceptance evidence are complete. A completed scoped fix is removed from the
 implementation backlog while its invalidated or missing acceptance checks stay.
 Missing authority, credentials, permissions, compatible reference or Mac
@@ -703,13 +755,14 @@ not blockers and not inferred successes.
 The final deliverable requires current source/patch provenance, all applicable
 numerical and quality cases, real four-mode and desktop results, vision/text
 isolation, fresh/upgrade recovery, 18 audited Design projects, complete agent
-comparisons, justified profiling and reviewed final-build publication.
+comparisons, justified profiling, reviewed final-build publication and the
+final simplification with its passing usage-case matrix.
 
 <a id="proposals"></a>
-## Proposed modules and improvements (outside P0–P11)
+## Proposed modules and improvements (outside P0–P12)
 
 Added October 25, 2026; proposal 13 added November 4. None is implemented or scheduled: these are candidates,
-not acceptance requirements of P0–P11, and starting one is the owner's decision.
+not acceptance requirements of P0–P12, and starting one is the owner's decision.
 Each statement about the current code was checked against the source. Effort is
 a rough estimate (S/M/L), not a measurement.
 
