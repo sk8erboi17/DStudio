@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import {
-  artifactDir,
+  artifactRunOrResume,
   completeTextStream,
   jsonFetch,
   normalizeBaseUrl,
@@ -12,18 +12,16 @@ import {
   writeArtifact,
 } from '../support/real_harness.mjs';
 
-const artifacts = artifactDir('ascii-diagrams-real');
 const keepArtifacts = process.env.DSTUDIO_ASCII_KEEP_ARTIFACTS === '1';
+// A new run directory per invocation; DSTUDIO_ASCII_KEEP_ARTIFACTS=1 continues
+// the most recent one. Earlier runs, failed ones included, are never erased.
+const artifacts = artifactRunOrResume('ascii-diagrams-real', keepArtifacts);
+console.log(`Receipts: ${artifacts}`);
 let previousReport = null;
 if (keepArtifacts) {
   try {
     previousReport = JSON.parse(fs.readFileSync(path.join(artifacts, 'report.json'), 'utf8'));
   } catch {}
-}
-if (!keepArtifacts) {
-  for (const name of fs.readdirSync(artifacts)) {
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-  }
 }
 
 const page = fs.readFileSync('web/index.html', 'utf8');

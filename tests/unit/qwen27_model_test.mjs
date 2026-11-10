@@ -255,11 +255,24 @@ await check('a Max preference at low context sends the same request as thinking 
   const body = h.context.buildBody({model: q27.model, messages: [], thinkLevel: 'max', settings: h.settings()});
   assert.deepEqual(plain(body.chat_template_kwargs), {enable_thinking: true});
 });
-await check('selecting 27B Max asks nothing and keeps the chosen capacity', async () => {
+// Since the November 5 owner decision every Max selection first shows the
+// loop warning. 27B has a single thinking switch, so that warning is the only
+// question: it must never ask to raise the context or restart the engine.
+// (check-fast campaign-3b03ef4e-py314 retained the original failure of the
+// stale "asks nothing" expectation.)
+await check('selecting 27B Max shows only the loop warning and keeps the chosen capacity', async () => {
   const h = harness();
   assert.equal(await h.context.confirmTrueThinkingMax(), true);
-  assert.equal(h.prompts.length, 0);
+  assert.equal(h.prompts.length, 1);
+  assert.equal(h.prompts[0].title, 'Use Thinking: max?');
+  assert.match(h.prompts[0].body, /repetitive reasoning loop/);
+  assert.doesNotMatch(`${h.prompts[0].title} ${h.prompts[0].body} ${h.prompts[0].cta}`, /raise|restart|context/i,
+    '27B never asks for a larger context');
   assert.equal(h.settings().ctxSize, 65536);
+  const declined = harness(q27, async () => false);
+  assert.equal(await declined.context.confirmTrueThinkingMax(), false, 'declining the warning leaves Max unselected');
+  assert.equal(declined.prompts.length, 1);
+  assert.equal(declined.settings().ctxSize, 65536);
 });
 await check('a changed model cannot receive an old confirmation or restore another model context', async () => {
   let answer, entered;

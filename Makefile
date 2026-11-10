@@ -457,6 +457,54 @@ test-common-quality-oracle:
 	@node tests/integration/common_quality_regrade_test.mjs
 	@node tests/unit/common_quality_summary_test.mjs
 
+# Preflight used by sequential real-model runs: controlled process tables plus
+# one real snapshot. It starts no model and signals no process.
+.PHONY: test-heavy-preflight
+test-heavy-preflight:
+	@node tests/unit/heavy_preflight_test.mjs
+
+check-fast: test-heavy-preflight
+
+# Campaign coverage accounting on synthetic receipts and the shipped matrix.
+.PHONY: test-quality-campaign
+test-quality-campaign:
+	@node tests/unit/quality_campaign_test.mjs
+
+check-fast: test-quality-campaign
+
+# Identities bound into campaign receipts: weight digests and their cache,
+# pinned verification, engine receipts, repository ceiling, patch-set digest.
+.PHONY: test-campaign-identity
+test-campaign-identity:
+	@node tests/unit/campaign_identity_test.mjs
+
+check-fast: test-campaign-identity
+
+# Suite census: which test files the Makefile targets and broad gates reach.
+# `node tests/support/test_census.mjs` prints the census of this repository.
+.PHONY: test-census
+test-census:
+	@node tests/unit/test_census_test.mjs
+
+check-fast: test-census
+
+# Real host HTTP and process groups with tiny fixture download scripts: a
+# vision-capable model download continues with its own encoder. No weights.
+.PHONY: test-model-vision-companion
+test-model-vision-companion: $(TEST_SERVER)
+	@node tests/integration/model_vision_companion_host_test.mjs $(TEST_SERVER)
+
+ifeq ($(UNAME),Darwin)
+check-fast: test-model-vision-companion
+endif
+
+# REAL inference, explicit: the frozen common-100 corpus through the production
+# host for one installed model, started alone. HOST_QUALITY_ARGS selects it, for
+# example "--model gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf". Not part of check-real.
+.PHONY: test-host-common-quality
+test-host-common-quality: $(TEST_SERVER)
+	@node tests/live/host_common_quality.mjs $(HOST_QUALITY_ARGS)
+
 .PHONY: test-qwen-quality-chart
 test-qwen-quality-chart:
 	@python3 tests/unit/qwen_quality_chart_test.py
@@ -523,6 +571,12 @@ test-runtime-patch-migration:
 # macOS: source-only snapshots and real compiler/tool execution, no weights.
 AGENT_MAIN_TREE ?= ds4
 AGENT_LAGUNA_TREE ?= ds4-laguna-s21
+
+# Explicit, model-free: ten native prompt builders of the built main engine,
+# compiled as private probe objects. Needs an already built AGENT_MAIN_TREE.
+.PHONY: test-upstream-agent-prompt
+test-upstream-agent-prompt:
+	@node tests/integration/upstream_agent_prompt_test.mjs "$(AGENT_MAIN_TREE)"
 test-agent-native-build: $(TEST_BUILD)/agent-build-probe $(TEST_BUILD)/remote-turn-error-unit
 	@node tests/integration/agent_native_build_test.mjs "$(AGENT_MAIN_TREE)" "$(AGENT_LAGUNA_TREE)"
 
@@ -1285,6 +1339,15 @@ test-ui-sidebar:
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_sidebar_playwright_test.mjs
 
 test-ui-browser: test-ui-sidebar
+
+# The saved theme must be on the static shell before the app has loaded its
+# history: the asynchronous history load is held by a deterministic barrier.
+.PHONY: test-ui-theme-first-paint
+test-ui-theme-first-paint:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_theme_first_paint_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_theme_first_paint_playwright_test.mjs
+
+test-ui-browser: test-ui-theme-first-paint
 
 # The UI opened from another LAN device: plain http on a non-loopback name, an
 # insecure context without crypto.randomUUID or navigator.clipboard. Real

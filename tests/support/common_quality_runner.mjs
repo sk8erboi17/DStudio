@@ -56,9 +56,17 @@ function requireLocalEngine(base) {
   return base;
 }
 
+// The frozen request fields. An engine-specific template switch (for example
+// llama.cpp's chat_template_kwargs) may be added by the harness that owns the
+// engine, but can never replace one of these.
+const FROZEN_REQUEST_FIELDS = ['model', 'messages', 'temperature', 'seed', 'max_tokens', 'think', 'thinking', 'stream'];
+
 export async function runCommonQuality({ manifest, report }, { base, model, assertAlive = () => {}, onProgress = () => {},
-  restartFailedEngine, maxEngineRestarts = 0 }) {
+  restartFailedEngine, maxEngineRestarts = 0, requestExtras = {} }) {
   let activeBase = requireLocalEngine(base);
+  assert.ok(requestExtras && typeof requestExtras === 'object' && !Array.isArray(requestExtras), 'request extras must be an object');
+  for (const key of Object.keys(requestExtras))
+    assert.ok(!FROZEN_REQUEST_FIELDS.includes(key), `request extras cannot replace the frozen field ${key}`);
   assert.ok(Number.isSafeInteger(maxEngineRestarts) && maxEngineRestarts >= 0 && maxEngineRestarts <= 16,
     'bounded native-engine restart count required');
   assert.ok(maxEngineRestarts === 0 || typeof restartFailedEngine === 'function', 'restart requires the native process owner');
@@ -66,6 +74,7 @@ export async function runCommonQuality({ manifest, report }, { base, model, asse
   report.started = new Date().toISOString();
   report.status = 'running';
   report.requestedModel = model;
+  report.requestExtras = requestExtras;
   report.recoveryPolicy = { maxEngineRestarts, failedCasesRetried: false };
   report.recoveries = [];
   let stopped = '';
@@ -73,7 +82,7 @@ export async function runCommonQuality({ manifest, report }, { base, model, asse
     const item = manifest.cases[index], row = report.cases[index];
     const request = { model, messages: [{ role: 'user', content: item.prompt }],
       temperature: manifest.settings.temperature, seed: manifest.settings.seed,
-      max_tokens: item.max_tokens, think: false, thinking: { type: 'disabled' }, stream: false };
+      max_tokens: item.max_tokens, think: false, thinking: { type: 'disabled' }, stream: false, ...requestExtras };
     const directory = path.join(report.directory, `${String(index + 1).padStart(3, '0')}-${item.id}`);
     row.status = 'running'; row.started = new Date().toISOString(); row.deadlineMs = item.deadline_ms;
     const began = performance.now();

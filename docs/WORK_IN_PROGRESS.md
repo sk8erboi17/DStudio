@@ -1,9 +1,10 @@
-# Remaining work — November 4, 2026
+# Remaining work — November 10, 2026
 
-The macOS/Apple Silicon campaign is incomplete and paused. [PLAN.MD](../PLAN.MD)
-is the canonical detailed acceptance list; this page is its short index. The
-owner-controlled complete quality rerun has not resumed. A documentation,
-download-integrity or simulated UI pass does not close a model-quality gate.
+The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
+resumed it: complete every item below, then the final simplification step.
+[PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
+its short index. A documentation, download-integrity or simulated UI pass does
+not close a model-quality gate.
 
 ## Remaining implementation
 
@@ -16,6 +17,7 @@ download-integrity or simulated UI pass does not close a model-quality gate.
 | Answer quality, Learn/Tutor, long tasks and steering | [P6](../PLAN.MD#p6--complete-numerical-answer-and-product-quality) |
 | Native desktop and generated Design projects | [P7](../PLAN.MD#p7--complete-the-real-desktop-matrix), [P8](../PLAN.MD#p8--finish-the-design-auditor-and-generated-project-matrix) |
 | Agent comparisons, profiling and final publication | [P9](../PLAN.MD#p9--complete-six-agent-comparisons), [P10](../PLAN.MD#p10--profile-and-retain-justified-optimizations), [P11](../PLAN.MD#p11--qualify-the-final-build-and-reviewed-publication) |
+| Final step: remove unnecessary complexity and really useless tests, with every usage case tested before and after | [P12](../PLAN.MD#p12--remove-unnecessary-complexity-and-prove-nothing-regressed) |
 
 ## Remaining verification and retained failures
 
@@ -33,10 +35,19 @@ in [PLAN.MD](../PLAN.MD#qwen-variants). These checks remain NOT RUN; downloadabl
 catalog entries and fixture passes are not real-weight verification. The
 requirements and their full denominator are unchanged.
 
+## DeepSeek V4.1 1017 Q2: back in the maintainer's plan, SSD streaming only
+
+On November 10 the owner returned DeepSeek V4.1 Flash 1017 Q2, and only that
+checkpoint, to the maintainer's execution plan, with expert SSD streaming
+only. It is no longer BLOCKED and is not run yet. A result qualifies that
+memory mode on that Mac only. The conditions are in
+[PLAN.MD](../PLAN.MD#v41-ssd); no run was started.
+
 ## Contributor hardware wanted
 
-V4.1 and GLM remain in scope with BLOCKED contributor qualification. Hardware,
-effective memory/SSD settings, frozen cases and the evidence contract are in
+GLM 5.3 and every other V4.1 configuration remain in scope with BLOCKED
+contributor qualification. Hardware, effective memory/SSD settings, frozen
+cases and the evidence contract are in
 [PLAN.MD](../PLAN.MD#contributors). A result from another machine qualifies that
 configuration, not an untested configuration on the maintainer's Mac.
 

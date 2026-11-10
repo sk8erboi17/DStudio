@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import {spawn, spawnSync, execFileSync} from 'node:child_process';
 import {freePort, sleep} from '../support/real_harness.mjs';
 import {createCommonQuality, runCommonQuality, finishCommonQuality} from '../support/common_quality_runner.mjs';
+import {preflight} from '../support/heavy_preflight.mjs';
+import {weightIdentity} from '../support/campaign_identity.mjs';
 
 const root = process.cwd();
 const install = process.argv.includes('--setup');
@@ -114,13 +116,27 @@ async function inference(id, entry) {
     assert.equal(st.size,expected[0]);
     entry.inference.model.sha256=await hashLargeFile(file);
     assert.equal(entry.inference.model.sha256,expected[1]);
-    // Main is a Git checkout; the ceiling keeps DStudio's own repository from
-    // answering for an engine directory that lacks its own .git.
-    const head=execFileSync('git',['-C',cwd,'rev-parse','HEAD'],{encoding:'utf8',timeout:5000,
-      env:{...process.env,GIT_CEILING_DIRECTORIES:path.dirname(cwd)}}).trim();
-    entry.inference.installer={engine:'main',commit:head};
     save();
   }
+  // A managed engine is installed from the bundled pinned sources and is not a
+  // Git checkout: its revision is the one in DStudio's own source receipt. A
+  // surrounding repository must never answer for it, and a common-100 result
+  // without a bound engine revision would not be campaign evidence.
+  const sourceReceipt=path.join(cwd,'.dstudio-source.json');
+  if(fs.existsSync(sourceReceipt)){
+    const receipt=JSON.parse(fs.readFileSync(sourceReceipt,'utf8'));
+    entry.inference.installer={engine:receipt.engine,commit:receipt.commit,repository:receipt.repository,
+      source:receipt.source,manifestSHA256:receipt.manifestSHA256,receiptSha256:hashFile(sourceReceipt)};
+    save();
+  }
+  if(commonQuality && !entry.inference.model.sha256){
+    const identity=await weightIdentity(file,{cacheFile:path.join(root,'tests/.artifacts/campaign/weight-sha256.json'),
+      onHash:(name,bytes)=>console.log(`hashing ${path.basename(name)} (${(bytes/1024**3).toFixed(1)} GiB)`)});
+    entry.inference.model.sha256=identity.files[0].sha256;
+    save();
+  }
+  if(commonQuality)assert.match(entry.inference.installer?.commit||'',/^[0-9a-f]{40}$/,
+    `engine revision is not bound: ${path.relative(root,sourceReceipt)} is missing (BLOCKED, not a pass)`);
   const begin=performance.now();
   let child;
   if(viaApp){
@@ -317,6 +333,8 @@ for(const id of engines){
     if(commonQuality){
       entry.quality=createCommonQuality(path.join(run,id+'-common-100'));
       entry.quality.report.evaluationUse=qualityUse;
+      // Retained baseline of the machine before the model is started.
+      entry.preflight=preflight({dir:root});
       save();
       const rows=execFileSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8',timeout:5000}).split('\n');
       assert.deepEqual(rows.filter(row=>/\/(?:ds4|ds4-server|ds4-server-pld|ds4-agent|ds4-agent-jsonl|ds4-cowork|ds4-design|llama-server|DStudio|dstudio)$/.test(row.trim())),[],

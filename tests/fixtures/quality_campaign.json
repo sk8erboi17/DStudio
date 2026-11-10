@@ -1,0 +1,113 @@
+{
+  "schema": "dstudio.quality-campaign.v1",
+  "purpose": "The ten macOS/Apple Silicon selections of PLAN.MD and the suites the coordinator counts. It declares what must be covered; it is not a result and it does not qualify anything.",
+  "selections": [
+    {
+      "id": "deepseek-v4-flash-vision-exp-iq2xxs",
+      "label": "DeepSeek V4 Flash Vision-Exp IQ2XXS",
+      "modelFile": "gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/flash-vision",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "laguna-s21-q4-k-m",
+      "label": "Laguna S 2.1 Q4_K_M",
+      "modelFile": "gguf/laguna-s-2.1-Q4_K_M.gguf",
+      "engine": "ds4-laguna",
+      "engineCommit": "448d5695d1c86401a4e9447c440feb983b73e6de",
+      "admissionTarget": "laguna/macos/metal/laguna",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "qwen36-35b-a3b-ud-q6-k-xl",
+      "label": "Qwen3.6-35B-A3B UD-Q6_K_XL",
+      "modelFile": "gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf",
+      "engine": "llama",
+      "engineCommit": "f5027fb21307eb264aed483242603d68c87b0fe3",
+      "admissionTarget": "llama/macos/metal/qwen36",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "qwen38-27b-ud-q6-k-xl",
+      "label": "Qwen3.8-27B UD-Q6_K_XL",
+      "modelFile": "gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf",
+      "engine": "llama",
+      "engineCommit": "f5027fb21307eb264aed483242603d68c87b0fe3",
+      "admissionTarget": "llama/macos/metal/qwen38-27b-gguf",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "qwen36-35b-a3b-mxfp8-mlx",
+      "label": "Qwen3.6-35B-A3B MXFP8 (MLX)",
+      "modelFile": "mlx/Qwen3.6-35B-A3B-mxfp8",
+      "engine": "mlx",
+      "engineCommit": null,
+      "admissionTarget": null,
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "qwen38-flash-next-q4",
+      "label": "Qwen3.8-Flash-Next single-file Q4",
+      "modelFile": "gguf/Qwen3.8-Flash-Next-Q4.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/qwen38-next-q4",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "qwen38-flash-next-q2",
+      "label": "Qwen3.8-Flash-Next single-file Q2",
+      "modelFile": "gguf/Qwen3.8-Flash-Next-Q2.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/qwen38-next-q2",
+      "ssdStreaming": "off",
+      "plan": "maintainer"
+    },
+    {
+      "id": "deepseek-v41-flash-1017-q2",
+      "label": "DeepSeek V4.1 Flash 1017 Q2",
+      "modelFile": "gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/flash41-q2",
+      "ssdStreaming": "on",
+      "plan": "maintainer"
+    },
+    {
+      "id": "deepseek-v41-flash-q4",
+      "label": "DeepSeek V4.1 Flash Q4",
+      "modelFile": "gguf/DeepSeek-V4.1-Flash-Q4.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/flash41-q4",
+      "ssdStreaming": null,
+      "plan": "contributor"
+    },
+    {
+      "id": "glm-53-flash-q2",
+      "label": "GLM 5.3 Flash Q2",
+      "modelFile": "gguf/GLM-5.3-Flash-Q2.gguf",
+      "engine": "ds4",
+      "engineCommit": "890898cfb437ed256be58ebcf7c58a6dfa8f2f53",
+      "admissionTarget": "main/macos/metal/glm53",
+      "ssdStreaming": null,
+      "plan": "contributor"
+    }
+  ],
+  "suites": [
+    {
+      "id": "common-100",
+      "label": "Common 100-case answer corpus",
+      "cases": 100
+    }
+  ]
+}

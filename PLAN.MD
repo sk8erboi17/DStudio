@@ -1,9 +1,12 @@
 # DStudio — remaining macOS completion work
 
-Updated November 4, 2026. This document contains only unfinished implementation
-and acceptance work. The full campaign remains incomplete and paused; this
-documentation update does not resume it. The owner reserves the complete
-quality-suite rerun.
+Updated November 10, 2026. This document contains only unfinished implementation
+and acceptance work. The full campaign remains incomplete. On November 10, 2026
+the owner resumed it: complete every item of this plan and of
+[the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
+([P12](#p12)). This authorizes the campaign's sequential real-model runs on the
+maintainer's Mac, including the owner-reserved quality reruns; it does not turn
+an unfinished, failed or blocked requirement into a pass.
 
 Completed tranches, superseded reconnaissance, original failures and exact
 receipt identities are in the [archived plan](docs/history/plan-through-2026-10-01.md).
@@ -36,7 +39,7 @@ in this campaign.
 | Qwen3.6-35B-A3B MXFP8 | MLX: mlx 0.32.4 36969c0, mlx-lm 0.32.2 93e6d4a | First group (added October 25) |
 | Qwen3.8-Flash-Next single-file Q4 | main 890898c | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 890898c | First group; not qualified |
-| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
+| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | After the first group; SSD expert streaming only ([below](#v41-ssd)) |
 | DeepSeek V4.1 Flash Q4 | main 890898c | Contributor hardware ([below](#contributors)) |
 | GLM 5.3 Flash Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
 
@@ -75,22 +78,53 @@ checks the headers, not inference). V4.1 vision qualification follows P4.
 <a id="contributors"></a>
 **Maintainer's execution plan and contributor hardware.** The maintainer,
 Giuseppe Perrotta, runs this campaign on an Apple M2 Max with 96 GB of unified
-memory. DeepSeek V4.1 Flash (1017 Q2 365.7 GB and Q4 518.6 GB, each with
-disk-backed Engram tables and a 0.97 GB vision sidecar) and GLM 5.3 Flash Q2
-(96.5 GB plus its 1.1 GB vision encoder) are not in the maintainer's execution
-plan. On that Mac they run only with SSD expert streaming, and only limited runs
-exist: GLM 5.3's 100 reference continuations on an earlier main revision and a
-14-case set on the original V4.1 Q2 (13/14); V4.1 Q4 has not run there. Their
-complete qualification is left to contributors. The three selections stay in
-scope and in every denominator as BLOCKED, never as passed or excluded.
+memory. DeepSeek V4.1 Flash Q4 (518.6 GB with disk-backed Engram tables and a
+0.97 GB vision sidecar) and GLM 5.3 Flash Q2 (96.5 GB plus its 1.1 GB vision
+encoder) are not in the maintainer's execution plan. V4.1 Q4 has not run on
+that Mac; GLM 5.3 runs there only with SSD expert streaming, and only its 100
+reference continuations on an earlier main revision exist. Their complete
+qualification is left to contributors. The two selections stay in scope and in
+every denominator as BLOCKED, never as passed or excluded.
 A contributor with an Apple Silicon Mac that can run them is welcome to take
-them on: use the recorded pins (ds4 main `890898c` with the versioned patches),
-the frozen cases and the evidence contract below; keep every failed attempt;
-record the machine, unified memory, effective memory mode (resident, SSD
-expert streaming, Engram, disk KV), context and settings; and share only
-reviewed aggregates and provenance hashes. Results from another machine
-qualify that machine's configuration, not the maintainer's Mac. DStudio has
-not established a minimum memory size for these models.
+them on, and likewise DeepSeek V4.1 1017 Q2 in the memory modes the maintainer
+does not cover ([below](#v41-ssd)): use the recorded pins (ds4 main `890898c`
+with the versioned patches), the frozen cases and the evidence contract below;
+keep every failed attempt; record the machine, unified memory, effective memory
+mode (resident, SSD expert streaming, Engram, disk KV), context and settings;
+and share only reviewed aggregates and provenance hashes. Results from another
+machine qualify that machine's configuration, not the maintainer's Mac. DStudio
+has not established a minimum memory size for these models.
+
+<a id="v41-ssd"></a>
+**DeepSeek V4.1 1017 Q2: maintainer's plan, SSD expert streaming only
+(November 10).** On November 10, 2026 the owner returned DeepSeek V4.1 Flash
+1017 Q2 (365.7 GB with disk-backed Engram tables, plus a 0.97 GB vision
+sidecar), and only that selection, to the maintainer's execution plan, with
+one condition: it runs with SSD expert streaming only. It had been left to
+contributors as BLOCKED since October 25. V4.1 Q4 is not part of this decision
+and stays BLOCKED ([above](#contributors)).
+
+- Every 1017 Q2 campaign run on the maintainer's Mac starts with SSD expert
+  streaming On and records the effective mode reported by the runtime
+  (`ssdStreamingEffective`). A run where streaming is not effective is not
+  campaign evidence for it, and the setting is never turned off to make a
+  case pass.
+- A result qualifies 1017 Q2 in that memory mode on that Mac. Resident weights
+  and the lazy memory-mapped path used with streaming Off are not qualified by
+  it; they stay open to contributors with more memory and are never inferred
+  from a streaming result.
+- 1017 Q2 leaves BLOCKED and is **not run**: its verified weights are on the
+  maintainer's SSD, and no campaign case was executed by this decision. It
+  keeps every applicable requirement of this plan, including its own 100 text
+  cases.
+- Existing V4.1 evidence is unchanged and limited: the 14-case set on the
+  original Q2 (13/14, retained as FAIL for that file) and the real Learn
+  development runs of November 4–10 on 1017 Q2 with streaming effective, with
+  their retained failures ([P3](#p3), [change notes](docs/changes/2026-11-10.md)).
+  Neither qualifies a selection.
+
+Returning 1017 Q2 to the plan started no run by itself; its runs follow the
+first group in the resumed campaign.
 
 Since October 25 the MLX Qwen3.6-35B-A3B MXFP8 path (Apple Silicon, macOS 26,
 text only) is the tenth selection and part of the maintainer's execution plan.
@@ -149,11 +183,12 @@ adapter. Check the original checkpoint, matching processor/projector/encoder,
 engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
-Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11.
-V4.1 Q2/Q4 and GLM stay in the denominator as BLOCKED until a contributor runs
-them ([contributor hardware](#contributors)).
+Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12.
+V4.1 1017 Q2 follows the first group on the maintainer's Mac, with SSD expert
+streaming only ([its scope](#v41-ssd)). V4.1 Q4 and GLM stay in the denominator
+as BLOCKED until a contributor runs them ([contributor hardware](#contributors)).
 Source builds sharing a checkout and heavy inference sharing the GPU are
-sequential. No model run, download, app restart or push is part of this cleanup.
+sequential.
 
 <a id="baseline"></a>
 <a id="order"></a>
@@ -204,15 +239,34 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    actually installed bundle to a receipt. A surrounding repository's Git
    identity cannot identify an engine snapshot. Revalidate all configured paths
    and working integrations against the current content.
+   On November 10 the maintainer's Laguna checkout turned out to be a legacy
+   in-place patched tree without a source receipt, whose `ds4.c`, `ds4.h` and
+   `ds4_metal.m` differ from the pinned install. It was moved aside unchanged
+   and Laguna was installed again from the bundled `448d569` sources, so its
+   results can be bound to the pin. The native common-100 runner now takes the
+   engine revision from DStudio's source receipt and refuses an engine without
+   one. Compiler/options and the installed app bundle are not yet bound.
 3. Complete the case-level census of unit, integration, browser, live, upstream
-   and publication suites, including prerequisites and exclusions. Correct any
-   runner that still overwrites earlier results before running it.
+   and publication suites, including prerequisites and exclusions. Since
+   November 10 `node tests/support/test_census.mjs` lists every test file and
+   the target, gate or documented manual command that reaches it (276 files,
+   none reached by nothing; see [the test index](tests/README.md#suite-census)),
+   and the four live runners that erased their earlier receipts now write a
+   new run directory each time. Still open: the census is per file, not per
+   case, and does not yet record each suite's prerequisites and exclusions.
 4. Complete the coordinator using existing runners and the frozen
-   [common corpus](tests/fixtures/common_model_quality_cases.py). The planned
-   `tests/live/quality_multihardware.mjs` and public report directory
-   `docs/benchmarks/quality-multihardware/` do not yet exist. A coordinator
-   checks coverage, identities, exit states and denominators; it is not another
-   inference implementation or application scheduler.
+   [common corpus](tests/fixtures/common_model_quality_cases.py).
+   `tests/live/quality_multihardware.mjs` exists since November 10: it reads
+   the ten selections of `tests/fixtures/quality_campaign.json` and every
+   common-100 receipt, reports coverage and denominators on the current engine
+   pin, model and memory mode, and starts the owning runner one model at a time
+   ([how it counts](tests/docs/model-quality.md#common-100-answer-quality)).
+   It covers the common-100 suite only: the product, numerical, vision and
+   desktop suites are not in its matrix yet, and the public report directory
+   `docs/benchmarks/quality-multihardware/` does not exist until reviewed
+   results do. A coordinator checks coverage, identities, exit states and
+   denominators; it is not another inference implementation or application
+   scheduler.
 5. Perform resource preflight before each heavy run and retain its baseline,
    requests, answers, screenshots and original generated files under
    `tests/.artifacts/quality-multihardware/<run-id>/`. Stop only verified
@@ -459,8 +513,8 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    Qwen3.6 and Qwen3.8-27B on llama.cpp, and for Qwen3.6 on MLX,
    with compatible model/quant-specific numerical references. The 27B
    online-softmax and 3.6 batched-prefill overlays retired with their engines;
-   their operator checks do not carry over. These corpus reruns remain
-   owner-controlled.
+   their operator checks do not carry over. The owner authorized these
+   corpus reruns on November 10.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
    Address software-caused failures and report answer/format failures honestly.
@@ -659,10 +713,58 @@ is complete; it is not a new outstanding source-push task.
    Final commits/push, app installation and restart require their applicable
    user authorization; this document cleanup performs none of them.
 
+<a id="p12"></a>
+## P12 — Remove unnecessary complexity and prove nothing regressed
+
+Status: TO_DO. Added November 10, 2026 at the owner's request as the last step:
+remove all unnecessary complexity and the tests that are really useless,
+without degrading or regressing the application's quality or functionality,
+proved by tests over every way the app is used.
+
+1. Build the usage-case matrix before removing anything. It lists every way
+   the app is used: Chat, Agent, Cowork, Design and Learn; Search/Research;
+   PDF, images and vision; model download, selection, loading and switching;
+   settings; saved conversations, sessions and reopening; Stop, steering,
+   Goals and resume; pi/OpenCode harnesses; Task Graph; Blueprint; LAN, remote
+   and cloud endpoints; first launch, installation, upgrade and recovery. Each
+   entry has its normal, boundary, failure and recovery cases and the
+   behavioral test that executes it through production code. A usage case
+   without such a test gets one first; a simulated-model test is labeled as
+   simulated and does not stand in for a real-model case.
+2. Record a reference execution of the whole matrix on the unchanged build:
+   outputs, tool effects, persisted data, wire messages and errors.
+3. List the removal candidates with their evidence: code no production path
+   reaches, settings and flags nothing sets, duplicate implementations,
+   indirection with a single consumer, handling kept only for retired engines
+   or old installations, endpoints and assets nothing calls, unused
+   dependencies. Establish reachability by execution, coverage and a search of
+   every consumer and bundle, never by a name search alone.
+4. Remove in small tranches that can be reviewed and tested on their own; do
+   not mix mass moves or renames with behavioral changes. After each tranche,
+   compare the matrix with the reference execution and rerun the affected
+   gates. A difference is a regression until proved to be an intended removal.
+5. Remove only tests that are really useless: tests that execute no production
+   behavior (assertions on source text, names, comments or CSS declarations),
+   exact duplicates of another test's inputs and assertions, and tests of code
+   removed in this step. A slow, flaky or failing test is not useless: repair
+   it or keep it with its failure. Keep the behavioral coverage of a mixed
+   test. Record each removed test, the reason, and the test that still covers
+   the behavior.
+6. Remove no supported capability, model, mode, error path, recovery path,
+   confinement check or durable format. Lower no baseline, deadline or
+   denominator, and keep every failed receipt.
+7. Rebuild and rerun whatever this step changes in the build qualified by P11;
+   an earlier PASS does not transfer to changed code.
+
+Acceptance: the usage-case matrix passes before and after; every removal has a
+recorded reason and passing differential evidence; the reduction (files, lines,
+build time, binary size) is reported as measured; no requirement, failure or
+capability disappeared.
+
 <a id="closure"></a>
 ## Closure
 
-Every P0–P11 row remains open until its remaining implementation and exact
+Every P0–P12 row remains open until its remaining implementation and exact
 acceptance evidence are complete. A completed scoped fix is removed from the
 implementation backlog while its invalidated or missing acceptance checks stay.
 Missing authority, credentials, permissions, compatible reference or Mac
@@ -672,13 +774,14 @@ not blockers and not inferred successes.
 The final deliverable requires current source/patch provenance, all applicable
 numerical and quality cases, real four-mode and desktop results, vision/text
 isolation, fresh/upgrade recovery, 18 audited Design projects, complete agent
-comparisons, justified profiling and reviewed final-build publication.
+comparisons, justified profiling, reviewed final-build publication and the
+final simplification with its passing usage-case matrix.
 
 <a id="proposals"></a>
-## Proposed modules and improvements (outside P0–P11)
+## Proposed modules and improvements (outside P0–P12)
 
 Added October 25, 2026; proposal 13 added November 4. None is implemented or scheduled: these are candidates,
-not acceptance requirements of P0–P11, and starting one is the owner's decision.
+not acceptance requirements of P0–P12, and starting one is the owner's decision.
 Each statement about the current code was checked against the source. Effort is
 a rough estimate (S/M/L), not a measurement.
 

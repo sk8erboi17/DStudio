@@ -49,6 +49,20 @@ Raster checks verify that each pane's color continues through the top inset in
 both themes. The rail/history divider reaches the top; the history/chat divider
 is removed. Collapsing history keeps the widened rail and all mode controls.
 
+`make test-ui-theme-first-paint` checks that the saved theme is on the static
+shell before the app has loaded its history. The history database is held by
+a deterministic barrier that never answers, so the app module cannot reach its
+own theme step; the test then reads the theme attribute and the painted rail
+color while the page is still inert. Eight cases cover dark, light, `system`
+under both emulated OS schemes, an unknown value, another schema version,
+missing settings and damaged settings, in WebKit and Chromium. On the page
+before this fix the three dark cases fail. The check was added after
+`check-fast` on November 10 (`campaign-3b03ef4e-py314.log`, retained) failed
+`test-ui-sidebar` once in WebKit: under load the dark page was captured with
+light panes while it was being repainted from the default theme. Twenty
+unchanged repetitions afterwards passed, so that single failure is not a
+measured rate.
+
 `make test-macos-window-theme` creates an actual Cocoa window and WKWebView
 using the production wrapper. It verifies full-window content under native
 window controls, no title-bar separator, the reserved 28px content inset and

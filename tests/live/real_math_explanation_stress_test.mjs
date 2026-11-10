@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import {
-  artifactDir,
+  artifactRunOrResume,
   completeTextStream,
   jsonFetch,
   normalizeBaseUrl,
@@ -13,8 +13,11 @@ import {
   writeArtifact,
 } from '../support/real_harness.mjs';
 
-const artifacts = artifactDir('math-explanations-real');
 const resume = process.env.DSTUDIO_MATH_RESUME === '1';
+// A new run directory per invocation; DSTUDIO_MATH_RESUME=1 continues the most
+// recent one. Earlier runs, failed ones included, are never erased.
+const artifacts = artifactRunOrResume('math-explanations-real', resume);
+console.log(`Receipts: ${artifacts}`);
 let resumedCases = [];
 let resumedMetadata = {};
 if (resume) {
@@ -22,10 +25,6 @@ if (resume) {
     resumedMetadata = JSON.parse(fs.readFileSync(path.join(artifacts, 'report.partial.json'), 'utf8'));
     resumedCases = resumedMetadata.cases || [];
   } catch {}
-} else {
-  for (const name of fs.readdirSync(artifacts)) {
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-  }
 }
 
 const page = fs.readFileSync('web/index.html', 'utf8');

@@ -98,6 +98,33 @@ try {
     assert.equal(item.sha256, crypto.createHash('sha256').update(binaries[path.relative(engine.directory, item.path)]).digest('hex'));
   }
   assert.equal(JSON.parse(fs.readFileSync(path.join(captured.run, 'completion.json'))).modelRuns, 0);
+
+  // MLX: the runtime beside the other engines, with its own receipt; its
+  // installed packages are not walked as sources. An MLX checkpoint is a folder
+  // of safetensors below the store's `mlx` directory and is hashed on request.
+  // A directory named after a retired engine is not looked for by name.
+  const runtime = path.join(elsewhere, 'mlx');
+  fs.mkdirSync(path.join(runtime, 'venv', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(runtime, 'venv', 'lib', 'package.py'), 'installed = True\n');
+  const mlxReceipt = { engine: 'mlx', manifestSHA256: 'fixture' };
+  fs.writeFileSync(path.join(runtime, '.dstudio-mlx.json'), JSON.stringify(mlxReceipt));
+  fs.mkdirSync(path.join(elsewhere, 'ds4-qwen38'));
+  const folder = path.join(custom, 'mlx', 'Model-mxfp8');
+  fs.mkdirSync(folder, { recursive: true });
+  const shard = Buffer.from('mlx weight shard');
+  fs.writeFileSync(path.join(folder, 'model-00001-of-00001.safetensors'), shard);
+  fs.writeFileSync(path.join(folder, 'config.json'), '{}');
+  const withMlx = await captureBaseline(root, { discoveryOptions: options, fullWeights: true });
+  assert.deepEqual(withMlx.receipt.errors, []);
+  assert.equal(withMlx.receipt.engines.length, 3, 'main, llama.cpp and MLX; the retired sibling is not discovered');
+  const mlxEngine = withMlx.receipt.engines.find(item => item.directory === fs.realpathSync(runtime));
+  assert.deepEqual(mlxEngine.sourceReceipt, mlxReceipt);
+  assert.deepEqual(mlxEngine.sources, [], 'installed packages are covered by the installer receipt, not walked');
+  const shardRow = withMlx.inventory.files.find(item => item.file.endsWith('.safetensors'));
+  assert.equal(shardRow.kind, 'checkpoint');
+  assert.equal(shardRow.sha256, crypto.createHash('sha256').update(shard).digest('hex'));
+  assert.equal(shardRow.status, 'HASHED_NOT_INFERENCE_TESTED');
+  assert.ok(!withMlx.receipt.engines.some(item => item.directory.endsWith('ds4-qwen38')));
   fs.writeFileSync(path.join(profile, 'engine-checkout'), '../not-an-absolute-setting\n');
   assert.equal(discoverInstallations(root, options).errors.length, 1, 'invalid persisted provenance must be reported');
   fs.writeFileSync(path.join(profile, 'engine-checkout'), 'x'.repeat(8192));

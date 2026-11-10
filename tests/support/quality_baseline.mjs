@@ -54,9 +54,10 @@ export function ownGitRevision(dir) {
   } catch { return null; }
 }
 
-// ds4-qwen38 is a retired fork whose files may remain; llama.cpp serves the
-// local Qwen checkpoints.
-const managedEngines = ['ds4', 'ds4-laguna-s21', 'ds4-qwen38', 'llama.cpp'];
+// The four engines DStudio installs beside each other: ds4 main, Laguna,
+// llama.cpp and MLX. A directory left behind by a retired engine is not looked
+// for by name; pass it with --engine to record it.
+const managedEngines = ['ds4', 'ds4-laguna-s21', 'llama.cpp', 'mlx'];
 
 // Mirror the launcher's persisted checkout and fixed sibling search. Never
 // enumerate a home directory, File Provider tree, or unrelated application data.
@@ -136,7 +137,8 @@ export function modelInventory(stores) {
 function sourceFiles(dir, prefix = '') {
   const out = [];
   for (const entry of fs.readdirSync(path.join(dir, prefix), { withFileTypes: true })) {
-    if (entry.name.startsWith('.') || ['gguf', 'node_modules', 'build', 'target', '__pycache__'].includes(entry.name)) continue;
+    // `venv` is the MLX runtime's installed packages: its identity is the installer's own receipt.
+    if (entry.name.startsWith('.') || ['gguf', 'mlx', 'venv', 'node_modules', 'build', 'target', '__pycache__'].includes(entry.name)) continue;
     const rel = path.join(prefix, entry.name);
     if (entry.isDirectory()) out.push(...sourceFiles(dir, rel));
     else if (entry.isFile() && /(?:\.(?:c|cc|cpp|h|hpp|m|mm|metal|cu|cuh|comp|glsl|spv|inc|mk|cmake|sh|py|frag|cfrag)|(?:^|\/)(?:Makefile|CMakeLists\.txt))$/.test(rel)) out.push(rel);
@@ -174,10 +176,18 @@ export async function captureBaseline(root, {
   for (const location of discovery.directories) {
     const real = location.directory;
     // Root-level checkpoints are also valid native engine inputs.
-    for (const alias of location.aliases) stores.push(alias, path.join(alias, 'gguf'));
+    for (const alias of location.aliases) {
+      stores.push(alias, path.join(alias, 'gguf'));
+      // MLX checkpoints are folders of safetensors below the store's `mlx` directory.
+      const folders = path.join(alias, 'mlx');
+      try {
+        for (const entry of fs.readdirSync(folders, { withFileTypes: true }))
+          if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'venv') stores.push(path.join(folders, entry.name));
+      } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') receipt.errors.push({ file: folders, error: error.message }); }
+    }
     const engine = { ...location, git: ownGitRevision(real), sourceReceipt: null, sources: [], binaries: [] };
-    // ds4-family installs keep the source receipt; llama.cpp its build receipt.
-    const downloaded = ['.dstudio-source.json', '.dstudio-llama.json'].map(name => path.join(real, name)).find(file => fs.existsSync(file)) || path.join(real, '.dstudio-source.json');
+    // ds4-family installs keep the source receipt; llama.cpp and MLX their build receipts.
+    const downloaded = ['.dstudio-source.json', '.dstudio-llama.json', '.dstudio-mlx.json'].map(name => path.join(real, name)).find(file => fs.existsSync(file)) || path.join(real, '.dstudio-source.json');
     if (fs.existsSync(downloaded)) {
       try {
         if (fs.statSync(downloaded).size > 64 * 1024) throw Error('Oversized source receipt');
