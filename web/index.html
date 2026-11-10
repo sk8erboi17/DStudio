@@ -9,6 +9,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
+  <script>
+    // Before the first paint: give the static shell the saved theme. The app
+    // module runs after the document is parsed and loads history
+    // asynchronously, so without this a dark-theme user sees the light default
+    // on every launch. Same storage key, schema version and mapping as
+    // STORAGE_KEYS.settings, SCHEMA_VERSION and applyTheme() below, which
+    // remains the owner of the theme once the app has started.
+    try {
+      var savedSettings = JSON.parse(localStorage.getItem('ds4web.settings.v2') || 'null');
+      var savedTheme = savedSettings && savedSettings.v === 2 ? savedSettings.theme : 'light';
+      document.documentElement.dataset.theme = savedTheme === 'system'
+        ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : (savedTheme === 'light' ? 'light' : 'dark');
+    } catch (error) { /* storage unavailable or damaged: the default stays until the app loads */ }
+  </script>
   <meta name="description" content="Local AI studio for DeepSeek V4, native-vision GLM 5.3 and Laguna through ds4">
   <title>DStudio</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%2358a6ff'/%3E%3C/svg%3E">

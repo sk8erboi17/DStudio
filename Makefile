@@ -1286,6 +1286,15 @@ test-ui-sidebar:
 
 test-ui-browser: test-ui-sidebar
 
+# The saved theme must be on the static shell before the app has loaded its
+# history: the asynchronous history load is held by a deterministic barrier.
+.PHONY: test-ui-theme-first-paint
+test-ui-theme-first-paint:
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_theme_first_paint_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_theme_first_paint_playwright_test.mjs
+
+test-ui-browser: test-ui-theme-first-paint
+
 # The UI opened from another LAN device: plain http on a non-loopback name, an
 # insecure context without crypto.randomUUID or navigator.clipboard. Real
 # browsers through a proxy to the simulated host; generation is SIMULATED.
