@@ -132,6 +132,9 @@ try {
   ownedEngines = table.filter((row) => under.has(row.pid) && row.pid !== server.child.pid && isEngineProcess(row))
     .map((row) => ({ pid: row.pid, command: row.command }));
   const enginePort = `http://127.0.0.1:${server.enginePort}`;
+  // llama.cpp and MLX are installed beside the ds4 store, which need not be
+  // inside this source tree (a frozen worktree runs against the installed engines).
+  const installRoot = path.dirname(server.ds4Dir);
   report.engine = { processes: ownedEngines.map((row) => ({ pid: row.pid, command: row.command.slice(0, 600) })) };
   if (engine === 'llama') {
     const props = await jsonFetch(enginePort, '/props', { timeoutMs: 10000 });
@@ -139,12 +142,12 @@ try {
       ctx: props.default_generation_settings?.n_ctx, slots: props.total_slots };
     assert.equal(props.model_alias, alias);
     assert.equal(path.basename(props.model_path), path.basename(modelFile));
-    report.engine.identity = await engineIdentity(path.join(root, 'llama.cpp'), ['bin/llama-server']);
+    report.engine.identity = await engineIdentity(path.join(installRoot, 'llama.cpp'), ['bin/llama-server']);
   } else if (engine === 'mlx') {
     const models = await jsonFetch(enginePort, '/v1/models', { timeoutMs: 10000 });
     report.engine.models = (models.data || []).map((m) => m.id);
     assert.deepEqual(report.engine.models, [fs.realpathSync(target)]);
-    report.engine.identity = await engineIdentity(path.join(root, 'mlx'), []);
+    report.engine.identity = await engineIdentity(path.join(installRoot, 'mlx'), []);
   } else {
     report.engine.identity = await engineIdentity(server.ds4Dir, ['ds4-server']);
   }

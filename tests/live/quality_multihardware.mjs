@@ -27,7 +27,7 @@ const option = (name, fallback) => { const i = rest.indexOf(name); return i < 0 
 assert.ok(['status', 'run'].includes(command), 'usage: quality_multihardware.mjs status|run');
 const campaign = loadCampaign(path.join(root, 'tests/fixtures/quality_campaign.json'));
 const artifacts = path.join(root, 'tests/.artifacts');
-const store = process.env.DSTUDIO_REAL_DS4_DIR || path.join(root, 'ds4');
+const store = path.resolve(process.env.DSTUDIO_REAL_DS4_DIR || path.join(root, 'ds4'));
 const weightsPresent = (selection) => fs.existsSync(path.join(store, selection.modelFile));
 
 function measure() {
@@ -54,7 +54,10 @@ export function runnerFor(selection, qualityUse) {
   if (selection.engine === 'llama' || selection.engine === 'mlx' || selection.ssdStreaming === 'on')
     return ['tests/live/host_common_quality.mjs', '--model', selection.modelFile, '--ssd-streaming', selection.ssdStreaming, '--quality-use', qualityUse];
   const native = selection.engine === 'ds4-laguna' ? 'laguna' : /Flash-Next/.test(file) ? 'qwen' : 'main';
-  return ['tests/live/engine_acceptance.mjs', '--infer', '--engines', native, '--model-file', file, '--common-quality', '--quality-use', qualityUse];
+  // The installed engines sit beside the store; state both so that a frozen
+  // source tree elsewhere runs against them and not against its own directory.
+  return ['tests/live/engine_acceptance.mjs', '--infer', '--engines', native, '--model-file', file, '--common-quality', '--quality-use', qualityUse,
+    '--installed-root', path.dirname(store), '--model-root', path.join(store, path.dirname(selection.modelFile))];
 }
 
 if (command === 'status') {

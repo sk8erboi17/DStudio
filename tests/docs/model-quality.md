@@ -130,6 +130,18 @@ the owning runner for each cell without a terminal result, one model at a
 time; it is REAL inference and is not part of `check-real`.
 `make test-quality-campaign` checks this accounting with synthetic receipts.
 
+The host revalidates its launch dependencies before publishing a model: its own
+executable, the assets directory, the model and the installer scripts. A
+rebuild or an edit in the same tree while a run is being prepared is refused
+with `Launch dependencies changed before publication` (run
+`host-common-quality/run-2W3rhe`, November 10, is retained: a `make` rebuilt
+the test host during the Qwen3.8-27B launch). Long campaign runs therefore use
+a frozen copy of the sources: a Git worktree at the campaign commit with its
+own built `tests/.build/dstudio-server-test`, started with
+`DSTUDIO_REAL_DS4_DIR` pointing at the installed `ds4` store. Both runners
+locate llama.cpp, MLX and Laguna beside that store, and each receipt records
+the worktree's commit and that it is clean.
+
 A patch answer whose last diff line lacks only its newline terminator is
 accepted after exactly one newline is restored; prose, fences, wrong paths and
 broken hunk counts still fail. That correction changed the corpus identity to
