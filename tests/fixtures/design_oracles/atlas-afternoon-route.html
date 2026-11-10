@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored itinerary oracle fixture</title>
+<style>
+:root{--bg:#fff;--fg:#161b22;--soft:#eef2f6;--line:#6b7684;--accent:#0b5cad}
+@media(prefers-color-scheme:dark){:root{--bg:#181b22;--fg:#eaeef5;--soft:#232a35;--line:#9aa5b4;--accent:#7db7ff}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:var(--fg);background:var(--bg)}
+h1,h2,p{margin:0 0 8px}h2{font-size:1.1rem}
+button,input{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 10px;max-width:100%}
+button:disabled{opacity:.55}:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+main{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+section{border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+#map{background:var(--soft)}#route{border:2px solid var(--accent)}
+svg{display:block;width:100%;max-width:440px;height:auto}svg text{fill:currentColor;font-size:12px;text-anchor:middle}
+#path{fill:none;stroke:var(--accent);stroke-width:3}circle{fill:var(--bg);stroke:currentColor;stroke-width:2}
+.rows{list-style:none;margin:8px 0;padding:0}
+.rows li{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.name{flex:1 1 7rem}dialog{width:min(30rem,90vw);color:var(--fg);background:var(--bg);border:1px solid var(--line)}
+</style>
+<h1>SMALL DETOUR</h1><p>Plan a gentle afternoon</p><p>Sample data: a fictional offline itinerary.</p>
+<main>
+<section id="map" aria-labelledby="map-title"><h2 id="map-title">Schematic map</h2>
+  <svg viewBox="0 0 320 200" role="img"><polyline id="path"/><g id="marks"></g></svg>
+  <p>Schematic map — not navigation.</p></section>
+<section aria-labelledby="places-title"><h2 id="places-title">Available places</h2>
+  <label for="query">Search places</label> <input id="query" type="search" oninput="search()">
+  <ul class="rows" id="places"></ul><p id="none" role="status" hidden>No places match this search. Saved stops are kept.</p></section>
+<section id="route" aria-labelledby="route-title"><h2 id="route-title">Route</h2><p id="count"></p>
+  <ol class="rows" id="stops"></ol><p id="empty">No stops yet. Use Add stop on an available place.</p>
+  <button onclick="review(this)">Review route</button> <button onclick="resetRoute()">Reset route</button></section>
+</main>
+<dialog aria-labelledby="review-title"><h2 id="review-title">Review route</h2><ol id="review"></ol><p id="review-empty">No stops yet.</p>
+  <p>Local demo: nothing is booked. Schematic map — not navigation.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+// name, x, y and the label offset: labels sit outside the markers, clear of the connecting path
+const places=[['Old kiosk',60,150,28],['Glass hall',120,56,-18],['Willow court',220,130,28],['East steps',270,56,-18]],LIMIT=4;
+let route=[]; // place indexes in itinerary order; the map, the rows and the dialog are all drawn from it
+const el=id=>document.getElementById(id),F=name=>window.fault===name;
+const matches=place=>places[place][0].toLowerCase().includes(el('query').value.trim().toLowerCase());
+function make(tag,text,attrs={},svg){
+  const node=svg?document.createElementNS('http://www.w3.org/2000/svg',tag):document.createElement(tag);
+  node.textContent=text;for(const key in attrs)node.setAttribute(key,attrs[key]);return node;
+}
+places.forEach(([name],place)=>{
+  const row=make('li',''),add=make('button','Add stop',{'aria-label':'Add stop '+name});
+  add.onclick=()=>addStop(place);row.append(make('span',name,{class:'name'}),add);el('places').append(row);
+});
+function drawMap(){
+  const order=F('path-in-catalog-order')?[...route].sort((a,b)=>a-b):route,marks=el('marks');
+  el('path').setAttribute('points',order.length>1?order.map(place=>places[place][1]+','+places[place][2]).join(' '):'');
+  marks.replaceChildren();
+  places.forEach(([name,x,y,label],place)=>{
+    const stop=route.indexOf(place)+1;marks.append(make('circle','',{cx:x,cy:y,r:stop?11:5},true));
+    if(stop)marks.append(make('text',stop,{x,y:y+4,'font-weight':700},true));
+    marks.append(make('text',name,{x,y:y+label},true));
+  });
+  document.querySelector('svg').setAttribute('aria-label','Schematic map. '+(route.length?'Route: '
+    +route.map((place,n)=>n+1+' '+places[place][0]).join(', '):'No stops yet')+'.');
+}
+function drawPlaces(){
+  let shown=0;
+  [...el('places').children].forEach((row,place)=>{
+    row.hidden=!matches(place);shown+=!row.hidden;row.lastChild.disabled=route.includes(place)||route.length>=LIMIT;
+  });
+  el('none').hidden=shown>0;
+}
+function drawRoute(){
+  // Rebuilding the rows must not drop keyboard focus: return to the same control of the same stop.
+  const list=el('stops'),at=document.activeElement,from=at&&at.closest('#stops li'),key=from&&[from.dataset.place,[...from.children].indexOf(at)];
+  list.replaceChildren();
+  route.forEach((place,n)=>{
+    const name=places[place][0],row=make('li','',{'data-place':place});
+    row.append(make('span',n+1+'.'),make('span',name,{class:'name'}));
+    for(const [label,run,off] of [['Move up',()=>move(n,-1),n===0],['Move down',()=>move(n,1),n===route.length-1],['Remove',()=>removeStop(n)]]){
+      const button=make('button',label,{'aria-label':label+' '+name});button.disabled=!!off;button.onclick=run;row.append(button);
+    }
+    list.append(row);
+  });
+  if(key){const row=list.querySelector(`[data-place="${key[0]}"]`),same=row&&row.children[key[1]];
+    (same&&!same.disabled?same:row&&row.querySelector('button:enabled'))?.focus();}
+  el('empty').hidden=route.length>0;el('count').textContent=`${route.length} of ${LIMIT} stops`;
+}
+function render(){drawMap();drawPlaces();drawRoute();}
+function addStop(place){
+  if(route.includes(place)||route.length>=LIMIT)return;
+  if(F('add-stop-prepends'))route.unshift(place);else route.push(place);render();
+}
+function move(n,by){
+  if(F('move-wrong-row'))n++;
+  const to=n+by;if(n>=route.length||to<0||to>=route.length)return;
+  [route[n],route[to]]=[route[to],route[n]];render();
+}
+function removeStop(n){route.splice(n,1);if(F('removal-leaves-map-stale')){drawPlaces();drawRoute();}else render();}
+function search(){if(F('filter-prunes-route'))route=route.filter(matches);render();}
+function review(button){
+  button.focus();const list=el('review');list.replaceChildren();
+  for(const place of F('review-in-catalog-order')?[...route].sort((a,b)=>a-b):route)list.append(make('li',places[place][0]));
+  el('review-empty').hidden=route.length>0;document.querySelector('dialog').showModal();
+}
+function resetRoute(){if(F('reset-keeps-itinerary'))el('query').value='';else route=[];render();}
+render();
+</script></html>

@@ -1,0 +1,26 @@
+{
+  "case": "signal-repair-queue",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "stale-state",
+      "caughtAs": "Unexpected visible content",
+      "flags": ""
+    },
+    {
+      "name": "broken-retry",
+      "caughtAs": "Missing visible content",
+      "flags": ""
+    },
+    {
+      "name": "wrong-detail",
+      "caughtAs": "Dialog does not match its table row",
+      "flags": ""
+    },
+    {
+      "name": "missing-empty",
+      "caughtAs": "Missing visible content",
+      "flags": ""
+    }
+  ]
+}

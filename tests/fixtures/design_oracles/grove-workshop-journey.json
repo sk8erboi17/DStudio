@@ -1,0 +1,41 @@
+{
+  "case": "grove-workshop-journey",
+  "steps": 3,
+  "faults": [
+    {
+      "name": "day-not-required",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "radios-not-grouped",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "review-first-option",
+      "caughtAs": "Missing visible content: /Bicycle care/",
+      "flags": ""
+    },
+    {
+      "name": "back-forgets-day",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "confirm-does-nothing",
+      "caughtAs": "confirmation did not change the interface",
+      "flags": ""
+    },
+    {
+      "name": "restart-leaves-radio-checked",
+      "caughtAs": "strictly equal:\\s+1 !== 0",
+      "flags": ""
+    },
+    {
+      "name": "restart-keeps-choices",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    }
+  ]
+}

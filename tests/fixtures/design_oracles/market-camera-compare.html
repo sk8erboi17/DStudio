@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored camera-compare oracle fixture</title>
+<style>
+:root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button,select,input{font:inherit;color:inherit;max-width:100%}
+button,select,input[type=search]{background:inherit;border:1px solid #8c96a2;padding:6px}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}h3,p{margin:4px 0}
+.controls{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))}.controls label{display:grid;min-width:0}.controls input,.controls select{width:100%}
+#shelf{list-style:none;margin:8px 0;padding:0;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))}
+#shelf li{border-top:3px solid;padding-top:8px}#shelf svg{display:block;width:72px;height:48px;fill:none;stroke:currentColor;stroke-width:3}
+.price{font-size:1.5rem;font-weight:700}.pick{display:flex;gap:8px;align-items:center}.pick input{flex:none;width:20px;height:20px;margin:0}
+table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{padding:6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+dialog{width:min(34rem,92vw);color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>FIELD SHOP</h1><p>Find a camera companion</p><p>Sample data: an illustrative catalogue. No purchases can be made here.</p>
+<div class="controls">
+  <label>Search<input type="search" id="q" oninput="render()"></label>
+  <label>Size<select id="size" onchange="render()"><option>All</option><option>Small</option><option>Large</option></select></label>
+  <label>Sort by price<select id="sort" onchange="render()"><option>Low to high</option><option>High to low</option></select></label>
+</div>
+<section aria-labelledby="shelf-title"><h2 id="shelf-title">Shelf</h2><p id="shown" role="status"></p><ul id="shelf"></ul></section>
+<section aria-labelledby="compare-title"><h2 id="compare-title">Comparison</h2><p id="count"></p><p id="notice" role="status"></p>
+  <button onclick="openCompare(this)">Compare selected</button></section>
+<dialog aria-labelledby="dialog-title"><h2 id="dialog-title">Side by side</h2><div id="compared"></div>
+  <button id="close" onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const products=[
+  ['Pocket strap',18,'Small','<path d="M6 24c14-22 46-22 60 0"/><circle cx="6" cy="24" r="4"/><circle cx="66" cy="24" r="4"/>'],
+  ['Canvas wrap',32,'Large','<rect x="6" y="8" width="60" height="32" rx="4"/><path d="M6 20h60M36 8v32"/>'],
+  ['Lens pouch',24,'Small','<path d="M16 14h40l6 28H10z"/><path d="M20 14c4-10 28-10 32 0"/>']];
+let picked=[],notice='';
+const el=id=>document.getElementById(id);
+function render(){
+  const query=el('q').value.trim().toLowerCase(),size=el('size').value;
+  const descending=el('sort').value==='High to low'&&window.fault!=='sort-direction-ignored';
+  const shown=products.map((product,i)=>({product,i}))
+    .filter(({product})=>product[0].toLowerCase().includes(query)&&(size==='All'||product[2]===size||window.fault==='filters-not-combined'&&query))
+    .sort((a,b)=>(a.product[1]-b.product[1])*(descending?-1:1));
+  el('shelf').innerHTML=shown.map(({product,i})=>`<li><svg viewBox="0 0 72 48" aria-hidden="true">${product[3]}</svg><h3>${product[0]}</h3>
+    <p class="price">€${product[1]}</p><p>Size: ${product[2]}</p>
+    <label class="pick"><input type="checkbox" data-i="${i}" onchange="toggle(${i},this)"><span>Compare</span></label></li>`).join('');
+  el('shown').textContent=shown.length?`Showing ${shown.length} of 3 products`:'No products match this search and size.';
+  sync();
+}
+// Selection changes update the existing toggles in place, so keyboard focus stays on the toggle.
+function sync(){
+  for(const box of document.querySelectorAll('#shelf input'))box.checked=picked.includes(+box.dataset.i);
+  el('count').textContent=`${picked.length} of 2 selected for comparison`;el('notice').textContent=notice;
+}
+function toggle(i,box){
+  notice='';
+  if(!box.checked)picked=picked.filter(j=>j!==i);
+  else if(picked.length<2||window.fault==='third-accepted')picked.push(i);
+  else if(window.fault==='third-evicts-oldest')picked=[picked[1],i];
+  else notice=`Only two products can be compared. ${products[i][0]} was not added; remove one first.`;
+  sync();
+}
+function drawCompare(list){
+  const columns=list.map(i=>products[i]),value=(column,k)=>(window.fault==='shared-compare-values'?columns[0]:column)[k];
+  el('compared').innerHTML=columns.length?`<table><thead><tr><th scope="col">Detail</th>${columns.map(c=>`<th scope="col">${c[0]}</th>`).join('')}</tr></thead>
+    <tbody><tr><th scope="row">Price</th>${columns.map(c=>`<td>€${value(c,1)}</td>`).join('')}</tr>
+    <tr><th scope="row">Size</th>${columns.map(c=>`<td>${value(c,2)}</td>`).join('')}</tr>
+    <tr><th scope="row">Selection</th>${list.map(i=>`<td><button onclick="unpick(${i})" aria-label="Remove ${products[i][0]}">Remove</button></td>`).join('')}</tr>
+    </tbody></table>`:'<p>Nothing is selected for comparison.</p>';
+}
+function openCompare(button){button.focus();drawCompare(picked);document.querySelector('dialog').showModal();}
+function unpick(i){
+  const rest=picked.filter(j=>j!==i);
+  if(window.fault!=='dialog-remove-not-synced'){picked=rest;notice='';sync();}
+  drawCompare(rest);el('close').focus();
+}
+render();
+</script></html>

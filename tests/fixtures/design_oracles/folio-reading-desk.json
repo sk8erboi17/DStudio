@@ -1,0 +1,31 @@
+{
+  "case": "folio-reading-desk",
+  "steps": 3,
+  "faults": [
+    {
+      "name": "same-essay",
+      "caughtAs": "identical bodies",
+      "flags": ""
+    },
+    {
+      "name": "shared-read",
+      "caughtAs": "Mark as read",
+      "flags": ""
+    },
+    {
+      "name": "shared-note",
+      "caughtAs": "Missing visible content",
+      "flags": ""
+    },
+    {
+      "name": "markup-note",
+      "caughtAs": "Missing visible content",
+      "flags": ""
+    },
+    {
+      "name": "empty-note",
+      "caughtAs": "empty note cannot",
+      "flags": ""
+    }
+  ]
+}

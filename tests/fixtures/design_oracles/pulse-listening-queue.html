@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored listening-queue oracle fixture</title>
+<style>
+:root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:6px;max-width:100%}
+button:focus-visible{outline:3px solid #3874e6;outline-offset:2px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+ul,ol{list-style:none;margin:0;padding:0}li{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;border-top:1px solid #8c96a2}
+.track{flex:1 1 8rem;font-weight:700;text-align:left}li[aria-current=true]{border-left:8px solid;padding-left:8px}
+dialog{width:min(30rem,90vw);color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>SIDE A</h1><p>Build a listening queue</p><p>Sample data. No audio playback in this demo.</p>
+<section aria-labelledby="library-title"><h2 id="library-title">Library</h2><ul id="library"></ul><p id="message" role="status"></p></section>
+<section aria-labelledby="queue-title"><h2 id="queue-title">Queue</h2><p id="current"></p><ol id="queue"></ol>
+  <p id="empty">The queue is empty. Add a track from the library.</p>
+  <div class="bar"><button onclick="clearQueue()">Clear queue</button><button onclick="details(this)">Queue details</button></div></section>
+<dialog aria-labelledby="details-title"><h2 id="details-title">Current order</h2><ol></ol><p id="none">The queue is empty.</p>
+  <button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const tracks=['Night lines','Paper satellites','Second sunrise'];
+// queue holds track numbers in listening order; current is a track number, never a position.
+let queue=[],current=null,message='';
+const el=id=>document.getElementById(id);
+for(const [track,title] of tracks.entries())
+  el('library').insertAdjacentHTML('beforeend',`<li><span class="track">${title}</span><button onclick="add(${track})" aria-label="Add to queue: ${title}">Add to queue</button></li>`);
+const isCurrent=(track,position)=>current===(window.fault==='current-by-position'?position:track);
+// The list is rebuilt, so keyboard focus returns to the same control (button n) of the row acted on.
+function render(position,n){
+  el('queue').replaceChildren();
+  queue.forEach((track,at)=>{
+    const title=tracks[track],on=isCurrent(track,at);
+    el('queue').insertAdjacentHTML('beforeend',`<li${on?' aria-current="true"':''}><button class="track" aria-pressed="${on}" onclick="choose(${at})">${title}</button>
+      ${on?'<strong>Current</strong>':''}<button onclick="move(${at},-1)" aria-label="Move up ${title}"${at?'':' disabled'}>Move up</button>
+      <button onclick="move(${at},1)" aria-label="Move down ${title}"${at<queue.length-1?'':' disabled'}>Move down</button>
+      <button onclick="removeAt(${at})" aria-label="Remove ${title}">Remove</button></li>`);});
+  const now=window.fault==='current-by-position'?queue[current]:current;
+  el('current').textContent='Current: '+(now==null?'none':tracks[now]);
+  el('empty').hidden=queue.length>0;el('message').textContent=message;
+  const row=el('queue').children[position]||el('queue').lastElementChild,button=row?.querySelectorAll('button')[n];
+  if(position!==undefined)(button&&!button.disabled?button:row?.querySelector('button'))?.focus();
+}
+function add(track){
+  if(queue.includes(track))message=`${tracks[track]} is queued once; it was not added again.`;
+  else{queue.push(track);message=`${tracks[track]} added to the queue.`;}
+  render();
+}
+function choose(position){current=window.fault==='current-by-position'?position:queue[position];render(position,0);}
+function move(position,step){
+  const to=position+step;if(to<0||to>=queue.length)return;
+  if(window.fault==='move-overwrites')queue[to]=queue[position];else[queue[position],queue[to]]=[queue[to],queue[position]];
+  render(to,step<0?1:2);
+}
+function removeAt(position){
+  const [track]=queue.splice(window.fault==='remove-shared-index'?queue.length-1:position,1);
+  if(track===current&&window.fault!=='remove-keeps-current')current=null;
+  message=`${tracks[track]} removed from the queue.`;render(position,3);
+}
+function clearQueue(){queue=[];current=null;message='Queue cleared.';render();}
+function details(button){
+  button.focus();const list=document.querySelector('dialog ol');list.replaceChildren();
+  const order=window.fault==='details-library-order'?queue.slice().sort():queue;
+  for(const track of order)list.insertAdjacentHTML('beforeend',`<li><span>${tracks[track]}</span>${isCurrent(track,queue.indexOf(track))?' <strong>Current</strong>':''}</li>`);
+  el('none').hidden=queue.length>0||window.fault==='missing-empty-state';document.querySelector('dialog').showModal();
+}
+render();
+</script></html>

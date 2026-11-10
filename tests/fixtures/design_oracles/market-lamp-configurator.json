@@ -1,0 +1,51 @@
+{
+  "case": "market-lamp-configurator",
+  "steps": 3,
+  "faults": [
+    {
+      "name": "cable-not-priced",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*68",
+      "flags": ""
+    },
+    {
+      "name": "total-ignores-quantity",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*136",
+      "flags": ""
+    },
+    {
+      "name": "cap-not-enforced",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*337",
+      "flags": ""
+    },
+    {
+      "name": "cap-silent",
+      "caughtAs": "did not match the regular expression /\\(\\?:maximum\\|max\\|limit",
+      "flags": ""
+    },
+    {
+      "name": "no-merge",
+      "caughtAs": "Expected one accessible item containing /Chalk/",
+      "flags": ""
+    },
+    {
+      "name": "stale-grand-total",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*402",
+      "flags": ""
+    },
+    {
+      "name": "remove-wrong-row",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*65",
+      "flags": ""
+    },
+    {
+      "name": "missing-empty-state",
+      "caughtAs": "did not match the regular expression /empty\\|no items/",
+      "flags": ""
+    },
+    {
+      "name": "false-order-claim",
+      "caughtAs": "Missing visible content: /No order was placed/",
+      "flags": ""
+    }
+  ]
+}

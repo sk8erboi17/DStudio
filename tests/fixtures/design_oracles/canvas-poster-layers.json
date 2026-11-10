@@ -1,0 +1,71 @@
+{
+  "case": "canvas-poster-layers",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "inspector-wrong-layer",
+      "caughtAs": "strictly equal:\\s+'Circle' !== 'Title'",
+      "flags": ""
+    },
+    {
+      "name": "rename-wrong-object",
+      "caughtAs": "Missing visible content: Circle",
+      "flags": ""
+    },
+    {
+      "name": "rename-not-on-poster",
+      "caughtAs": "Expected one accessible artboard object Local title",
+      "flags": ""
+    },
+    {
+      "name": "hidden-still-shown",
+      "caughtAs": "strictly equal:\\s+1 !== 0",
+      "flags": ""
+    },
+    {
+      "name": "hide-removes-layer",
+      "caughtAs": "Missing visible content: Local title",
+      "flags": ""
+    },
+    {
+      "name": "visibility-not-in-history",
+      "caughtAs": "Expected one accessible artboard object Local title",
+      "flags": ""
+    },
+    {
+      "name": "delete-wrong-layer",
+      "caughtAs": "Unexpected visible content: Local title",
+      "flags": ""
+    },
+    {
+      "name": "delete-not-undoable",
+      "caughtAs": "Missing visible content: Local title",
+      "flags": ""
+    },
+    {
+      "name": "undo-duplicates-object",
+      "caughtAs": "Expected one accessible item containing Local title",
+      "flags": ""
+    },
+    {
+      "name": "reorder-list-only",
+      "caughtAs": "only the Layers list moved, not actual artboard stacking",
+      "flags": ""
+    },
+    {
+      "name": "reorder-not-in-history",
+      "caughtAs": "strictly equal:[\\s\\S]*'Layers[\\s\\S]*\\+ +'Title\\\\n'[\\s\\S]*- +'Local title\\\\n'",
+      "flags": ""
+    },
+    {
+      "name": "redo-kept-after-new-action",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "capacity-not-enforced",
+      "caughtAs": "strictly equal:\\s+8 !== 6",
+      "flags": ""
+    }
+  ]
+}

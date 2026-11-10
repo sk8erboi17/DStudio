@@ -1,0 +1,36 @@
+{
+  "case": "pulse-listening-queue",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "current-by-position",
+      "caughtAs": "did not match the regular expression /Current/",
+      "flags": ""
+    },
+    {
+      "name": "move-overwrites",
+      "caughtAs": "Expected one accessible ordered entry Paper satellites",
+      "flags": ""
+    },
+    {
+      "name": "details-library-order",
+      "caughtAs": "Rendered order mismatch: Paper satellites → Night lines → Second sunrise",
+      "flags": ""
+    },
+    {
+      "name": "remove-shared-index",
+      "caughtAs": "Unexpected visible content: Paper satellites",
+      "flags": ""
+    },
+    {
+      "name": "remove-keeps-current",
+      "caughtAs": "expected to not match the regular expression /Current",
+      "flags": ""
+    },
+    {
+      "name": "missing-empty-state",
+      "caughtAs": "Missing visible content: /empty\\|no tracks/",
+      "flags": ""
+    }
+  ]
+}

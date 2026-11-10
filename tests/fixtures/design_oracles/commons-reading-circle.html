@@ -1,0 +1,97 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored reading-circle oracle fixture</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button,input,textarea{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+button[aria-pressed=true]{border-width:3px;font-weight:700}
+input,textarea{display:block;width:100%}ul{padding:0;list-style:none}li{margin:10px 0;overflow-wrap:anywhere}li span{display:block}
+main{max-width:40rem}aside{max-width:40rem;margin-top:24px;border-top:1px solid #8c96a2}
+dialog{width:min(30rem,90vw);color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>BOOK CORNER</h1><p>A small reading circle</p>
+<p>Local community demo with Sample data. Replies stay only in this open page; nothing is sent or published.</p>
+<main>
+<section id="feed" aria-labelledby="feed-title"><h2 id="feed-title">Threads</h2>
+  <label for="query">Search threads</label><input id="query" type="search" oninput="render()">
+  <p><button id="show-all" onclick="setFilter(false)">All</button> <button id="show-followed" onclick="setFilter(true)">Following</button></p>
+  <ul id="threads"></ul><p id="no-threads" role="status" hidden>No threads match.</p>
+</section>
+<section id="thread" aria-labelledby="thread-title" hidden>
+  <button onclick="openThread(null)">Back to threads</button>
+  <h2 id="thread-title"></h2><p>Started by <button id="author" onclick="showProfile(this)"></button></p><p id="message"></p>
+  <p><button id="follow" onclick="toggleFollow()"></button> <span id="follow-state"></span></p>
+  <h3>Replies</h3><ul id="replies"></ul><p id="no-replies">No replies yet.</p>
+  <label for="reply">Reply</label><textarea id="reply" rows="3" maxlength="200" required oninput="updateDraft()"></textarea>
+  <p id="used"></p><button id="post" onclick="postReply()">Post reply</button>
+</section>
+</main>
+<aside aria-labelledby="about"><h2 id="about">About this circle</h2>
+  <p>Three sample threads for neighbours who trade and recommend books. Local community demo only.</p></aside>
+<dialog aria-labelledby="profile-title"><h2 id="profile-title">Member profile</h2><p id="member"></p>
+  <p>Sample member of this local community demo.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const threads=[['What are you reading?','Mira Okafor','Name the book on your table this week.'],
+  ['Weekend swap','Ivo Lind','Bring one paperback to trade on Saturday.'],
+  ['Quiet recommendations','Tess Arden','Suggest a calm book for a slow weekend.']]
+  .map(([title,author,message])=>({title,author,message,replies:[],following:false}));
+let current=null,firstOpened=null,onlyFollowing=false;
+const el=id=>document.getElementById(id);
+const repliesOf=index=>threads[window.fault==='shared-replies'?0:index].replies;
+const valid=value=>value.length<=200&&(window.fault==='empty-reply-accepted'||value.trim()!=='');
+const rows=threads.map((thread,index)=>{
+  const row=document.createElement('li'),button=document.createElement('button'),summary=document.createElement('span');
+  button.textContent=thread.title;button.onclick=()=>openThread(index);row.append(button,summary);el('threads').append(row);
+  return {row,summary};
+});
+function render(){
+  const query=el('query').value.trim().toLowerCase();let any=false;
+  threads.forEach((thread,index)=>{
+    const searched=window.fault==='search-matches-message'?thread.title+' '+thread.message:thread.title;
+    const show=searched.toLowerCase().includes(query)&&(!onlyFollowing||thread.following);
+    const count=window.fault==='stale-reply-count'?0:repliesOf(index).length;
+    rows[index].row.hidden=!show;any=any||show;
+    rows[index].summary.textContent=`${count} ${count===1?'reply':'replies'} · ${thread.following?'Following':'Not following'}`;
+  });
+  el('no-threads').hidden=any;
+  el('show-all').setAttribute('aria-pressed',String(!onlyFollowing));el('show-followed').setAttribute('aria-pressed',String(onlyFollowing));
+  el('feed').hidden=current!==null;el('thread').hidden=current===null;
+  if(current===null)return;
+  const thread=threads[current];
+  el('thread-title').textContent=thread.title;el('message').textContent=thread.message;
+  el('author').textContent=thread.author;el('author').setAttribute('aria-label',thread.author+', author profile');
+  el('follow').textContent=thread.following?'Unfollow':'Follow';el('follow-state').textContent=thread.following?'Following':'Not following';
+  el('replies').replaceChildren(...repliesOf(current).map(text=>{
+    const reply=document.createElement('li');
+    if(window.fault==='markup-reply')reply.innerHTML=text;else reply.textContent=text;
+    return reply;
+  }));
+  el('no-replies').hidden=repliesOf(current).length>0;updateDraft();
+}
+function setFilter(value){onlyFollowing=value;render();}
+function openThread(index){
+  if(index!==null){
+    if(firstOpened===null)firstOpened=index;
+    if(window.fault==='replies-lost-on-switch')threads.forEach((thread,other)=>{if(other!==index)thread.replies.length=0;});
+    el('reply').value='';
+  }
+  current=index;render();
+}
+function updateDraft(){const value=el('reply').value;el('used').textContent=`${value.length} of 200 characters`;el('post').disabled=!valid(value);}
+function postReply(){
+  const value=el('reply').value;if(!valid(value))return;
+  repliesOf(window.fault==='reply-to-first-opened'?firstOpened:current).push(value);el('reply').value='';render();
+}
+function toggleFollow(){
+  const value=!threads[current].following;
+  if(window.fault==='shared-follow')threads.forEach(thread=>thread.following=value);else threads[current].following=value;
+  render();
+}
+function showProfile(button){button.focus();el('member').textContent=threads[current].author;document.querySelector('dialog').showModal();}
+render();
+</script></html>

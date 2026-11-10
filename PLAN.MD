@@ -606,12 +606,19 @@ permission/tool is BLOCKED with a ready procedure, never replaced by mock PASS.
 
 Status: IN_PROGRESS. Twenty-five offline systems now exist; the 18 frozen briefs
 and generation/resource harnesses cover the original nine systems only.
-The sixteen added systems require separate future generated-output qualification. Four interaction oracles are qualified; fourteen remain.
+The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the limits found are open (item 1).
 
 1. Qualify the remaining **14 domain interaction oracles** with independent
    positive/negative behavioral fixtures. Preserve current shared pipeline and
    qualified editorial/essay/repair/incident scenarios; reject deliberate
    broken behavior and keep late script/console errors observable.
+   Since November 11 all eighteen oracles have an authored reference page
+   with deliberate faults, checked in Chromium and WebKit, and the row helper
+   that made two oracles reject every page is corrected. Still open: the
+   correct pages some oracles and the WebKit audit still reject, and the
+   defects they do not detect, both listed in
+   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification).
+   Correct those before generated projects are graded.
 2. Generate **at least two projects per system: 18 projects** using
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human

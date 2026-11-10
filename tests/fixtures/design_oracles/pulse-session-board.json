@@ -1,0 +1,46 @@
+{
+  "case": "pulse-session-board",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "conflict-replaces",
+      "caughtAs": "Expected one accessible ordered entry Sound walks",
+      "flags": ""
+    },
+    {
+      "name": "conflict-accepted",
+      "caughtAs": "Unexpected visible content: Poster room",
+      "flags": ""
+    },
+    {
+      "name": "silent-rejection",
+      "caughtAs": "did not match the regular expression /conflict\\|same time",
+      "flags": ""
+    },
+    {
+      "name": "slot-not-freed",
+      "caughtAs": "Expected one accessible ordered entry Poster room",
+      "flags": ""
+    },
+    {
+      "name": "review-insertion-order",
+      "caughtAs": "Rendered order mismatch: Poster room → Light studies",
+      "flags": ""
+    },
+    {
+      "name": "filter-drops-choices",
+      "caughtAs": "Expected one accessible Remove on Sound walks",
+      "flags": ""
+    },
+    {
+      "name": "missing-empty-review",
+      "caughtAs": "Missing visible content: /empty\\|no sessions/",
+      "flags": ""
+    },
+    {
+      "name": "false-reservation",
+      "caughtAs": "Missing visible content: /No tickets were reserved/",
+      "flags": ""
+    }
+  ]
+}

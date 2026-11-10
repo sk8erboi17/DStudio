@@ -1,0 +1,36 @@
+{
+  "case": "market-camera-compare",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "filters-not-combined",
+      "caughtAs": "Unexpected visible content: Canvas wrap",
+      "flags": ""
+    },
+    {
+      "name": "sort-direction-ignored",
+      "caughtAs": "Rendered order mismatch: Canvas wrap → Lens pouch → Pocket strap",
+      "flags": ""
+    },
+    {
+      "name": "third-accepted",
+      "caughtAs": "Unexpected visible content: Lens pouch",
+      "flags": ""
+    },
+    {
+      "name": "third-evicts-oldest",
+      "caughtAs": "Expected one accessible item containing Pocket strap",
+      "flags": ""
+    },
+    {
+      "name": "shared-compare-values",
+      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*32",
+      "flags": ""
+    },
+    {
+      "name": "dialog-remove-not-synced",
+      "caughtAs": "Missing visible content: Lens pouch",
+      "flags": ""
+    }
+  ]
+}

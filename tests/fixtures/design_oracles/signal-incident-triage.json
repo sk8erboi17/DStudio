@@ -1,0 +1,46 @@
+{
+  "case": "signal-incident-triage",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "shared-assignment",
+      "caughtAs": "assignee|strictly equal",
+      "flags": "i"
+    },
+    {
+      "name": "filter-reset-assignment",
+      "caughtAs": "assignee|strictly equal",
+      "flags": "i"
+    },
+    {
+      "name": "wrong-row-state",
+      "caughtAs": "Missing visible content|Expected one accessible",
+      "flags": "i"
+    },
+    {
+      "name": "missing-empty",
+      "caughtAs": "no open|AssertionError",
+      "flags": "i"
+    },
+    {
+      "name": "history-out-of-order",
+      "caughtAs": "history action order",
+      "flags": "i"
+    },
+    {
+      "name": "stale-counts",
+      "caughtAs": "incident count",
+      "flags": "i"
+    },
+    {
+      "name": "history-drop-earlier",
+      "caughtAs": "history action",
+      "flags": "i"
+    },
+    {
+      "name": "auto-apply-draft",
+      "caughtAs": "draft assignment",
+      "flags": "i"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "case": "grove-tool-library",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "search-ignores-category",
+      "caughtAs": "Unexpected visible content: Hand drill",
+      "flags": ""
+    },
+    {
+      "name": "empty-state-from-full-list",
+      "caughtAs": "did not match the regular expression /no \\(\\?:tools\\|results\\|matches\\)/i",
+      "flags": ""
+    },
+    {
+      "name": "filter-never-recovers",
+      "caughtAs": "Missing visible content: Garden fork",
+      "flags": ""
+    },
+    {
+      "name": "limit-not-enforced",
+      "caughtAs": "Unexpected visible content: Garden fork",
+      "flags": ""
+    },
+    {
+      "name": "third-evicts-first",
+      "caughtAs": "Missing visible content: Hand drill",
+      "flags": ""
+    },
+    {
+      "name": "dialog-removal-not-live",
+      "caughtAs": "Unexpected visible content: Hand drill",
+      "flags": ""
+    },
+    {
+      "name": "list-stale-after-dialog-removal",
+      "caughtAs": "locator\\.click: Timeout[\\s\\S]*Add to shortlist: Garden fork[\\s\\S]*element is not enabled",
+      "flags": ""
+    },
+    {
+      "name": "request-claims-sent",
+      "caughtAs": "Missing visible content: /No borrowing request was sent/",
+      "flags": ""
+    }
+  ]
+}

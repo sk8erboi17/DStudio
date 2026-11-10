@@ -1,0 +1,81 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored tool-shortlist oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button,input,select{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+input,select{display:block;width:100%}button:disabled{opacity:.55}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+section{max-width:40rem;margin:24px 0}ul{margin:0;padding:0;list-style:none}li{margin:12px 0;border:1px solid #8c96a2;padding:12px}
+h3{margin:0}dialog{width:min(34rem,90vw);color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<p>SHARED SHED</p><h1>Useful things, shared locally</h1>
+<p>Sample data. Browse the shed, shortlist what you need and review it before asking. This local demo never contacts anyone.</p>
+<section aria-labelledby="find-title"><h2 id="find-title">Find a tool</h2>
+<p><label for="category">Category</label><select id="category" onchange="render()"><option>All</option><option>Repair</option><option>Garden</option></select></p>
+<p><label for="search">Search</label><input type="search" id="search" oninput="render()"></p></section>
+<section aria-labelledby="tools-title"><h2 id="tools-title">Tools</h2>
+<ul id="tools"></ul><p id="empty" role="status">No tools match this category and search. Choose All or clear the search.</p></section>
+<section aria-labelledby="shortlist-title"><h2 id="shortlist-title">Shortlist</h2>
+<p id="count"></p><p id="limit" role="status"></p>
+<button onclick="review(this)">Review shortlist</button></section>
+<dialog aria-labelledby="dialog-title"><h2 id="dialog-title" tabindex="-1">Review shortlist</h2>
+<ul id="chosen"></ul><p id="none">Your shortlist is empty.</p>
+<p><button onclick="request()">Send demo request</button> <button onclick="this.closest('dialog').close()">Close</button></p>
+<p id="sent" role="status"></p></dialog>
+<script>
+window.fault='';
+const tools=[['Hand drill','Repair','Makes small holes for shelves and hooks.'],['Sewing kit','Repair','Needles, thread and patches for mending.'],
+  ['Garden fork','Garden','Turns soil and lifts roots in small beds.']];
+let shortlist=[],pool=tools;
+const el=id=>document.getElementById(id);
+const make=(tag,text='')=>Object.assign(document.createElement(tag),{textContent:text});
+const items=tools.map(([title,group,about])=>{
+  const item=make('li'),button=make('button');button.onclick=()=>toggle(title);
+  item.append(make('h3',title),make('p',group+'. '+about),button);el('tools').append(item);return {title,item,button};
+});
+function renderList(){
+  const category=el('category').value,query=el('search').value.trim().toLowerCase();
+  const shown=pool=(window.fault==='filter-never-recovers'?pool:tools).filter(([title,group])=>
+    (category==='All'||group===category||window.fault==='search-ignores-category'&&query)&&title.toLowerCase().includes(query));
+  const full=shortlist.length>=2,open=['limit-not-enforced','third-evicts-first'].includes(window.fault);
+  for(const {title,item,button} of items){
+    const chosen=shortlist.includes(title);
+    item.hidden=!shown.some(tool=>tool[0]===title);
+    button.textContent=chosen?'Remove from shortlist':'Add to shortlist';
+    button.setAttribute('aria-label',button.textContent+': '+title);button.disabled=!chosen&&full&&!open;
+  }
+  el('empty').hidden=(window.fault==='empty-state-from-full-list'?tools:shown).length>0;
+  el('count').textContent=`${shortlist.length} of 2 tools shortlisted.`;
+  el('limit').textContent=full?'Your shortlist is full: only two tools can be shortlisted. Remove one to add another.':'';
+}
+function renderChosen(){
+  el('chosen').replaceChildren(...shortlist.map(title=>{
+    const item=make('li'),button=make('button','Remove');button.setAttribute('aria-label','Remove '+title);
+    button.onclick=()=>removeChosen(title);item.append(make('span',title),' ',button);return item;
+  }));
+  el('none').hidden=shortlist.length>0;
+}
+function render(){renderList();renderChosen();}
+function toggle(title){
+  if(shortlist.includes(title))shortlist=shortlist.filter(name=>name!==title);
+  else{
+    if(shortlist.length>=2){if(window.fault==='third-evicts-first')shortlist.shift();else if(window.fault!=='limit-not-enforced')return;}
+    shortlist.push(title);
+  }
+  render();
+}
+function removeChosen(title){
+  shortlist=shortlist.filter(name=>name!==title);
+  if(window.fault!=='list-stale-after-dialog-removal')renderList();
+  if(window.fault!=='dialog-removal-not-live')renderChosen();
+  el('dialog-title').focus();
+}
+function review(button){button.focus();el('sent').textContent='';renderChosen();document.querySelector('dialog').showModal();}
+function request(){
+  el('sent').textContent=window.fault==='request-claims-sent'?'Your borrowing request was sent to the shed.':'No borrowing request was sent. This is a local demo.';
+}
+render();
+</script></html>

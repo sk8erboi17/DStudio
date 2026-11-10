@@ -1,0 +1,41 @@
+{
+  "case": "atlas-afternoon-route",
+  "steps": 1,
+  "faults": [
+    {
+      "name": "add-stop-prepends",
+      "caughtAs": "Rendered order mismatch: Old kiosk → Glass hall → Willow court → East steps",
+      "flags": ""
+    },
+    {
+      "name": "filter-prunes-route",
+      "caughtAs": "Expected one accessible ordered entry Glass hall",
+      "flags": ""
+    },
+    {
+      "name": "move-wrong-row",
+      "caughtAs": "Rendered order mismatch: Glass hall → Old kiosk → Willow court → East steps",
+      "flags": ""
+    },
+    {
+      "name": "path-in-catalog-order",
+      "caughtAs": "map connecting path did not change with the route",
+      "flags": ""
+    },
+    {
+      "name": "review-in-catalog-order",
+      "caughtAs": "Rendered order mismatch: Glass hall → Old kiosk → Willow court → East steps",
+      "flags": ""
+    },
+    {
+      "name": "removal-leaves-map-stale",
+      "caughtAs": "removed stop remains in connecting path",
+      "flags": ""
+    },
+    {
+      "name": "reset-keeps-itinerary",
+      "caughtAs": "did not match the regular expression /empty\\|no stops\\|add\\.\\*stop/i[\\s\\S]*Glass hall",
+      "flags": ""
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "case": "commons-reading-circle",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "markup-reply",
+      "caughtAs": "Missing visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "shared-replies",
+      "caughtAs": "Unexpected visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "empty-reply-accepted",
+      "caughtAs": "1 repl[\\s\\S]*\\b2 replies",
+      "flags": ""
+    },
+    {
+      "name": "stale-reply-count",
+      "caughtAs": "1 repl[\\s\\S]*\\b0 replies",
+      "flags": ""
+    },
+    {
+      "name": "replies-lost-on-switch",
+      "caughtAs": "Missing visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "reply-to-first-opened",
+      "caughtAs": "Unexpected visible content: Different thread reply",
+      "flags": ""
+    },
+    {
+      "name": "shared-follow",
+      "caughtAs": "Unexpected visible content: Weekend swap",
+      "flags": ""
+    },
+    {
+      "name": "search-matches-message",
+      "caughtAs": "Unexpected visible content: Quiet recommendations",
+      "flags": ""
+    }
+  ]
+}

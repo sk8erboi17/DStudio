@@ -180,7 +180,10 @@ export async function auditProjectView(browser, target, c, settings, output, rec
       assert.equal(await page.locator('iframe').getAttribute('sandbox'), 'allow-scripts allow-forms');
     } else assert.equal(new URL(page.url()).origin, expectedOrigin, 'Project navigated out of its export');
     await check('required initial content and Sample data are rendered', async () => {
-      const body = (await scope.locator('body').innerText()).replace(/\s+/g, ' ').trim();
+      // WebKit's innerText omits the labels of a closed select; a choice
+      // offered as options is still content the page shows.
+      const options = await scope.locator('select').filter({visible: true}).locator('option').allTextContents();
+      const body = [await scope.locator('body').innerText(), ...options].join(' ').replace(/\s+/g, ' ').trim();
       assert.ok(body.length > 80); assert.match(body, /Sample data/i);
       for (const value of c.requiredText) assert.ok(body.includes(value.replace(/\s+/g, ' ')), 'Missing content: ' + value);
     });
