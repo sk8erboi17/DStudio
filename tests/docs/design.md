@@ -50,6 +50,89 @@ separately from successful retries; early Hearth/Counter diagnostic failures
 were corrected harness assumptions, not product fixes. See
 [integration scope and remaining acceptance](../../docs/DESIGN_SYSTEMS.md).
 
+## Interaction oracle qualification
+
+The eighteen frozen briefs each have an interaction oracle in
+[`design_project_interactions.mjs`](../support/design_project_interactions.mjs).
+Since November 11, 2026 every oracle is qualified by an authored reference
+page: the first by the fixture inside `design_project_audit_test.mjs`, the
+other seventeen by `tests/fixtures/design_oracles/CASE_ID.html` with
+`CASE_ID.json`. Each page must be accepted standalone and inside the opaque
+preview frame, each of its deliberate faults (at least three; 6 to 13 in the
+new ones) must be rejected for the stated reason, and the complete audited
+view must pass in both themes, in Chromium and WebKit.
+`make test-design-project-auditor` runs all of them;
+`node tests/support/design_oracle_qualification.mjs CASE_ID` runs one. These
+are authored fixtures: they qualify the oracles, not a model and not the 18
+generated projects.
+
+Qualification found one oracle defect that rejected every implementation: the
+row helper `item()` built its inner text locator from a region or dialog
+scope, so a row would have had to contain the region containing it. The queue
+(`queue-order-and-active-item`) and basket (`variant-basket-totals`) oracles
+could not pass any page, and the compare dialog accepted only a table layout.
+The helper now builds inner locators from the page or frame; all seventeen
+pages pass and the two formerly blocked ones reject their faults.
+
+Qualification also recorded limits that are **still open**. They are listed
+here so that a generated project is not judged by them unknowingly.
+
+Correct pages an oracle or the audit still rejects:
+
+- `thread-replies-literal-text`: a thread that starts with sample replies (the
+  count check assumes it starts empty) and an author button named only by the
+  author's name (it must contain "profile" or "author").
+- `review-reason-and-undo`: filter buttons that carry their count, such as
+  "Resolved (1)".
+- `object-selection-edit-history`, `layer-order-visibility-history`: a
+  six-object limit enforced without disabling the Add button. The word-board
+  oracle then loops without end; the poster oracle reports `8 !== 6` because
+  it counts its own clicks instead of the objects on the board.
+- `variant-basket-totals`: row buttons whose accessible name repeats the
+  variant ("Remove Chalk, Long cable") make the field lookup ambiguous.
+- `settings-draft-commit`: a label such as "Project name (required)" (exact
+  match; read from the oracle, not run).
+- Audit, WebKit only: required text that exists only as `<option>` labels is
+  reported missing, because WebKit's `innerText` omits it.
+
+Defects an oracle does not detect (each was tried as a fault and passed):
+
+- `settings-draft-commit`: saved summary never updated; no field error text;
+  Save committing only the name.
+- `room-wizard-validation`: Back clearing the room; Start over keeping time
+  and count; time not required; a stale count hidden by the capacity text.
+- `workshop-journey`: Start again keeping the chosen day.
+- `tool-shortlist-limits`: no reason for the limit; visible count never
+  updated; Remove on the main list doing nothing.
+- `schedule-conflicts`: Morning filter broken; a rejection without feedback on
+  a page that mentions conflicts elsewhere.
+- `catalog-compare-price-order`: a third product refused without a message;
+  shelf toggle and count stale after Remove in the dialog; a filter change
+  dropping the selection.
+- `queue-order-and-active-item`: duplicate tracks; Current moving to the next
+  track when the current one is removed.
+- `variant-basket-totals`: merging by colour only; quantities above four;
+  grand total stale after Remove.
+- `thread-replies-literal-text`: replies over the length limit or of spaces
+  only; Unfollow not leaving the Following filter; no follow indicator.
+- `review-reason-and-undo`: an Undo that does nothing when the open report
+  repeats its title; stale counts; last reason erased by Undo; reason shown
+  as markup outside the dialog; a reason of spaces only; one reason shared by
+  all reports.
+- `map-list-selection-filter`: stale details after a search; map buttons not
+  filtered; no selection mark; Outdoors filter; notes for a cleared selection.
+- `itinerary-order-map-path`: Remove deleting another stop; stale stop
+  numbers; a path that omits the last stop. Move down, duplicate Add and the
+  four-stop maximum are not exercised.
+- `object-selection-edit-history`: a ten-action history with Undo left
+  enabled; Delete removing every note; arrow keys moving all notes; notes
+  leaving the artboard; an export preview without coordinates.
+- `layer-order-visibility-history`: Hide hiding every object; Show doing
+  nothing; the review dialog ignoring order or visibility; added shapes
+  sharing a name; Add shape adding nothing; Move layer up doing nothing.
+- Audit: contrast is measured once on the initial view and skips closed
+  dialogs and disabled controls; overlapping controls are not reported.
+
 ## Design startup and baseline provenance
 
 `make test-design-start` executes production catalog/migration JavaScript and

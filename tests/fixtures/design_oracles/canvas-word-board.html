@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored word-board oracle fixture</title>
+<style>
+:root{--bg:#fff;--fg:#161b22;--soft:#eef2f6;--line:#6b7684;--accent:#0b5cad;--note:#fdf0b5;--ink:#1b1b1b}
+@media(prefers-color-scheme:dark){:root{--bg:#181b22;--fg:#eaeef5;--soft:#232a35;--line:#9aa5b4;--accent:#7db7ff;--note:#4a4215;--ink:#fbf6dc}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:var(--fg);background:var(--bg)}
+h1,h2,p{margin:0 0 8px}h2{font-size:1.1rem}
+button,input{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 10px;max-width:100%}
+:disabled{opacity:.55}:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.tools button{white-space:nowrap}
+main{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(284px,1fr))}
+section{border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+#board{position:relative;width:258px;height:262px;margin:0 auto 8px;background:var(--soft);border:1px dashed var(--line)}
+.note{position:absolute;width:120px;height:80px;padding:4px 6px;font-size:13px;line-height:1.25;text-align:left;overflow-wrap:anywhere;color:var(--ink);background:var(--note)}
+.note[aria-pressed=true]{border:2px solid var(--accent)}.number{font-weight:700}
+dialog{width:min(30rem,90vw);color:var(--fg);background:var(--bg);border:1px solid var(--line)}li{overflow-wrap:anywhere}
+</style>
+<h1>WORDROOM</h1><p>Arrange a small idea</p><p>Sample data: a local word board.</p>
+<div class="tools" role="toolbar" aria-label="Tools">
+  <button id="add" onclick="addNote()">Add note</button><button id="undo" onclick="undo()">Undo</button><button id="redo" onclick="redo()">Redo</button>
+  <button id="delete" onclick="deleteSelected()">Delete selected</button><button onclick="exportPreview(this)">Export preview</button></div>
+<main>
+<section aria-labelledby="board-title"><h2 id="board-title">Artboard</h2><div id="board"></div>
+  <p id="count" role="status"></p><p>Focus a note and press the arrow keys to move it inside the artboard.</p></section>
+<section aria-labelledby="inspector-title"><h2 id="inspector-title">Inspector</h2><p id="selection"></p>
+  <label for="text">Text</label> <input id="text" maxlength="32" oninput="editText()" onblur="editing=false">
+  <p id="position"></p><p>Up to 32 characters, kept as literal text. Undo and Redo keep the last 50 actions.</p></section>
+</main>
+<dialog aria-labelledby="export-title"><h2 id="export-title">Export preview</h2><ul id="export"></ul><p id="export-empty">No notes yet.</p>
+  <p>Local demo: a preview only, no upload.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const WIDTH=256,HEIGHT=260,NOTE_WIDTH=120,NOTE_HEIGHT=80,STEP=8,LIMIT=6,KEEP=50;
+let notes=[],selected=null,next=1,serial=1,past=[],future=[],editing=false;
+const el=id=>document.getElementById(id),F=name=>window.fault===name;
+const current=()=>notes.find(note=>note.id===selected),focusSelected=()=>el('board').querySelector('[aria-pressed=true]')?.focus();
+const make=(tag,text)=>{const node=document.createElement(tag);node.textContent=text;return node;};
+// Every action first records the notes and the selection; Undo and Redo exchange whole records,
+// so an undone delete returns the same note at the same place with the same selection.
+const record=()=>JSON.stringify({notes,selected,next});
+function restore(state){({notes,selected,next}=JSON.parse(state));editing=false;}
+function commit(){
+  past.push(record());if(past.length>(F('history-keeps-ten')?10:KEEP))past.shift();
+  if(!F('redo-kept-after-new-edit'))future=[];editing=false;
+}
+function undo(){if(!past.length)return;future.push(record());restore(past.pop());if(F('undo-drops-selection'))selected=null;render();}
+function redo(){if(!future.length)return;past.push(record());restore(future.pop());render();}
+function addNote(){
+  if(notes.length>=LIMIT&&!F('capacity-not-enforced'))return;
+  commit();const number=F('note-numbers-repeat')?1:next++,slot=(number-1)%6;selected=serial++;
+  notes.push({id:selected,number,text:'Note '+number,x:8+slot*20,y:8+slot*30});render();
+}
+function select(id){if(id===selected)return;selected=id;editing=false;render();}
+function editText(){
+  const note=F('edit-wrong-note')?notes[0]:current();if(!note)return;
+  if(!editing){if(!F('edit-not-in-history'))commit();editing=true;} // one typing session is one action
+  note.text=el('text').value.slice(0,32);render();
+}
+function deleteSelected(){
+  if(!current())return;if(!F('delete-not-undoable'))commit();
+  notes.splice(F('delete-wrong-note')?0:notes.indexOf(current()),1);selected=null;render();
+}
+function nudge(event,note){
+  const by={ArrowLeft:[-STEP,0],ArrowRight:[STEP,0],ArrowUp:[0,-STEP],ArrowDown:[0,STEP]}[event.key];if(!by)return;
+  event.preventDefault();
+  const x=Math.max(0,Math.min(WIDTH-NOTE_WIDTH,note.x+by[0])),y=Math.max(0,Math.min(HEIGHT-NOTE_HEIGHT,note.y+by[1]));
+  if(x===note.x&&y===note.y)return;
+  if(!F('move-not-in-history'))commit();note.x=x;note.y=y;render();
+}
+function exportPreview(button){
+  button.focus();const list=el('export');list.replaceChildren();
+  for(const note of notes)list.append(make('li',`Note ${note.number}: “${note.text}” at x ${note.x}, y ${note.y}`));
+  el('export-empty').hidden=notes.length>0;document.querySelector('dialog').showModal();
+}
+function render(){
+  // The board is rebuilt; a note that held keyboard focus gets it back so repeated arrow keys keep working.
+  const board=el('board'),refocus=board.contains(document.activeElement),note=current(),input=el('text');
+  board.replaceChildren();
+  for(const item of notes){
+    const button=make('button',''),number=make('span','#'+item.number+' '),words=make('span','');
+    if(F('text-as-markup'))words.innerHTML=item.text;else words.textContent=item.text;
+    number.className='number';button.className='note';button.style.left=item.x+'px';button.style.top=item.y+'px';
+    button.setAttribute('aria-label',`Note ${item.number}: ${item.text}`);button.setAttribute('aria-pressed',item.id===selected);
+    button.onfocus=()=>select(item.id);button.onclick=()=>{select(item.id);focusSelected();};button.onkeydown=event=>nudge(event,item);
+    button.append(number,words);board.append(button);
+  }
+  if(refocus)focusSelected();
+  el('selection').textContent=note?'Selected: Note '+note.number:'No note selected.';
+  input.disabled=!note;if(input.value!==(note?note.text:''))input.value=note?note.text:'';
+  el('position').textContent=note?`Position: x ${note.x}, y ${note.y}`:'';
+  el('count').textContent=`${notes.length} of ${LIMIT} notes`+(notes.length?'':'. The artboard is empty: use Add note.');
+  el('add').disabled=notes.length>=LIMIT&&!F('capacity-not-enforced');el('undo').disabled=!past.length;
+  el('redo').disabled=!future.length;el('delete').disabled=!note;
+}
+render();
+</script></html>

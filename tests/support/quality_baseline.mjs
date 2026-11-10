@@ -146,6 +146,37 @@ function sourceFiles(dir, prefix = '') {
   return out.sort();
 }
 
+// The compilers and interpreters that build and run the engines and tests.
+// A tool that is absent is recorded as absent, not guessed.
+function toolchain() {
+  const version = (command, args) => {
+    try { return execFileSync(command, args, { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').find(Boolean)?.trim().slice(0, 200) || null; }
+    catch { return null; }
+  };
+  return { cc: version('cc', ['--version']), make: version('make', ['--version']), cmake: version('cmake', ['--version']),
+    node: process.version, python3: version('python3', ['--version']), git: version('git', ['--version']),
+    xcodebuild: os.platform() === 'darwin' ? version('xcodebuild', ['-version']) : null };
+}
+
+// The app bundles a user actually launches: the one built in the source tree
+// and the installed copies. Only these fixed locations are read.
+async function appBundles(root, home, platform) {
+  if (platform !== 'darwin') return [];
+  const out = [];
+  for (const bundle of [path.join(root, 'DStudio.app'), path.join(home, 'Applications/DStudio.app'), '/Applications/DStudio.app']) {
+    if (!fs.existsSync(bundle)) continue;
+    const row = { bundle, files: [] };
+    for (const rel of ['Contents/Info.plist', 'Contents/MacOS/DStudio', 'Contents/MacOS/dstudio-ocr']) {
+      const file = path.join(bundle, rel);
+      if (!fs.existsSync(file)) { row.files.push({ path: rel, missing: true }); continue; }
+      try { row.files.push({ path: rel, ...await hashStableFile(file), executed: false }); }
+      catch (error) { row.files.push({ path: rel, error: error.message }); }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 export async function captureBaseline(root, {
   fullWeights = false, extraStores = [], extraEngines = [], discoveryOptions = {},
 } = {}) {
@@ -159,7 +190,9 @@ export async function captureBaseline(root, {
     scope: 'Private source/build/weight provenance, NOT model correctness or runtime qualification.',
     host: { platform: os.platform(), release: os.release(), arch: os.arch(),
       cpu: os.cpus()[0]?.model, cpus: os.cpus().length, memoryBytes: os.totalmem() },
-    repository: ownGitRevision(root), engines: [], files: [], errors: [] };
+    repository: ownGitRevision(root), toolchain: toolchain(),
+    bundles: await appBundles(root, discoveryOptions.home || os.homedir(), discoveryOptions.platform || os.platform()),
+    engines: [], files: [], errors: [] };
   console.log(`Baseline receipt: ${run}`);
   // Before any implementation, preserve the complete staged + unstaged change.
   write('worktree.patch', git(root, ['diff', '--binary', 'HEAD'], { encoding: 'buffer' }));
@@ -181,8 +214,11 @@ export async function captureBaseline(root, {
       // MLX checkpoints are folders of safetensors below the store's `mlx` directory.
       const folders = path.join(alias, 'mlx');
       try {
-        for (const entry of fs.readdirSync(folders, { withFileTypes: true }))
-          if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'venv') stores.push(path.join(folders, entry.name));
+        // A model folder is often a link to weights kept elsewhere: follow it.
+        for (const name of fs.readdirSync(folders).sort()) {
+          if (name.startsWith('.') || name === 'venv') continue;
+          if (fs.statSync(path.join(folders, name), { throwIfNoEntry: false })?.isDirectory()) stores.push(path.join(folders, name));
+        }
       } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') receipt.errors.push({ file: folders, error: error.message }); }
     }
     const engine = { ...location, git: ownGitRevision(real), sourceReceipt: null, sources: [], binaries: [] };

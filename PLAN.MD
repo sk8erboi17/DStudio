@@ -4,7 +4,8 @@ Updated November 10, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete. On November 10, 2026
 the owner resumed it: complete every item of this plan and of
 [the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
-([P12](#p12)). This authorizes the campaign's sequential real-model runs on the
+([P12](#p12)) and, once that is finished, rewrite the README and re-record its
+media ([P13](#p13)). This authorizes the campaign's sequential real-model runs on the
 maintainer's Mac, including the owner-reserved quality reruns; it does not turn
 an unfinished, failed or blocked requirement into a pass.
 
@@ -183,7 +184,7 @@ adapter. Check the original checkpoint, matching processor/projector/encoder,
 engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
-Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12.
+Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11 → P12 → P13.
 V4.1 1017 Q2 follows the first group on the maintainer's Mac, with SSD expert
 streaming only ([its scope](#v41-ssd)). V4.1 Q4 and GLM stay in the denominator
 as BLOCKED until a contributor runs them ([contributor hardware](#contributors)).
@@ -308,12 +309,13 @@ patch migrations and retired-Next removal are implemented.
    explicitly recheck remote revisions and record the date/SHA; never make
    setup fetch or pull a moving upstream tree.
 2. Resolve the missing release receipts/reviews in
-   [the matrix](docs/engine-upstream.json). On October 25 it declares nine macOS
-   targets with 107 required gate slots and zero linked receipts (117 before
-   the Qwen targets moved to llama.cpp). This is incomplete qualification, not
-   107 failed tests. MLX, now the tenth selection, has no target yet: add it
-   with its required gates. Link existing evidence only when
-   its exact engine/patch/model/binary identities and scope match.
+   [the matrix](docs/engine-upstream.json). Since November 11 it declares ten
+   macOS targets with 135 required gate slots and zero linked receipts (nine
+   targets and 107 slots before). This is incomplete qualification, not 135
+   failed tests. MLX now has its target, and the three host-served targets
+   carry the gates required of every selection
+   ([what changed](docs/ENGINE_UPSTREAM_ALIGNMENT.md)). Link existing evidence
+   only when its exact engine/patch/model/binary identities and scope match.
 3. Complete Agent/Cowork dependency signatures, coordinated crash-safe
    publication of the runtime pair and verified recovery of legacy patched
    source markers. Preserve originals, backups and unrelated checkout edits.
@@ -606,12 +608,19 @@ permission/tool is BLOCKED with a ready procedure, never replaced by mock PASS.
 
 Status: IN_PROGRESS. Twenty-five offline systems now exist; the 18 frozen briefs
 and generation/resource harnesses cover the original nine systems only.
-The sixteen added systems require separate future generated-output qualification. Four interaction oracles are qualified; fourteen remain.
+The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the limits found are open (item 1).
 
 1. Qualify the remaining **14 domain interaction oracles** with independent
    positive/negative behavioral fixtures. Preserve current shared pipeline and
    qualified editorial/essay/repair/incident scenarios; reject deliberate
    broken behavior and keep late script/console errors observable.
+   Since November 11 all eighteen oracles have an authored reference page
+   with deliberate faults, checked in Chromium and WebKit, and the row helper
+   that made two oracles reject every page is corrected. Still open: the
+   correct pages some oracles and the WebKit audit still reject, and the
+   defects they do not detect, both listed in
+   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification).
+   Correct those before generated projects are graded.
 2. Generate **at least two projects per system: 18 projects** using
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human
@@ -756,15 +765,82 @@ proved by tests over every way the app is used.
 7. Rebuild and rerun whatever this step changes in the build qualified by P11;
    an earlier PASS does not transfer to changed code.
 
+Recorded on November 11, 2026, when the matrix was first written
+(`tests/fixtures/usage_matrix.json`; `node tests/support/usage_matrix.mjs`
+prints its coverage). It lists 628 usage cases in sixteen areas: 574 have at
+least one test, **54 have none**, and 243 are covered only by tests with
+authored model replies. Coverage was confirmed by reading the guides and the
+test files; it is a first complete pass, not yet reviewed row by row. Before
+anything is removed, the following inputs from that pass must be resolved:
+
+- The 54 uncovered cases each get a behavioral test, or an explicit recorded
+  reason why the case cannot be exercised on the maintainer's Mac.
+- Tests that execute only test-support code and no production behavior:
+  `research_http_cancel_test.mjs`, `roadmap_request_test.mjs`,
+  `http_deadline_test.mjs`, `rsa_collectors_matrix_test.mjs`,
+  `design_control_probe_test.mjs`, `design_resume_checkpoint_test.mjs`,
+  `design_pages_release_gate_test.mjs`, `lumen_disclosure_contract_test.mjs`.
+  Some check a grader or harness that other tests depend on; decide per file
+  whether that is its stated purpose (then say so in its guide) or whether it
+  is removed under item 5.
+- Assertions that could not fail, corrected on November 11: the "did not stop
+  its own worker" checks in `http_lan_test.sh` now observe the worker for a
+  bounded time; the Learn test's rejected-claim pattern now matches the
+  rejected text and the repaired practice is required; the harness live test
+  no longer passes its outside-workspace case when no read is attempted (not
+  yet rerun on real weights); two assertions in `engine_acceptance.mjs` on a
+  field nothing set are removed. Still open:
+  `ui_live_vision_playwright_test.mjs` attaches no image and grades no reply.
+- Guide statements wider than what runs, to correct in the guides or by
+  extending the test: case counts that drifted (`test-launch-preflight`,
+  `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,
+  first launch, stream scenarios, `test-llama-resident-live`); suites
+  described as Chromium and WebKit that `check-fast` runs in Chromium only
+  (`ui_agent_design`, `ui_model_picker`, `ui_think_max_context`, plan mode,
+  `ui_gsa`, `ui_rsa`); `test-setup-live` and `test-engine-acceptance` described
+  for four engines; Qwen branches described for `test-agent-compaction` and
+  `test-agent-continuation`; patch-migration base counts;
+  `test-ui-lan-cowork` described as the same flow as its HTTP test; the 64 MiB
+  and 64-caller history limits that no test executes.
+
 Acceptance: the usage-case matrix passes before and after; every removal has a
 recorded reason and passing differential evidence; the reduction (files, lines,
 build time, binary size) is reported as measured; no requirement, failure or
 capability disappeared.
 
+<a id="p13"></a>
+## P13 — Rewrite the README and re-record every GIF and screenshot
+
+Status: TO_DO. Added November 11, 2026 at the owner's request, to be done once
+P0–P12 are finished.
+
+1. Rewrite `README.md` in full from the verified outcomes of the finished
+   campaign: what the app does, what was measured, on which models and
+   configurations, and what is still unsupported or blocked. No claim without
+   its receipt; retained failures stay visible.
+2. Re-record every GIF and screenshot used by the README and the documentation
+   with headless Playwright and ffmpeg, from committed recording scripts, so
+   that each one can be regenerated. They must be presentable: zoom into the
+   part that matters, a camera that follows the caret while text is typed, and
+   smooth animated transitions between steps.
+3. Record the production page. Where a recording uses authored model replies
+   instead of a real engine, say so next to it; never present a simulated
+   reply as model output. No private documents, prompts, paths or
+   conversations in any frame.
+4. Inspect the rendered frames and the final files, not only the script's exit
+   status: legible text at the published size, both themes where relevant,
+   sensible duration and file size, no leftover debug overlay.
+5. Replace the old media, update every reference, and remove files nothing
+   links any more.
+
+Acceptance: every image and GIF in the README and documentation comes from a
+committed script and was inspected after rendering; the README states only
+verified outcomes; no dead link or orphaned media file remains.
+
 <a id="closure"></a>
 ## Closure
 
-Every P0–P12 row remains open until its remaining implementation and exact
+Every P0–P13 row remains open until its remaining implementation and exact
 acceptance evidence are complete. A completed scoped fix is removed from the
 implementation backlog while its invalidated or missing acceptance checks stay.
 Missing authority, credentials, permissions, compatible reference or Mac
@@ -778,10 +854,10 @@ comparisons, justified profiling, reviewed final-build publication and the
 final simplification with its passing usage-case matrix.
 
 <a id="proposals"></a>
-## Proposed modules and improvements (outside P0–P12)
+## Proposed modules and improvements (outside P0–P13)
 
 Added October 25, 2026; proposal 13 added November 4. None is implemented or scheduled: these are candidates,
-not acceptance requirements of P0–P12, and starting one is the owner's decision.
+not acceptance requirements of P0–P13, and starting one is the owner's decision.
 Each statement about the current code was checked against the source. Effort is
 a rough estimate (S/M/L), not a measurement.
 

@@ -1,0 +1,36 @@
+{
+  "case": "atlas-pocket-guide",
+  "steps": 1,
+  "faults": [
+    {
+      "name": "map-off-by-one",
+      "caughtAs": "Missing visible content: Paper house",
+      "flags": ""
+    },
+    {
+      "name": "stale-details",
+      "caughtAs": "Unexpected visible content: North garden",
+      "flags": ""
+    },
+    {
+      "name": "map-not-filtered",
+      "caughtAs": "Unexpected visible content: /North garden/",
+      "flags": ""
+    },
+    {
+      "name": "search-replaces-category",
+      "caughtAs": "Missing visible content: No places found",
+      "flags": ""
+    },
+    {
+      "name": "clear-keeps-category",
+      "caughtAs": "Missing visible content: North garden",
+      "flags": ""
+    },
+    {
+      "name": "notes-previous-place",
+      "caughtAs": "Missing visible content: /Paper house/",
+      "flags": ""
+    }
+  ]
+}

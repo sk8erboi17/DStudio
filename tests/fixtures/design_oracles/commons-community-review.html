@@ -1,0 +1,91 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored community-review oracle fixture</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff;max-width:44rem}
+button,textarea{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+button[aria-pressed=true]{border-width:3px;font-weight:700}
+nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap}nav p{margin:0}
+textarea{display:block;width:100%}ul{padding:0;list-style:none}li{margin:10px 0;overflow-wrap:anywhere}li span{display:block}
+section{margin:20px 0}#report{border:1px solid #8c96a2;padding:12px}#report button{margin:8px 8px 0 0}
+dialog{width:min(32rem,90vw);color:inherit;background:inherit;overflow-wrap:anywhere}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>COMMON GROUND</h1><p>Community review desk</p>
+<p>Local demo with Sample data. No real member or post is affected, and every resolution here can be undone.</p>
+<nav aria-label="Report status">
+  <button id="show-pending" onclick="setFilter('Pending')">Pending</button><p id="pending-count"></p>
+  <button id="show-resolved" onclick="setFilter('Resolved')">Resolved</button><p id="resolved-count"></p>
+</nav>
+<section aria-labelledby="list-title"><h2 id="list-title">Reports</h2><ul id="reports"></ul><p id="no-reports" role="status" hidden></p></section>
+<section id="report" aria-labelledby="report-title" hidden>
+  <h2 id="report-title"></h2><p id="report-state"></p>
+  <h3>Original sample message</h3><p id="report-message"></p>
+  <div id="reason-form"><label for="reason">Reason</label><textarea id="reason" rows="3" required oninput="updateDraft()"></textarea>
+    <button id="resolve-button" onclick="resolveReport()">Resolve</button></div>
+  <p id="recorded" hidden></p>
+  <button id="undo-button" onclick="undoResolution()" hidden>Undo resolution</button>
+  <button onclick="showDetails(this)">Details</button>
+</section>
+<dialog aria-labelledby="details-title"><h2 id="details-title"></h2>
+  <h3>Original sample message</h3><p id="details-message"></p><h3>Last reason</h3><p id="details-reason"></p>
+  <button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const reports=[['Missing event details','The picnic post gives no time or meeting place.'],
+  ['Duplicate introduction','This welcome note was posted twice in one thread.'],
+  ['Broken resource link','The reading-list link opens an empty page.']]
+  .map(([title,message])=>({title,message,state:'Pending',draft:'',reason:''}));
+let selected=null,filter='Pending';
+const el=id=>document.getElementById(id);
+const draftOwner=index=>reports[window.fault==='shared-reason-draft'?0:index];
+const rows=reports.map((report,index)=>{
+  const row=document.createElement('li'),button=document.createElement('button'),state=document.createElement('span');
+  button.textContent=report.title;button.onclick=()=>openReport(index);row.append(button,state);el('reports').append(row);
+  return {row,state};
+});
+function render(){
+  const pending=reports.filter(report=>report.state==='Pending').length;
+  el('pending-count').textContent='Pending: '+pending;el('resolved-count').textContent='Resolved: '+(reports.length-pending);
+  el('show-pending').setAttribute('aria-pressed',String(filter==='Pending'));el('show-resolved').setAttribute('aria-pressed',String(filter==='Resolved'));
+  let any=false;
+  reports.forEach((report,index)=>{
+    const show=report.state===filter;rows[index].row.hidden=!show;rows[index].state.textContent=report.state;any=any||show;
+  });
+  el('no-reports').hidden=any;el('no-reports').textContent=`No ${filter.toLowerCase()} reports.`;
+  el('report').hidden=selected===null;
+  if(selected===null)return;
+  const report=reports[selected],resolved=report.state==='Resolved';
+  el('report-title').textContent=report.title;el('report-state').textContent='Status: '+report.state;el('report-message').textContent=report.message;
+  el('reason-form').hidden=resolved;el('recorded').hidden=!resolved;el('recorded').textContent='Recorded reason: '+report.reason;
+  el('undo-button').hidden=!resolved;
+  el('resolve-button').disabled=window.fault!=='resolve-enabled-when-empty'&&draftOwner(selected).draft.trim()==='';
+}
+function setFilter(value){filter=value;render();}
+function openReport(index){selected=index;el('reason').value=draftOwner(index).draft;render();}
+function updateDraft(){draftOwner(selected).draft=el('reason').value;render();}
+function resolveReport(){
+  const text=draftOwner(selected).draft;
+  if(text.trim()===''&&window.fault!=='resolve-enabled-when-empty')return;
+  const report=reports[window.fault==='resolve-wrong-report'?(selected+1)%reports.length:selected];
+  report.reason=text;if(window.fault!=='resolve-keeps-pending')report.state='Resolved';
+  render();
+}
+function undoResolution(){
+  if(window.fault==='undo-toggles-all')reports.forEach(report=>report.state=report.state==='Resolved'?'Pending':'Resolved');
+  else reports[selected].state='Pending';
+  render();
+}
+function showDetails(button){
+  button.focus();const report=reports[selected];
+  el('details-title').textContent=report.title;el('details-message').textContent=report.message;
+  if(!report.reason)el('details-reason').textContent='No reason recorded yet.';
+  else if(window.fault==='markup-reason')el('details-reason').innerHTML=report.reason;
+  else el('details-reason').textContent=report.reason;
+  document.querySelector('dialog').showModal();
+}
+render();
+</script></html>

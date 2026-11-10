@@ -42,6 +42,8 @@ try {
   assert.deepEqual(row('tests/unit/one_test.mjs').gates, ['check-fast']);
   assert.deepEqual(row('tests/unit/two_test.py').gates, ['check-fast'], 'reached through a prerequisite target');
   assert.deepEqual(row('tests/unit/native_unit.c').gates, ['check-fast'], 'a compiled test is reached through its binary');
+  assert.deepEqual(row('tests/unit/native_unit.c').targets, ['native'], 'the named target that runs a compiled test is listed, not its build product');
+  assert.deepEqual(row('tests/unit/native_unit.c').buildProducts, ['tests/.build/native_unit']);
   assert.deepEqual(row('tests/live/real_test.mjs').gates, ['check-real']);
   assert.deepEqual([row('tests/integration/manual_test.mjs').reached, row('tests/integration/manual_test.mjs').gates], [true, []]);
   assert.deepEqual(row('tests/unit/helper_case.mjs').gates, ['check-fast'], 'an imported case file inherits its importer');

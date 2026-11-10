@@ -12,10 +12,24 @@ receipts and unresolved source reviews. It must fail admission until those
 items are resolved. Its rows are requirements, not an announcement that all
 models, backends or modes work.
 
-The November 4 reconciliation counts nine macOS targets, **107 required
-gate slots and zero linked receipts** in that matrix. MLX is the tenth campaign
-selection but still lacks an admission target; adding it remains open.
-These are missing bound qualification records, not 107 failed tests.
+Since November 11 the matrix declares ten macOS targets, **135 required gate
+slots and zero linked receipts**. These are missing bound qualification
+records, not 135 failed tests. That day the MLX Qwen3.6 MXFP8 selection gained
+its target (`mlx/macos/metal/qwen36-mxfp8`: MLX is installed from verified
+wheels, so its two tracks record the upstream revisions those wheels were
+released from, and its patch set is the three versioned mlx-lm adaptations),
+and the three host-served targets (llama.cpp Qwen3.6, llama.cpp Qwen3.8-27B
+and MLX) gained the gates the campaign requires of every selection: numerics,
+quality-100, install-upgrade, learn, desktop and design-runtime, plus textual
+isolation for the text-only ones and vision-pdf-50 for 27B. The November 4
+reconciliation counted nine targets and 107 slots.
+`make test-engine-upstream-manifest` (in `check-fast`) now checks, without
+network or Git history, that every patch-set entry hashes to its recorded
+SHA-256 and that every target's installer is the one the built app reports.
+It was added because thirteen entries of the main and Laguna patch sets had
+gone stale: seven patch and runtime files had changed without the manifest
+being refreshed. They were refreshed on November 11; no receipt was bound to
+the earlier digests. This check is not the commit-by-commit source review.
 The October 1 audit's 117-slot count is historical: the Qwen targets later
 moved to llama.cpp with different required gates. Existing scoped results may be
 linked only after checking the exact source/patch/binary/model identity and gate
@@ -39,7 +53,7 @@ The vagrillo/ds4 Qwen3.6 fork (`73434c4`), Ninnix/q36 (`1305843`) and the
 signalnine/q27 candidate (`8cd7083`) were retired on October 3, 2026; their
 earlier receipts stay under `docs/upstream/` and `docs/history/`.
 
-The matrix declares nine macOS Metal targets. On September 29, 2026 the user
+The matrix declares ten macOS Metal targets. On September 29, 2026 the user
 limited the campaign to macOS on Apple Silicon; the 23 Linux and six Windows
 targets (CPU, CUDA, ROCm, Vulkan) were removed as out of scope, not qualified.
 The same decision keeps only the Vision-Exp DeepSeek V4 Flash checkpoint; its
@@ -84,8 +98,8 @@ also passed 42 native/projector stages and 13 native search-extractor fixtures
 in each of Chromium/WebKit; those browser fixtures did not perform live search
 or language generation. The
 [update checkpoint](DS41_UPDATE_CHECKPOINT.md) retains the original failures
-and exact scope. Patch-set hashes are current, but no missing release/model
-receipt is filled by these fixture tests.
+and exact scope. Patch-set hashes were refreshed on November 11 (see above),
+but no missing release/model receipt is filled by these fixture tests.
 
 The two new rows are V4.1 Q2/Q4 Metal candidates. Engram and expert SSD streaming
 have an explicit required gate; no V4.1 CUDA/ROCm/CPU row is invented. The

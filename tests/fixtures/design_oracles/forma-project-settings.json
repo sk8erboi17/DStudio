@@ -1,0 +1,51 @@
+{
+  "case": "forma-project-settings",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "cancel-active-tab-only",
+      "caughtAs": "\\+ 'Draft only'\\s+- 'Studio notes'",
+      "flags": ""
+    },
+    {
+      "name": "toggles-skip-draft",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "empty-name-accepted",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "no-invalid-focus",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "name-limit-not-enforced",
+      "caughtAs": "evaluated to a falsy value:\\s+assert\\.ok\\(await name\\.evaluate",
+      "flags": ""
+    },
+    {
+      "name": "review-before-from-draft",
+      "caughtAs": "Missing visible content: /Studio notes/",
+      "flags": ""
+    },
+    {
+      "name": "dirty-check-against-defaults",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "cancel-restores-defaults",
+      "caughtAs": "\\+ 'Studio notes'\\s+- 'Small studio'",
+      "flags": ""
+    },
+    {
+      "name": "saved-aliases-draft",
+      "caughtAs": "\\+ 'Uncommitted'\\s+- 'Small studio'",
+      "flags": ""
+    }
+  ]
+}

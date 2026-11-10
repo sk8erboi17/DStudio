@@ -15,7 +15,7 @@ history and original failures are retained in
 ## Remaining cross-engine work
 
 1. Complete applicable upstream-delta/equivalence reviews and exact qualifying
-   receipts for the nine macOS targets in [engine-upstream.json](engine-upstream.json).
+   receipts for the ten macOS targets in [engine-upstream.json](engine-upstream.json).
    Main's active recorded pin is 890898c (0aaea5a until November 3, 2026); the old update revisions remain
    historical, not the identity of the final build.
 2. Complete Agent/Cowork dependency signatures, coordinated crash-safe runtime

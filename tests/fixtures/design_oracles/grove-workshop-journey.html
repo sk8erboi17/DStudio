@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored workshop-journey oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}button:disabled{opacity:.55}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+main{display:grid;gap:16px}section{min-width:0}#journey{border:1px solid #8c96a2;padding:12px}
+ol{margin:0;padding-left:24px}[aria-current]{font-weight:700;text-decoration:underline}
+fieldset{min-width:0;margin:0 0 12px;padding:4px 12px;border:1px solid #8c96a2}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:10px;margin:10px 0}
+.choice input{width:1.2em;height:1.2em;margin:.15em 0 0;color:inherit;background:transparent}
+.choice strong{display:block}dt{font-weight:700}dd{margin:0 0 8px}
+@media(min-width:768px){main{grid-template-columns:1fr 1fr;align-items:start}}
+@media(prefers-color-scheme:dark){body{color:#eaeef5;background:#181b22}}
+</style>
+<p>NEIGHBOURHOOD LAB</p><h1>Make room to learn</h1>
+<main>
+<section id="journey" aria-labelledby="step-title">
+<ol id="steps" aria-label="Journey steps"><li>Choose a workshop</li><li>Choose a day</li><li>Review</li></ol>
+<h2 id="step-title" tabindex="-1"></h2>
+<fieldset id="workshop-step"><legend>Workshops</legend>
+<label class="choice"><input type="radio" name="workshop" value="Bookbinding" onchange="pick('workshop',this.value)"><span><strong>Bookbinding</strong> Fold, stitch and cover a pocket notebook with simple hand tools.</span></label>
+<label class="choice"><input type="radio" name="workshop" value="Bicycle care" onchange="pick('workshop',this.value)"><span><strong>Bicycle care</strong> Clean a chain, mend a puncture and set your brakes with a patient mechanic.</span></label>
+<label class="choice"><input type="radio" name="workshop" value="Urban sketching" onchange="pick('workshop',this.value)"><span><strong>Urban sketching</strong> Draw the square outside in pencil and ink, one quick study at a time.</span></label></fieldset>
+<fieldset id="day-step"><legend>Days</legend>
+<label class="choice"><input type="radio" name="day" value="Tuesday" onchange="pick('day',this.value)"><span>Tuesday</span></label>
+<label class="choice"><input type="radio" name="day" value="Thursday" onchange="pick('day',this.value)"><span>Thursday</span></label></fieldset>
+<dl id="review-step"></dl>
+<p id="done-step">No booking was made. This was a local demo with sample data.</p>
+<p><button id="back" onclick="go(-1)">Back</button> <button id="next" onclick="go(1)">Continue</button>
+<button id="confirm" onclick="finish()">Confirm</button> <button id="restart" onclick="restart()">Start again</button></p>
+</section>
+<section aria-labelledby="intro-title"><h2 id="intro-title">An evening with neighbours</h2>
+<p>Pick one small workshop, bring nothing but curiosity and learn beside people from your street.</p>
+<p>Sample data: every workshop, day and confirmation here is fictional.</p></section>
+</main>
+<script>
+window.fault='';
+const titles=['Choose a workshop','Choose a day','Review','Journey complete'];
+let state={step:0,workshop:'',day:''};
+const el=id=>document.getElementById(id);
+function render(){
+  const step=state.step,dead=window.fault==='confirm-does-nothing';
+  document.querySelectorAll('#steps li').forEach((item,i)=>i===step?item.setAttribute('aria-current','step'):item.removeAttribute('aria-current'));
+  el('step-title').textContent=titles[step];
+  ['workshop-step','day-step','review-step'].forEach((id,i)=>el(id).hidden=i!==step);
+  el('done-step').hidden=!(step===3||dead&&step===2);
+  for(const key of ['workshop','day'])el(key+'-step').querySelectorAll('input').forEach((input,i)=>{
+    input.name=window.fault==='radios-not-grouped'?key+i:key;
+    if(window.fault!=='restart-leaves-radio-checked')input.checked=input.value===state[key];
+  });
+  el('next').hidden=step>1;el('next').disabled=step===0?!state.workshop:!(state.day||window.fault==='day-not-required');
+  el('back').hidden=step===0||step===3;el('confirm').hidden=step!==2;el('restart').hidden=step!==3;
+  const workshop=window.fault==='review-first-option'?el('workshop-step').querySelector('input').value:state.workshop;
+  el('review-step').replaceChildren(...[['dt','Workshop'],['dd',workshop],['dt','Day'],['dd',state.day]]
+    .map(([tag,value])=>Object.assign(document.createElement(tag),{textContent:value})));
+}
+function pick(key,value){state[key]=value;render();}
+function go(change){
+  if(change<0&&state.step===2&&window.fault==='back-forgets-day')state.day='';
+  state.step+=change;render();el('step-title').focus();
+}
+function finish(){if(window.fault!=='confirm-does-nothing')go(1);}
+function restart(){
+  state=window.fault==='restart-keeps-choices'?{...state,step:0}:{step:0,workshop:'',day:''};
+  render();el('step-title').focus();
+}
+render();
+</script></html>

@@ -488,6 +488,22 @@ test-census:
 
 check-fast: test-census
 
+# The gate runner: `node tests/support/gate_run.mjs check-fast` runs a gate one
+# target at a time and keeps a receipt and a log per target.
+.PHONY: test-gate-run
+test-gate-run:
+	@node tests/unit/gate_run_test.mjs
+
+check-fast: test-gate-run
+
+# The usage-case matrix (every way the app is used and the test that executes
+# it): `node tests/support/usage_matrix.mjs` prints its coverage.
+.PHONY: test-usage-matrix
+test-usage-matrix:
+	@node tests/unit/usage_matrix_test.mjs
+
+check-fast: test-usage-matrix
+
 # Real host HTTP and process groups with tiny fixture download scripts: a
 # vision-capable model download continues with its own encoder. No weights.
 .PHONY: test-model-vision-companion
@@ -779,6 +795,14 @@ test-engine-upstream:
 
 test-engine-pins: $(TEST_SERVER)
 	@node tests/integration/engine_pins_test.mjs "$(TEST_SERVER)"
+
+# The shipped admission manifest against the shipped patches and the built
+# app's installer pins. No network or Git history: not the source review.
+.PHONY: test-engine-upstream-manifest
+test-engine-upstream-manifest: $(TEST_SERVER)
+	@node tests/integration/engine_upstream_manifest_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-engine-upstream-manifest
 
 check-fast: test-engine-upstream test-engine-pins
 

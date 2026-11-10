@@ -1237,8 +1237,12 @@ try {
     'the verification record should retain the factual repair round');
   assert.equal(savedReply?.roadmapVerification?.effectiveThinking, selectedEffective);
   assert.equal(savedReply?.roadmapVerification?.requiredContextTokens, selectedMinimum);
-  assert.doesNotMatch(savedReply?.content || '', /HTML permits any number of simultaneous main landmarks/,
+  // The rejected draft said "HTML permits any number of main landmarks". (The
+  // earlier pattern had an extra word and could never match.)
+  assert.doesNotMatch(savedReply?.content || '', /permits any number of main landmarks/,
     'the persisted Roadmap should contain the repaired claim rather than the rejected draft');
+  assert.match(savedReply?.content || '', /single visible main landmark/,
+    'the persisted Roadmap contains the repaired practice');
 
   // Add a child on the same visual branch and verify the graph override is persisted.
   await topicMenu(page, 'HTML semantico', 'Add a block after HTML semantico');

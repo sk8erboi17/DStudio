@@ -25,7 +25,7 @@ try {
   };
   const first=invoke(binary,['--engine-pins']);assert.equal(first.status,0,first.stderr);
   const pins=JSON.parse(first.stdout);assert.equal(pins.schema,'dstudio.engine-pins.v1');
-  const repositories={main:'antirez/ds4',laguna:'antirez/ds4',llama:'ggml-org/llama.cpp'};
+  const repositories={main:'antirez/ds4',laguna:'antirez/ds4',llama:'ggml-org/llama.cpp',mlx:'ml-explore/mlx-lm'};
   assert.deepEqual(pins.engines.map(e=>e.id).sort(),Object.keys(repositories).sort());
   assert.equal(pins.engines.find(e=>e.id==='main').commit,'890898cfb437ed256be58ebcf7c58a6dfa8f2f53');
   assert(!pins.engines.some(e=>e.directory==='ds4-qwen38'),'retired Qwen Next engine must not be installable');
@@ -37,8 +37,18 @@ try {
     assert.equal(engine.bundled,true);
     assert.equal(engine.sourceDirectory,`src/engines/${engine.directory}`);
   }
+  // MLX is installed from verified wheels: its pins are the upstream revisions
+  // recorded in the bundled wheel manifest, not a source archive DStudio builds.
+  const mlx=pins.engines.find(e=>e.id==='mlx');
+  const wheels=JSON.parse(fs.readFileSync('src/engines/mlx/manifest.json','utf8'));
+  assert.equal(mlx.wheels,true);
+  assert.ok(wheels.repositories['mlx-lm'].includes(`ml-explore/mlx-lm (v${wheels.pins['mlx-lm']}, ${mlx.commit})`),
+    'the exported mlx-lm revision is the one the bundled wheel manifest records');
+  assert.match(mlx.runtimeCommit,/^[a-f0-9]{40}$/);
+  assert.ok(wheels.repositories.mlx.includes(`ml-explore/mlx (v${wheels.pins.mlx}, ${mlx.runtimeCommit})`),
+    'the exported mlx revision is the one the bundled wheel manifest records');
   const sources=JSON.parse(fs.readFileSync('src/engines/manifest.json','utf8'));
-  for(const engine of pins.engines) {
+  for(const engine of pins.engines.filter(e=>e.id!=='mlx')) {
     const shipped=sources.engines[engine.id];
     assert.equal(shipped.commit,engine.commit);
     assert.equal(shipped.directory,engine.directory);

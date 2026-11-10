@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored session-board oracle fixture</title>
+<style>
+:root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+button:focus-visible{outline:3px solid #3874e6;outline-offset:2px}button[aria-pressed=true]{border-width:3px;font-weight:700}
+ul,ol{list-style:none;margin:0;padding:0}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#sessions li{display:grid;grid-template-columns:3.5rem 1fr auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid #8c96a2}
+time{font-weight:700}small{display:block}dialog{width:min(30rem,90vw);color:inherit;background:inherit}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<h1>FREQUENCY</h1><p>Your session board</p><p>Sample data: a fictional creative-festival programme.</p>
+<div class="bar" role="group" aria-label="Part of day">
+  <button onclick="setFilter('All')">All</button><button onclick="setFilter('Morning')">Morning</button>
+  <button onclick="setFilter('Afternoon')">Afternoon</button></div>
+<section aria-labelledby="programme"><h2 id="programme">Programme</h2><ul id="sessions"></ul></section>
+<section aria-labelledby="day"><h2 id="day">My day</h2><p id="count"></p><p id="message" role="status"></p>
+  <div class="bar"><button onclick="review(this)">Review my day</button><button onclick="finish()">Finish demo</button></div>
+  <p id="done" role="status"></p></section>
+<dialog aria-labelledby="review"><h2 id="review">My day in order</h2><ol></ol><p id="none">Your day is empty.</p>
+  <button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const sessions=[['Sound walks','10:00'],['Poster room','10:00'],['Light studies','14:00']];
+// chosen keeps the order of selection; slots maps a start time to the session holding it.
+let chosen=[],filter='All',message='',done='';const slots={};
+const el=id=>document.getElementById(id),part=time=>time<'12:00'?'Morning':'Afternoon';
+const rows=sessions.map(([title,time],i)=>{
+  const row=document.createElement('li');row.innerHTML=`<time>${time}</time><div><strong>${title}</strong><small></small></div><button></button>`;
+  row.querySelector('button').onclick=()=>toggle(i);el('sessions').append(row);return row;});
+function render(){
+  rows.forEach((row,i)=>{
+    const [title,time]=sessions[i],inDay=chosen.includes(i),button=row.querySelector('button');
+    row.hidden=filter!=='All'&&part(time)!==filter;row.querySelector('small').textContent=inDay?'In my day':'';
+    button.textContent=inDay?'Remove':'Add to my day';
+    button.setAttribute('aria-label',inDay?`Remove ${title} from my day`:`Add to my day: ${title}`);});
+  for(const button of document.querySelectorAll('[role=group] button'))button.setAttribute('aria-pressed',String(button.textContent===filter));
+  el('count').textContent=`${chosen.length} of 3 sessions chosen`;el('message').textContent=message;el('done').textContent=done;
+}
+function setFilter(value){
+  filter=value;
+  if(window.fault==='filter-drops-choices')chosen=chosen.filter(i=>filter==='All'||part(sessions[i][1])===filter);
+  render();
+}
+function toggle(i){
+  const [title,time]=sessions[i],held=slots[time];done='';
+  if(chosen.includes(i)){
+    chosen=chosen.filter(j=>j!==i);if(window.fault!=='slot-not-freed')delete slots[time];
+    message=`${title} removed. The ${time} slot is free.`;
+  }else if(held!==undefined&&window.fault!=='conflict-accepted'){
+    const other=sessions[held][0];
+    if(window.fault==='conflict-replaces'){chosen=chosen.filter(j=>j!==held).concat(i);slots[time]=i;}
+    message=window.fault==='silent-rejection'?'':`${title} conflicts with ${other} at ${time}. ${other} stays in your day.`;
+  }else{
+    chosen.push(i);slots[time]=i;
+    message=held===undefined?`${title} added at ${time}.`:`${title} conflicts with ${sessions[held][0]} at ${time}.`;
+  }
+  render();
+}
+function review(button){
+  button.focus();const list=document.querySelector('dialog ol');list.replaceChildren();
+  const day=window.fault==='review-insertion-order'?chosen:chosen.slice().sort((a,b)=>sessions[a][1].localeCompare(sessions[b][1])||a-b);
+  for(const i of day)list.insertAdjacentHTML('beforeend',`<li><time>${sessions[i][1]}</time> <span>${sessions[i][0]}</span></li>`);
+  el('none').hidden=day.length>0||window.fault==='missing-empty-review';document.querySelector('dialog').showModal();
+}
+function finish(){
+  done=window.fault==='false-reservation'?`Tickets reserved for ${chosen.length} sessions.`:'No tickets were reserved. This is a local demo.';render();
+}
+render();
+</script></html>

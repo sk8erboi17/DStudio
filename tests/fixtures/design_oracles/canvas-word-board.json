@@ -1,0 +1,61 @@
+{
+  "case": "canvas-word-board",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "note-numbers-repeat",
+      "caughtAs": "notes require distinct accessible identities",
+      "flags": ""
+    },
+    {
+      "name": "text-as-markup",
+      "caughtAs": "Missing visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "edit-wrong-note",
+      "caughtAs": "strictly equal:[\\s\\S]*\\+ 'Note 2'[\\s\\S]*- '<b>literal & note</b>'",
+      "flags": ""
+    },
+    {
+      "name": "edit-not-in-history",
+      "caughtAs": "strictly equal:\\s+'Note 1' !== 'Note 2'",
+      "flags": ""
+    },
+    {
+      "name": "undo-drops-selection",
+      "caughtAs": "strictly equal:\\s+'' !== 'Note 2'",
+      "flags": ""
+    },
+    {
+      "name": "delete-wrong-note",
+      "caughtAs": "Unexpected visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "delete-not-undoable",
+      "caughtAs": "Missing visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "redo-kept-after-new-edit",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "move-not-in-history",
+      "caughtAs": "falsy value:[\\s\\S]*boundingBox\\(\\)\\)\\.x - before\\.x\\) <= 1",
+      "flags": ""
+    },
+    {
+      "name": "capacity-not-enforced",
+      "caughtAs": "strictly equal:\\s+8 !== 6",
+      "flags": ""
+    },
+    {
+      "name": "history-keeps-ten",
+      "caughtAs": "locator\\.click: Timeout[\\s\\S]*\\^Undo\\$[\\s\\S]*element is not enabled",
+      "flags": ""
+    }
+  ]
+}

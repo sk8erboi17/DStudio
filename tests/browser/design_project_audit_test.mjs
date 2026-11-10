@@ -11,6 +11,7 @@ import {measureProjectChoices} from '../support/design_project_layout.mjs';
 import {snapshotProject, serveProjectSnapshot, validateProjectAuditInput, auditProjectView} from '../support/design_project_audit.mjs';
 import {pathToFileURL} from 'node:url';
 import {validateDesignProjects} from '../support/design_project_cases.mjs';
+import {frozenCases, loadOracleFixtures, qualifyOracleFixture, serveOracleFixture} from '../support/design_oracle_qualification.mjs';
 
 const run = artifactRunDir('design-project-auditor'), workspace = path.join(run, 'fixture');
 fs.mkdirSync(workspace);
@@ -41,22 +42,14 @@ const choice = `<!doctype html><html><style>body{margin:20px;font:18px system-ui
 // must be reported as a geometry problem, not skipped because it uses `for`.
 fs.writeFileSync(path.join(workspace, 'choice.html'), choice, {flag: 'wx'});
 const original = snapshotProject(workspace), server = await serveProjectSnapshot(original);
+// One authored reference page per frozen case, with the deliberate faults its
+// oracle must reject: tests/fixtures/design_oracles/ (see the qualification
+// module). DSTUDIO_DESIGN_ORACLE_ONLY=CASE_ID[,CASE_ID] restricts this run.
+const frozen = frozenCases();
+const onlyOracles = String(process.env.DSTUDIO_DESIGN_ORACLE_ONLY || '').split(',').map(id => id.trim()).filter(Boolean);
 const domainFixtures=[];
-for(const [file,caseIndex,faults] of [
-  ['design-reading-list.html',1,[['same-essay',/identical bodies/],['shared-read',/Mark as read/],
-    ['shared-note',/Missing visible content/],['markup-note',/Missing visible content/],['empty-note',/empty note cannot/]]],
-  ['design-repair-queue.html',2,[['stale-state',/Unexpected visible content/],['broken-retry',/Missing visible content/],
-    ['wrong-detail',/Dialog does not match its table row/],['missing-empty',/Missing visible content/]]],
-  ['design-incident-board.html',3,[['shared-assignment',/assignee|strictly equal/i],
-    ['filter-reset-assignment',/assignee|strictly equal/i],['wrong-row-state',/Missing visible content|Expected one accessible/i],
-    ['missing-empty',/no open|AssertionError/i],['history-out-of-order',/history action order/i],
-    ['stale-counts',/incident count/i],['history-drop-earlier',/history action/i],['auto-apply-draft',/draft assignment/i]]],
-]){
-  const folder=path.join(run,file.replace('.html',''));fs.mkdirSync(folder);
-  fs.copyFileSync(new URL('../fixtures/'+file,import.meta.url),path.join(folder,'index.html'));
-  const snapshot=snapshotProject(folder);
-  domainFixtures.push({file,folder,caseIndex,faults,snapshot,server:await serveProjectSnapshot(snapshot)});
-}
+for (const fixture of loadOracleFixtures(frozen, {only: onlyOracles.length ? new Set(onlyOracles) : null}))
+  domainFixtures.push(await serveOracleFixture(fixture, run));
 const report = {scope: 'Authored fixture tests of audit correctness; no model generation or product-quality score', checks: []};
 const save = () => writeArtifact(run, 'report.json', report);
 async function check(name, fn) {
@@ -75,6 +68,11 @@ try {
   await check('all eighteen workflows have a scenario; malformed/partial provenance is rejected', async () => {
     assert.equal(validateProjectAuditInput(source, suite, digest).length, 18);
     assert.equal(Object.keys(designProjectScenarios).length, 18);
+    // Every frozen case has an authored reference page with deliberate faults:
+    // the first case uses the fixture written above, the other seventeen their
+    // own files. A filtered run checks only the selected ones.
+    if (!onlyOracles.length) assert.deepEqual(domainFixtures.map(fixture => fixture.spec.case).sort(),
+      cases.slice(1).map(c => c.id).sort(), 'an interaction oracle lost its qualification fixture');
     for (const change of [s => s.cases.pop(), s => s.cases[0].prompt = 'different task', s => s.cases[0].id = s.cases[1].id,
       s => s.suite.sha256 = 'd'.repeat(64), s => s.suite.selected.pop(), s => s.cases[0].status = 'running',
       s => s.model.sha256 = '', s => s.interrupted = true]) {
@@ -145,32 +143,7 @@ try {
         assert.equal((await measureProjectChoices(page))[0].clearsIndicatorColumn, false);
         await page.screenshot({path: path.join(run, `${name}-deliberately-broken-choices.png`)});
       });
-      for(const fixture of domainFixtures){
-        const c=cases[fixture.caseIndex];
-        for(const framed of [false,true])await check(`${name}: ${c.interaction} positive ${framed?'opaque':'standalone'}`,async()=>{
-          await page.goto(fixture.server.base+(framed?'/preview':'/project/index.html'));
-          const scope=framed?page.frameLocator('iframe'):page,steps=[];
-          await exerciseDesignProject(c,scope,page,async(label,fn)=>{await fn();steps.push(label);});
-          assert.equal(steps.length,fixture.caseIndex===1?3:2);
-        });
-        for(const [fault,pattern] of fixture.faults)await check(`${name}: ${c.interaction} catches ${fault}`,async()=>{
-          await page.goto(fixture.server.base+'/project/index.html');
-          await page.evaluate(fault=>{window.fault=fault;render();},fault);
-          let captured;
-          try{await exerciseDesignProject(c,page,page,async(_,fn)=>fn());}catch(error){captured=error;}
-          writeArtifact(run,`${name}-${c.id}-${fault}-expected-failure.json`,{
-            scope:'Deliberately defective authored oracle fixture, not a model failure',error:String(captured?.message)});
-          assert.ok(captured,'Deliberately broken workflow incorrectly passed');assert.match(captured.message,pattern);
-        });
-        for(const theme of ['light','dark'])await check(`${name}: ${c.interaction} complete ${theme} view pipeline`,async()=>{
-          const settings={id:`${name}-${theme}-domain`,engine:name,theme,width:390,frame:false,textScale:1,interactions:true};
-          const record={...settings,checks:[],screenshots:[]};
-          const saveView=()=>writeArtifact(run,`${name}-${theme}-${c.id}-fixture-audit.json`,record);
-          await auditProjectView(browser,{url:fixture.server.base+'/project/index.html',allowedPrefix:fixture.server.base+'/project/'},
-            c,settings,run,record,saveView);
-          assert.equal(record.status,'pass',JSON.stringify(record.checks.filter(row=>row.status!=='pass')));
-        });
-      }
+      for (const fixture of domainFixtures) await qualifyOracleFixture({name, browser, page, run, check}, fixture);
       await context.close();
     } finally { await browser.close(); }
   }

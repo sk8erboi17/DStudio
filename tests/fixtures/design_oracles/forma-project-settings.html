@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Authored oracle fixture, never a model-generated project or benchmark. -->
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authored project-settings oracle fixture</title>
+<style>
+*{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
+button,input[type=text]{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+input[type=text]{display:block;width:100%}button:disabled{opacity:.55}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+[aria-selected=true]{border-bottom:4px solid #3874e6;font-weight:700}
+main{display:grid;gap:16px}section{border:1px solid #8c96a2;padding:12px;min-width:0}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:10px;margin:12px 0}
+.choice input{width:1.2em;height:1.2em;margin:.15em 0 0;color:inherit;background:transparent}
+table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{padding:6px;text-align:left;overflow-wrap:anywhere}
+dt{font-weight:700}dd{margin:0 0 8px;overflow-wrap:anywhere}
+dialog{width:min(34rem,90vw);color:inherit;background:inherit}
+@media(min-width:768px){main{grid-template-columns:2fr 1fr}}
+@media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
+</style>
+<p>FORMROOM</p><h1>Project settings</h1><p>Sample data. Changes stay in this open page only.</p>
+<main>
+<section aria-labelledby="edit-title"><h2 id="edit-title">Edit settings</h2>
+<div role="tablist" aria-label="Settings sections">
+<button role="tab" id="tab-basics" aria-controls="basics" onclick="showTab('basics')">Basics</button>
+<button role="tab" id="tab-notifications" aria-controls="notifications" onclick="showTab('notifications')">Notifications</button></div>
+<div role="tabpanel" id="basics" aria-labelledby="tab-basics">
+<p><label for="name">Project name</label><input type="text" id="name" aria-required="true" aria-describedby="name-help name-error" oninput="edit()"></p>
+<p id="name-help">Required, up to 40 characters.</p><p id="name-error" role="alert" hidden></p></div>
+<div role="tabpanel" id="notifications" aria-labelledby="tab-notifications">
+<label class="choice"><input type="checkbox" id="digest" onchange="edit()"><span>Daily digest</span></label>
+<label class="choice"><input type="checkbox" id="alerts" onchange="edit()"><span>Comment alerts</span></label></div>
+<p><button onclick="review(this)">Review changes</button> <button id="save" onclick="save()">Save changes</button> <button onclick="cancel()">Cancel changes</button></p>
+<p id="status" role="status"></p></section>
+<section aria-labelledby="saved-title"><h2 id="saved-title">Saved summary</h2><dl id="summary"></dl></section>
+</main>
+<dialog aria-labelledby="review-title"><h2 id="review-title">Review changes</h2>
+<table><thead><tr><th>Setting</th><th>Before</th><th>After</th></tr></thead><tbody></tbody></table>
+<button onclick="this.closest('dialog').close()">Close</button></dialog>
+<script>
+window.fault='';
+const onOff=value=>value?'On':'Off';
+const rows=[['name','Project name',value=>value],['digest','Daily digest',onOff],['alerts','Comment alerts',onOff]];
+const initial={name:'Studio notes',digest:true,alerts:false};
+let saved={...initial},draft={...initial},tab='basics',error='';
+const el=id=>document.getElementById(id);
+function render(){
+  for(const id of ['basics','notifications']){el('tab-'+id).setAttribute('aria-selected',String(tab===id));el(id).hidden=tab!==id;}
+  if(el('name').value!==draft.name)el('name').value=draft.name;
+  el('digest').checked=draft.digest;el('alerts').checked=draft.alerts;
+  el('name').setAttribute('aria-invalid',String(Boolean(error)));el('name-error').textContent=error;el('name-error').hidden=!error;
+  const baseline=window.fault==='dirty-check-against-defaults'?initial:saved;
+  el('save').disabled=rows.every(([key])=>draft[key]===baseline[key]);
+  el('summary').replaceChildren(...rows.flatMap(([key,label,show])=>[['dt',label],['dd',show(saved[key])]])
+    .map(([tag,value])=>Object.assign(document.createElement(tag),{textContent:value})));
+}
+function showTab(id){tab=id;render();}
+function edit(){
+  draft.name=el('name').value;draft.digest=el('digest').checked;draft.alerts=el('alerts').checked;
+  if(window.fault==='toggles-skip-draft'){saved.digest=draft.digest;saved.alerts=draft.alerts;}
+  error='';el('status').textContent='Unsaved draft.';render();
+}
+function cancel(){
+  if(window.fault==='cancel-active-tab-only'){if(tab==='basics')draft.name=saved.name;else{draft.digest=saved.digest;draft.alerts=saved.alerts;}}
+  else draft={...(window.fault==='cancel-restores-defaults'?initial:saved)};
+  error='';el('status').textContent='Draft discarded.';render();
+}
+function save(){
+  error=!draft.name.trim()&&window.fault!=='empty-name-accepted'?'Enter a project name.'
+    :draft.name.length>40&&window.fault!=='name-limit-not-enforced'?'Use 40 characters or fewer.':'';
+  if(error){render();if(window.fault!=='no-invalid-focus')el('name').focus();return;}
+  saved=window.fault==='saved-aliases-draft'?draft:{...draft};
+  el('status').textContent='Saved in this page only (local demo).';render();
+}
+function review(button){
+  button.focus();const body=document.querySelector('tbody');body.replaceChildren();
+  const before=window.fault==='review-before-from-draft'?draft:saved;
+  for(const [key,label,show] of rows){const row=body.insertRow();
+    for(const value of [label,show(before[key]),show(draft[key])])row.insertCell().textContent=value;}
+  document.querySelector('dialog').showModal();
+}
+render();
+</script></html>

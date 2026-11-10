@@ -20,21 +20,31 @@ async function absent(scope, value) {
   assert.equal(await text(scope, value).count(), 0, `Unexpected visible content: ${value}`);
 }
 async function click(scope, value) { await (await one(button(scope, value), `button ${value}`)).click(); }
+const FORM_CONTROLS = 'input,select,textarea,[contenteditable="true"],[role="textbox"],[role="searchbox"],[role="combobox"],[role="spinbutton"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"]';
 async function field(scope, name) {
-  const options = {name, exact: typeof name === 'string'};
+  // A label may mark the field as required ("Project name (required)", "Project name *").
+  const pattern = typeof name === 'string' ? new RegExp('^' + escape(name) + '(?:\\s*(?:\\*|\\(required\\)))?$', 'i') : name;
   // A select nested in its label can have the correct accessible name while
   // getByLabel's label-text matching includes its option text. Use the actual
   // control name too; the union deduplicates one control, not distinct fields.
-  let controls = scope.getByLabel(name, {exact: options.exact});
+  // getByLabel also matches any element carrying a matching aria-label, such
+  // as a row button named after the variant it removes: keep form controls only.
+  let controls = scope.getByLabel(pattern).and(scope.locator(FORM_CONTROLS));
   for (const role of ['textbox', 'searchbox', 'combobox', 'spinbutton', 'checkbox', 'radio'])
-    controls = controls.or(scope.getByRole(role, options));
+    controls = controls.or(scope.getByRole(role, {name: pattern}));
   return one(visible(controls), `field ${name}`);
 }
 async function item(scope, title) {
-  const rows = visible(scope.locator('article,li,tr,[role="row"],[role="listitem"],[role="group"]'))
-    .filter({has: text(scope, title)});
+  const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
+  // `has` and `hasNot` are evaluated relative to each row. A text locator built
+  // from a region or dialog scope carries that scope, so a row would have to
+  // contain the region that contains it and no page could ever match
+  // (qualification on November 11, 2026: the queue and basket oracles rejected
+  // every implementation). Build the inner locators from the page or frame.
+  const root = typeof scope.page === 'function' ? scope.page() : scope;
+  const containing = visible(root.locator(rowSelector)).filter({has: text(root, title)});
   // Prefer the innermost semantic item, never a containing list with other rows.
-  const leaves = rows.filter({hasNot: rows});
+  const leaves = visible(scope.locator(rowSelector)).filter({has: text(root, title)}).filter({hasNot: containing});
   return one(leaves, `item containing ${title}`);
 }
 async function region(scope, name) {
@@ -67,7 +77,9 @@ async function choose(scope, label, group) {
   if (await radio.count() === 1) return radio.check();
   const tab = visible(scope.getByRole('tab', {name: exact(label)}));
   if (await tab.count() === 1) return tab.click();
-  return click(scope, label);
+  if (typeof label !== 'string' || await button(scope, label).count() === 1) return click(scope, label);
+  // A filter button may carry its count ("Resolved (1)"), as options and radios may.
+  return (await one(button(scope, new RegExp('^' + escape(label) + '(?:$|\\s|[(:])', 'i')), `button ${label}`)).click();
 }
 async function search(scope, query) { await (await field(scope, /^Search\b/i)).fill(query); }
 async function readText(scope) { return (await scope.locator('body').innerText()).replace(/\s+/g, ' ').trim(); }

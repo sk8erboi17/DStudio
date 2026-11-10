@@ -1,0 +1,41 @@
+{
+  "case": "forma-room-reservation",
+  "steps": 2,
+  "faults": [
+    {
+      "name": "count-clamped-on-room-change",
+      "caughtAs": "strictly equal:\\s+'4' !== '7'",
+      "flags": ""
+    },
+    {
+      "name": "back-clears-count",
+      "caughtAs": "strictly equal:\\s+'' !== '7'",
+      "flags": ""
+    },
+    {
+      "name": "stale-capacity",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "fraction-accepted",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    },
+    {
+      "name": "back-loses-time",
+      "caughtAs": "locator\\.click: Timeout[\\s\\S]*Continue[\\s\\S]*element is not enabled",
+      "flags": ""
+    },
+    {
+      "name": "review-not-refreshed",
+      "caughtAs": "did not match the regular expression /Cedar/",
+      "flags": ""
+    },
+    {
+      "name": "start-over-keeps-choices",
+      "caughtAs": "strictly equal:\\s+false !== true",
+      "flags": ""
+    }
+  ]
+}

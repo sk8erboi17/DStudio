@@ -83,8 +83,23 @@ try {
   for (const [file, bytes] of Object.entries(binaries)) fs.writeFileSync(path.join(dense, file), bytes);
   const sourceReceipt = {schema: 'dstudio.llama-install.v1', repository: 'https://example.invalid/llama.cpp', commit: 'fixture-revision'};
   fs.writeFileSync(path.join(dense, '.dstudio-llama.json'), JSON.stringify(sourceReceipt));
+  // An installed app bundle in the fixture home and none in the source tree.
+  const bundle = path.join(options.home, 'Applications/DStudio.app');
+  fs.mkdirSync(path.join(bundle, 'Contents/MacOS'), { recursive: true });
+  fs.writeFileSync(path.join(bundle, 'Contents/Info.plist'), '<plist/>');
+  fs.writeFileSync(path.join(bundle, 'Contents/MacOS/DStudio'), 'app binary fixture; never execute');
   const captured = await captureBaseline(root, {discoveryOptions: options});
   assert.deepEqual(captured.receipt.errors, []);
+  // A system-wide installation is outside this fixture: it is recorded if this machine has one.
+  assert.deepEqual(captured.receipt.bundles.filter(item => item.bundle !== '/Applications/DStudio.app').map(item => item.bundle), [bundle],
+    'the fixture home bundle is recorded; the source tree has none');
+  const installed = captured.receipt.bundles.find(item => item.bundle === bundle);
+  assert.equal(installed.files.find(item => item.path === 'Contents/MacOS/DStudio').sha256,
+    crypto.createHash('sha256').update('app binary fixture; never execute').digest('hex'));
+  assert.equal(installed.files.find(item => item.path === 'Contents/MacOS/DStudio').executed, false);
+  assert.equal(installed.files.find(item => item.path === 'Contents/MacOS/dstudio-ocr').missing, true, 'an absent bundle component is recorded as absent');
+  assert.equal(captured.receipt.toolchain.node, process.version);
+  assert.ok(captured.receipt.toolchain.git, 'the tools actually present are recorded with their version line');
   assert.equal(captured.receipt.engines.length, 2);
   const engine = captured.receipt.engines.find(item => item.directory === fs.realpathSync(dense));
   assert.equal(engine.git, null, 'An installed archive cannot inherit the fixture project Git revision');
@@ -114,13 +129,22 @@ try {
   const shard = Buffer.from('mlx weight shard');
   fs.writeFileSync(path.join(folder, 'model-00001-of-00001.safetensors'), shard);
   fs.writeFileSync(path.join(folder, 'config.json'), '{}');
+  // A second checkpoint is a link to a folder kept outside the store, as installed weights often are.
+  const outside = path.join(root, 'weights-elsewhere', 'Linked-4bit');
+  fs.mkdirSync(outside, { recursive: true });
+  const linkedShard = Buffer.from('linked mlx shard');
+  fs.writeFileSync(path.join(outside, 'model.safetensors'), linkedShard);
+  fs.symlinkSync(outside, path.join(custom, 'mlx', 'Linked-4bit'));
+  fs.symlinkSync(path.join(root, 'no-such-folder'), path.join(custom, 'mlx', 'Broken-link'));
   const withMlx = await captureBaseline(root, { discoveryOptions: options, fullWeights: true });
+  const linkedRow = withMlx.inventory.files.find(item => item.file === fs.realpathSync(path.join(outside, 'model.safetensors')));
+  assert.equal(linkedRow?.sha256, crypto.createHash('sha256').update(linkedShard).digest('hex'), 'a linked model folder is inventoried and hashed');
   assert.deepEqual(withMlx.receipt.errors, []);
   assert.equal(withMlx.receipt.engines.length, 3, 'main, llama.cpp and MLX; the retired sibling is not discovered');
   const mlxEngine = withMlx.receipt.engines.find(item => item.directory === fs.realpathSync(runtime));
   assert.deepEqual(mlxEngine.sourceReceipt, mlxReceipt);
   assert.deepEqual(mlxEngine.sources, [], 'installed packages are covered by the installer receipt, not walked');
-  const shardRow = withMlx.inventory.files.find(item => item.file.endsWith('.safetensors'));
+  const shardRow = withMlx.inventory.files.find(item => item.file.endsWith('model-00001-of-00001.safetensors'));
   assert.equal(shardRow.kind, 'checkpoint');
   assert.equal(shardRow.sha256, crypto.createHash('sha256').update(shard).digest('hex'));
   assert.equal(shardRow.status, 'HASHED_NOT_INFERENCE_TESTED');

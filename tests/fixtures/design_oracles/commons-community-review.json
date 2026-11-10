@@ -1,0 +1,36 @@
+{
+  "case": "commons-community-review",
+  "steps": 1,
+  "faults": [
+    {
+      "name": "resolve-enabled-when-empty",
+      "caughtAs": "false !== true",
+      "flags": ""
+    },
+    {
+      "name": "markup-reason",
+      "caughtAs": "Missing visible content: <b>literal & note</b>",
+      "flags": ""
+    },
+    {
+      "name": "shared-reason-draft",
+      "caughtAs": "'<b>literal & note</b>'(?: !== |\\n- )''",
+      "flags": ""
+    },
+    {
+      "name": "resolve-wrong-report",
+      "caughtAs": "Unexpected visible content: Duplicate introduction",
+      "flags": ""
+    },
+    {
+      "name": "resolve-keeps-pending",
+      "caughtAs": "Expected one accessible item containing Missing event details",
+      "flags": ""
+    },
+    {
+      "name": "undo-toggles-all",
+      "caughtAs": "Missing visible content: Duplicate introduction",
+      "flags": ""
+    }
+  ]
+}
