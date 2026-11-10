@@ -1,6 +1,6 @@
 # DStudio — remaining macOS completion work
 
-Updated November 4, 2026. This document contains only unfinished implementation
+Updated November 10, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete and paused; this
 documentation update does not resume it. The owner reserves the complete
 quality-suite rerun.
@@ -36,8 +36,8 @@ in this campaign.
 | Qwen3.6-35B-A3B MXFP8 | MLX: mlx 0.32.4 36969c0, mlx-lm 0.32.2 93e6d4a | First group (added October 25) |
 | Qwen3.8-Flash-Next single-file Q4 | main 890898c | First group |
 | Qwen3.8-Flash-Next single-file Q2 | main 890898c | First group; not qualified |
-| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
-| DeepSeek V4.1 Flash Q4 | main 890898c | Contributor hardware ([below](#contributors)) |
+| DeepSeek V4.1 Flash 1017 Q2 | main 890898c | After the first group; SSD expert streaming only ([below](#v41-ssd)) |
+| DeepSeek V4.1 Flash Q4 | main 890898c | After the first group; SSD expert streaming only; weights not downloaded ([below](#v41-ssd)) |
 | GLM 5.3 Flash Q2 | main 890898c | Contributor hardware ([below](#contributors)) |
 
 These are recorded pins, not a claim that remote tips were rechecked for this
@@ -75,22 +75,53 @@ checks the headers, not inference). V4.1 vision qualification follows P4.
 <a id="contributors"></a>
 **Maintainer's execution plan and contributor hardware.** The maintainer,
 Giuseppe Perrotta, runs this campaign on an Apple M2 Max with 96 GB of unified
-memory. DeepSeek V4.1 Flash (1017 Q2 365.7 GB and Q4 518.6 GB, each with
-disk-backed Engram tables and a 0.97 GB vision sidecar) and GLM 5.3 Flash Q2
-(96.5 GB plus its 1.1 GB vision encoder) are not in the maintainer's execution
-plan. On that Mac they run only with SSD expert streaming, and only limited runs
-exist: GLM 5.3's 100 reference continuations on an earlier main revision and a
-14-case set on the original V4.1 Q2 (13/14); V4.1 Q4 has not run there. Their
-complete qualification is left to contributors. The three selections stay in
-scope and in every denominator as BLOCKED, never as passed or excluded.
-A contributor with an Apple Silicon Mac that can run them is welcome to take
-them on: use the recorded pins (ds4 main `890898c` with the versioned patches),
-the frozen cases and the evidence contract below; keep every failed attempt;
-record the machine, unified memory, effective memory mode (resident, SSD
-expert streaming, Engram, disk KV), context and settings; and share only
-reviewed aggregates and provenance hashes. Results from another machine
-qualify that machine's configuration, not the maintainer's Mac. DStudio has
-not established a minimum memory size for these models.
+memory. GLM 5.3 Flash Q2 (96.5 GB plus its 1.1 GB vision encoder) is not in
+the maintainer's execution plan. On that Mac it runs only with SSD expert
+streaming, and only its 100 reference continuations on an earlier main revision
+exist. Its complete qualification is left to contributors. It stays in scope
+and in every denominator as BLOCKED, never as passed or excluded.
+A contributor with an Apple Silicon Mac that can run it is welcome to take it
+on, and likewise DeepSeek V4.1 in the memory modes the maintainer does not
+cover ([below](#v41-ssd)): use the recorded pins (ds4 main `890898c` with the
+versioned patches), the frozen cases and the evidence contract below; keep
+every failed attempt; record the machine, unified memory, effective memory mode
+(resident, SSD expert streaming, Engram, disk KV), context and settings; and
+share only reviewed aggregates and provenance hashes. Results from another
+machine qualify that machine's configuration, not the maintainer's Mac. DStudio
+has not established a minimum memory size for these models.
+
+<a id="v41-ssd"></a>
+**DeepSeek V4.1: maintainer's plan, SSD expert streaming only (November 10).**
+On November 10, 2026 the owner returned DeepSeek V4.1 Flash (1017 Q2 365.7 GB
+and Q4 518.6 GB, each with disk-backed Engram tables and a 0.97 GB vision
+sidecar) to the maintainer's execution plan, with one condition: it runs with
+SSD expert streaming only. Since October 25 both selections had been left to
+contributors as BLOCKED.
+
+- Every V4.1 campaign run on the maintainer's Mac starts with SSD expert
+  streaming On and records the effective mode reported by the runtime
+  (`ssdStreamingEffective`). A run where streaming is not effective is not
+  campaign evidence for V4.1, and the setting is never turned off to make a
+  case pass.
+- A result qualifies V4.1 in that memory mode on that Mac. Resident weights
+  and the lazy memory-mapped path used with streaming Off are not qualified by
+  it; they stay open to contributors with more memory and are never inferred
+  from a streaming result.
+- 1017 Q2 leaves BLOCKED and is **not run**: its verified weights are on the
+  maintainer's SSD, and no campaign case was executed by this decision. It
+  keeps every applicable requirement of this plan, including its own 100 text
+  cases.
+- Q4 is in the plan under the same condition but stays BLOCKED on a
+  prerequisite: its weights are not downloaded, and at 518.6 GB they exceed
+  the free space on the maintainer's SSD (about 261 GiB on November 10). This
+  decision authorizes no download and no deletion to make room.
+- Existing V4.1 evidence is unchanged and limited: the 14-case set on the
+  original Q2 (13/14, retained as FAIL for that file) and the real Learn
+  development runs of November 4–10 on 1017 Q2 with streaming effective, with
+  their retained failures ([P3](#p3), [change notes](docs/changes/2026-11-10.md)).
+  Neither qualifies a selection.
+
+The campaign stays paused: returning V4.1 to the plan starts no run.
 
 Since October 25 the MLX Qwen3.6-35B-A3B MXFP8 path (Apple Silicon, macOS 26,
 text only) is the tenth selection and part of the maintainer's execution plan.
@@ -150,8 +181,9 @@ engine, backend and mode. File presence does not prove a verified download;
 a saved setting does not prove the effective runtime configuration.
 
 Planned order: P0 → P1 → P2/P3/P4 → P5 → P6/P7/P8 → P9 → P10 → P11.
-V4.1 Q2/Q4 and GLM stay in the denominator as BLOCKED until a contributor runs
-them ([contributor hardware](#contributors)).
+V4.1 Q2/Q4 follow the first group on the maintainer's Mac, with SSD expert
+streaming only ([V4.1 scope](#v41-ssd)). GLM stays in the denominator as
+BLOCKED until a contributor runs it ([contributor hardware](#contributors)).
 Source builds sharing a checkout and heavy inference sharing the GPU are
 sequential. No model run, download, app restart or push is part of this cleanup.
 

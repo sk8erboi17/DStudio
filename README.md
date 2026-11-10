@@ -1561,7 +1561,8 @@ useful contributions:
   with your machine and memory, the model and quantization, the mode and what
   happened. Failures are as useful as passes, especially on Linux, Windows,
   CUDA, ROCm and Vulkan (prepared but not yet run), and from any Apple Silicon
-  Mac that can qualify GLM 5.3 and DeepSeek V4.1 ([how to help](PLAN.MD#contributors)).
+  Mac that can qualify GLM 5.3, or DeepSeek V4.1 without SSD streaming
+  ([how to help](PLAN.MD#contributors)).
 - **Reproducible agent failures** and Design output examples.
 - **Small PRs** that reduce first-run friction.
 
@@ -1604,7 +1605,10 @@ The former complete checkbox list is preserved as a [dated snapshot](docs/histor
   [final publication](PLAN.MD#p11--qualify-the-final-build-and-reviewed-publication).
 
 The [representative Qwen variant checks](PLAN.MD#qwen-variants) remain NOT RUN.
-V4.1 and GLM keep their open contributor gates and BLOCKED status; see
+Since November 10 DeepSeek V4.1 is back in the maintainer's plan with expert
+SSD streaming only: 1017 Q2 is not run yet and Q4 waits for its weights
+([conditions](PLAN.MD#v41-ssd)). GLM keeps its open contributor gates and
+BLOCKED status; see
 [the hardware/evidence contract](PLAN.MD#contributors). No unchecked requirement
 was closed by shortening this overview.
 

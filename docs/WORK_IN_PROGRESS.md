@@ -1,4 +1,4 @@
-# Remaining work — November 4, 2026
+# Remaining work — November 10, 2026
 
 The macOS/Apple Silicon campaign is incomplete and paused. [PLAN.MD](../PLAN.MD)
 is the canonical detailed acceptance list; this page is its short index. The
@@ -33,10 +33,21 @@ in [PLAN.MD](../PLAN.MD#qwen-variants). These checks remain NOT RUN; downloadabl
 catalog entries and fixture passes are not real-weight verification. The
 requirements and their full denominator are unchanged.
 
+## DeepSeek V4.1: back in the maintainer's plan, SSD streaming only
+
+On November 10 the owner returned DeepSeek V4.1 Flash to the maintainer's
+execution plan, with expert SSD streaming only. 1017 Q2 is no longer BLOCKED
+and is not run yet. Q4 is in the plan under the same condition but stays
+BLOCKED until its weights are downloaded: they are larger than the free space
+on the maintainer's SSD, and no download is authorized. A result qualifies that
+memory mode on that Mac only. The conditions are in
+[PLAN.MD](../PLAN.MD#v41-ssd); no run was started.
+
 ## Contributor hardware wanted
 
-V4.1 and GLM remain in scope with BLOCKED contributor qualification. Hardware,
-effective memory/SSD settings, frozen cases and the evidence contract are in
+GLM 5.3 remains in scope with BLOCKED contributor qualification, as does
+DeepSeek V4.1 with resident weights or with streaming off. Hardware, effective
+memory/SSD settings, frozen cases and the evidence contract are in
 [PLAN.MD](../PLAN.MD#contributors). A result from another machine qualifies that
 configuration, not an untested configuration on the maintainer's Mac.
 

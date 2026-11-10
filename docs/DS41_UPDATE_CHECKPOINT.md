@@ -1,10 +1,13 @@
 # Engine and DeepSeek V4.1 — remaining qualification
 
-Updated November 4, 2026. The wider macOS campaign is incomplete and paused.
-DeepSeek V4.1 Q2/Q4 and GLM 5.3 are not in the maintainer's execution plan:
-on the maintainer's M2 Max (96 GB) they run only with SSD streaming, and their
-complete qualification is left to contributors. They remain BLOCKED and open
-for a contributor with suitable hardware ([contributor hardware](../PLAN.MD#contributors)). This document lists remaining work; the dated source/build/install
+Updated November 10, 2026. The wider macOS campaign is incomplete and paused.
+On November 10 the owner returned DeepSeek V4.1 Q2/Q4 to the maintainer's
+execution plan, with expert SSD streaming only
+([conditions](../PLAN.MD#v41-ssd)): results on the maintainer's M2 Max (96 GB)
+qualify that memory mode only, 1017 Q2 is not run yet, and Q4 stays BLOCKED
+until its weights are downloaded. GLM 5.3 is still not in the maintainer's
+plan: it remains BLOCKED and open for a contributor with suitable hardware
+([contributor hardware](../PLAN.MD#contributors)). This document lists remaining work; the dated source/build/install
 history and original failures are retained in
 [the archived update checkpoint](history/engine-update-through-2026-10-01.md).
 
@@ -31,8 +34,8 @@ history and original failures are retained in
 
 | Selection | Work still required |
 | --- | --- |
-| V4.1 Flash 1017 Q2 (`ds41f-q2`) | Complete its own current-stack 100-case, Chat/Agent/Learn/Cowork, Design, desktop, native vision, installation/recovery and memory/Engram/SSD qualification. The original Q2's retained format failure does not transfer to this checkpoint. |
-| V4.1 Q4 | Independent current-stack numerical, answer, mode, memory/Engram/SSD, installation/recovery and desktop qualification. Q2 does not establish Q4 results. |
+| V4.1 Flash 1017 Q2 (`ds41f-q2`) | Maintainer's plan, expert SSD streaming only; not run. Complete its own current-stack 100-case, Chat/Agent/Learn/Cowork, Design, desktop, native vision, installation/recovery and memory/Engram/SSD qualification. The original Q2's retained format failure does not transfer to this checkpoint. |
+| V4.1 Q4 | Maintainer's plan, expert SSD streaming only; BLOCKED until its 518.6 GB of weights are downloaded (not authorized, and larger than the current free space). Independent current-stack numerical, answer, mode, memory/Engram/SSD, installation/recovery and desktop qualification. Q2 does not establish Q4 results. |
 | GLM 5.3 | Matching 100 continuations and long-context numerics, complete common-answer/product matrix, compatible native-vision components and 30-PDF/20-image checks, installation/recovery, Design and desktop. |
 
 The original V4.1 Q2 (`ds41f-q2-original`), not the 1017 checkpoint, has
@@ -50,7 +53,15 @@ pass. One real 1017 Q2 transfer resumed an existing partial and completed at
 365,713,686,528 bytes with the pinned SHA-256. This proves that transfer's
 integrity, not inference, native vision, Engram behavior or full product
 qualification. The [change note](changes/2026-11-04.md) records the scope;
-the contributor qualification rows remain open.
+the qualification rows above remain open.
+
+The real Learn development runs of November 4–10 used 1017 Q2 with expert SSD
+streaming reported effective; their retained failures are listed in
+[the plan](../PLAN.MD#p3) and the dated [change notes](changes/2026-11-10.md).
+They are development checks and do not qualify the selection. V4.1 campaign
+runs on the maintainer's Mac use expert SSD streaming On and record the
+effective mode; a result there never qualifies resident weights or streaming
+Off.
 
 Distinguish the native disk-backed Engram table, SSD expert streaming, resident
 weights and disk KV. Record effective memory mode and cache/prefill budgets.
