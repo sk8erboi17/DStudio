@@ -42,7 +42,7 @@ try {
       await page.locator('#tab-roadmap').click();
       await page.locator('#backdrop').waitFor({ state: 'hidden' });
       if (narrowDrawer) assert.equal(await menu.getAttribute('aria-expanded'), 'false', 'mode selection closes the narrow drawer accessibly');
-      const study = topicAction(page, 'Studia Selezione del testo');
+      const study = topicAction(page, 'Study Selezione del testo');
       const row = page.locator('.roadmap-topic[data-topic-id="selezione"] .roadmap-topic__node');
       await row.waitFor();
       await page.mouse.move(4, 4); await paint(page);
@@ -76,18 +76,18 @@ try {
       const keyboardAfter = await study.boundingBox();
       assert.ok(Math.abs(keyboardBefore.x - keyboardAfter.x) <= 1, 'keyboard focus reveals actions without moving Study');
       await page.keyboard.press(tab);
-      assert.equal(await page.getByRole('button', { name: 'Altre azioni: Selezione del testo', exact: true })
+      assert.equal(await page.getByRole('button', { name: 'More actions: Selezione del testo', exact: true })
         .evaluate(node => document.activeElement === node), true, 'the action menu is the next keyboard stop');
-      const menuButton = page.getByRole('button', { name: 'Altre azioni: Selezione del testo', exact: true });
+      const menuButton = page.getByRole('button', { name: 'More actions: Selezione del testo', exact: true });
       await page.keyboard.press('Enter');
-      const addItem = page.getByRole('menuitem', { name: 'Aggiungi un blocco dopo Selezione del testo', exact: true });
+      const addItem = page.getByRole('menuitem', { name: 'Add a block after Selezione del testo', exact: true });
       await addItem.waitFor();
       // The details toggle event is queued; wait for the announced state.
-      await page.waitForFunction(() => document.querySelector('[aria-label="Altre azioni: Selezione del testo"]')?.getAttribute('aria-expanded') === 'true');
+      await page.waitForFunction(() => document.querySelector('[aria-label="More actions: Selezione del testo"]')?.getAttribute('aria-expanded') === 'true');
       await page.keyboard.press('ArrowDown');
       assert.equal(await addItem.evaluate(node => document.activeElement === node), true, 'ArrowDown enters the menu');
       await page.keyboard.press('ArrowDown');
-      assert.equal(await page.getByRole('menuitem', { name: 'Elimina Selezione del testo', exact: true })
+      assert.equal(await page.getByRole('menuitem', { name: 'Delete Selezione del testo', exact: true })
         .evaluate(node => document.activeElement === node), true, 'ArrowDown moves to the next action');
       await page.keyboard.press('ArrowDown');
       assert.equal(await addItem.evaluate(node => document.activeElement === node), true, 'the menu wraps around');
@@ -123,7 +123,7 @@ try {
       await page.getByRole('button', { name: 'Back to roadmap', exact: true }).click();
       const topic = page.locator('.roadmap-topic[data-topic-id="selezione"]');
       await topic.locator('.roadmap-topic__check').click();
-      await topicMenu(page, 'Selezione del testo', 'Aggiungi un blocco dopo Selezione del testo');
+      await topicMenu(page, 'Selezione del testo', 'Add a block after Selezione del testo');
       const addForm = topic.locator('.roadmap-add');
       await addForm.locator('input').fill('Bozza di un blocco da conservare');
       await addForm.locator('textarea').fill('Descrizione ancora in modifica.');
@@ -141,7 +141,7 @@ try {
       assert.equal(await addForm.locator('textarea').inputValue(), 'Descrizione ancora in modifica.');
       assert.equal(await topic.locator('.roadmap-topic__check').getAttribute('aria-pressed'), 'true');
       await capture();
-      await addForm.getByRole('button', { name: 'Annulla', exact: true }).click();
+      await addForm.getByRole('button', { name: 'Cancel', exact: true }).click();
       assert.equal(await topic.locator('.roadmap-add').count(), 0);
       assert.equal(server.requests.some(request => request.path === '/v1/chat/completions'), false,
         'opening a study does not generate a response');

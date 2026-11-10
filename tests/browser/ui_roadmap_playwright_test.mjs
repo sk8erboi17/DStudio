@@ -604,8 +604,8 @@ try {
   assert.ok(await loadingTrace.locator('.roadmap-loading__step').count() > 0,
     'Learn exposes the actual research trace');
   await page.clock.runFor(20_000);
-  assert.match(await page.locator('.roadmap-loading__elapsed').textContent() || '', /0:(?:19|20) trascorsi/);
-  assert.match(await page.locator('.roadmap-loading__heartbeat').textContent() || '', /In attesa del prossimo aggiornamento/,
+  assert.match(await page.locator('.roadmap-loading__elapsed').textContent() || '', /0:(?:19|20) elapsed/);
+  assert.match(await page.locator('.roadmap-loading__heartbeat').textContent() || '', /Waiting for the next update/,
     'a quiet model must show the lack of new activity without claiming a stall or invented progress');
   await page.waitForFunction(() => !document.body.classList.contains('composer-raised'));
   await page.screenshot({path: path.join(artifacts, 'learn-progress-dark.png')});
@@ -654,27 +654,27 @@ try {
     for (let i = 0; !notesStageHeld && i < 3000; i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.ok(notesStageHeld, 'The fixture holds an actual stage request in flight');
     const draft = page.locator('.roadmap-card.is-draft');
-    await page.waitForFunction(() => /1\/5 tappe scritte/.test(document.querySelector('.roadmap-draft-callout')?.textContent || ''));
+    await page.waitForFunction(() => /1\/5 stages written/.test(document.querySelector('.roadmap-draft-callout')?.textContent || ''));
     assert.equal(await page.locator('.roadmap-live > .roadmap-notes .roadmap-notes__empty').isVisible(), true,
       'While the model works, the conversation panel is beside the draft and explains how to write to it');
     assert.equal(await page.locator('.roadmap-direct-loading').count(), 1, 'Progress stays visible above the readable draft');
     assert.equal(await page.locator('.roadmap-card:not(.is-draft)').count(), 0, 'A partial draft is never an accepted roadmap');
     assert.equal(await draft.locator('.roadmap-stage').count(), 5);
     assert.equal(await draft.locator('.roadmap-stage.is-unwritten').count(), 4);
-    assert.equal(await draft.locator('.roadmap-stage__writing.is-active').textContent(), 'In scrittura');
+    assert.equal(await draft.locator('.roadmap-stage__writing.is-active').textContent(), 'Writing');
     assert.equal(await draft.locator('.roadmap-topic__check:enabled, .roadmap-menu, .roadmap-topic__drag').count(), 0,
       'The draft is read-only while it is being written');
     assert.equal(await draft.locator('.roadmap-stage.is-unwritten.is-collapsed').count(), 3, 'Only the stage being written is open among unwritten stages');
     await draft.locator('.roadmap-stage:not(.is-unwritten) .roadmap-stage__toggle').first().click();
     await draft.locator('.roadmap-stage:not(.is-unwritten) .roadmap-topic__toggle').first().click();
-    assert.match(await draft.locator('.roadmap-stage:not(.is-unwritten) .roadmap-topic__detail').first().textContent(), /Pratica/,
+    assert.match(await draft.locator('.roadmap-stage:not(.is-unwritten) .roadmap-topic__detail').first().textContent(), /Practice/,
       'A written stage is readable during generation');
-    assert.match(await page.locator('.roadmap-phases').textContent(), /Ricerca.*Struttura.*Tappa 1.*Tappa 5.*Verifica.*Giudizio/s);
-    assert.equal(await page.locator('.roadmap-phase.is-active .roadmap-phase__label').textContent(), 'Tappa 2');
+    assert.match(await page.locator('.roadmap-phases').textContent(), /Research.*Structure.*Stage 1.*Stage 5.*Verification.*Review/s);
+    assert.equal(await page.locator('.roadmap-phase.is-active .roadmap-phase__label').textContent(), 'Stage 2');
     await page.locator('[data-act="scroll-roadmap-draft"]').click();
-    assert.ok((await page.evaluate(() => window.__learnToasts)).some(text => /Prima bozza pronta/.test(text)),
+    assert.ok((await page.evaluate(() => window.__learnToasts)).some(text => /First draft ready/.test(text)),
       'The learner is told when the first draft can be read');
-    assert.match(await page.locator('#composer-input').getAttribute('placeholder'), /Scrivi a DeepSeek mentre genera/);
+    assert.match(await page.locator('#composer-input').getAttribute('placeholder'), /Write to DeepSeek while it generates/);
 
     const before = {requests: chatRequests.length, outlines: chatRequests.filter(entry => roadmapPhaseOf(entry) === 'outline').length};
     const firstNote = 'Perché JavaScript prima dei framework? Vorrei più esercizi sul DOM.';
@@ -704,7 +704,7 @@ try {
 
     for (let i = 0; !notesAuditHeld && i < 6000; i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.ok(notesAuditHeld, 'The fixture holds an actual audit request in flight');
-    await page.waitForFunction(() => document.querySelector('.roadmap-draft-callout')?.textContent.includes('Bozza completa'));
+    await page.waitForFunction(() => document.querySelector('.roadmap-draft-callout')?.textContent.includes('Draft complete'));
     const secondNote = 'REWRITE: nella prima tappa voglio verificare il documento con un validatore HTML.';
     await page.locator('#composer-input').fill(secondNote);
     await page.locator('#btn-send').click();
@@ -740,7 +740,7 @@ try {
     const verified = state.messages.at(-1);
     assert.equal(verified.roadmapVerification.status, 'verified');
     assert.match(verified.content, /check it with an HTML validator/, 'The verified roadmap contains the requested change');
-    assert.ok((await page.evaluate(() => window.__learnToasts)).some(text => /Bozza completa/.test(text)));
+    assert.ok((await page.evaluate(() => window.__learnToasts)).some(text => /Draft complete/.test(text)));
     assert.deepEqual(pageErrors, []); receipt.status = 'PASS';
     console.log(`ui_roadmap learner notes: ok (${browserName}; readable partial draft, notes at phase boundaries, no restart, targeted rewrite and re-audit; simulated engine)`);
     break scenario;
@@ -761,15 +761,15 @@ try {
     await page.locator('#btn-stop').click();
     await page.locator('.roadmap-direct-error').waitFor({state: 'visible'});
     assert.equal(await page.locator('.roadmap-card:not(.is-draft)').count(), 0, 'An unverified draft is never an accepted roadmap');
-    assert.match(await page.locator('.roadmap-direct-error').textContent(), /1\/5 tappe scritte/,
+    assert.match(await page.locator('.roadmap-direct-error').textContent(), /1\/5 stages written/,
       'The status panel states how much of the draft is saved');
     assert.equal(await page.locator('.roadmap-card.is-draft .roadmap-stage.is-unwritten').count(), 4,
       'The saved partial draft stays readable after Stop');
     assert.equal(await page.locator('.roadmap-direct-error, .roadmap-status').count(), 1, 'One status panel, not a stack of notices');
-    assert.match(await page.locator('#roadmap-head-effort').textContent(), /stimate finora · 1\/5 tappe scritte/,
+    assert.match(await page.locator('#roadmap-head-effort').textContent(), /estimated so far · 1\/5 stages written/,
       'A partial draft does not present its written-stage hours as the total');
     await page.screenshot({path: path.join(artifacts, 'paused-partial-draft.png')});
-    assert.equal(await page.locator('.roadmap-direct-error [data-act="retry"]').textContent(), 'Riprendi bozza');
+    assert.equal(await page.locator('.roadmap-direct-error [data-act="retry"]').textContent(), 'Resume draft');
     if (legacyDraftCase) {
       await prepareRecoveryFixture();
       await page.evaluate(() => {
@@ -793,7 +793,7 @@ try {
       assert.doesNotMatch(await page.locator('.roadmap-direct-error > p').first().textContent(), /stream ended|engineLine|running=false/);
       const diagnostics = page.locator('.roadmap-direct-error > .roadmap-diagnostics');
       assert.equal(await diagnostics.getAttribute('open'), null);
-      assert.match(await page.locator('.roadmap-direct-error').textContent(), /1\/5 tappe scritte/);
+      assert.match(await page.locator('.roadmap-direct-error').textContent(), /1\/5 stages written/);
       assert.equal(await page.locator('.roadmap-direct-error').count(), 1);
       await diagnostics.locator('summary').click();
       assert.match(await diagnostics.locator('pre').textContent(), /engineLine/,
@@ -898,9 +898,9 @@ try {
     const preview = page.locator('.roadmap-card.is-draft');
     await preview.waitFor({state:'visible'});
     assert.equal(await preview.locator('.roadmap-topic').count(),20);
-    assert.match(await page.locator('.roadmap-status h2').textContent(), /Verifica incompleta/);
-    assert.match(await page.locator('.roadmap-status__verify-head').textContent(), /\d+ di \d+ controlli salvati/);
-    assert.match(await page.locator('#roadmap-head-status').textContent(), /Bozza ferma · non verificata/);
+    assert.match(await page.locator('.roadmap-status h2').textContent(), /Verification incomplete/);
+    assert.match(await page.locator('.roadmap-status__verify-head').textContent(), /\d+ of \d+ checks saved/);
+    assert.match(await page.locator('#roadmap-head-status').textContent(), /Draft stopped · not verified/);
     assert.equal(await preview.locator('.roadmap-topic__check:enabled, .roadmap-menu, .roadmap-topic__drag').count(),0,
       'An audit draft must not mutate while its verdicts remain incomplete');
     const toggle = preview.locator('.roadmap-topic__toggle').first();
@@ -909,10 +909,10 @@ try {
     assert.equal(await preview.locator('.roadmap-export__option:enabled').count(),3);
     await page.locator('.roadmap-status').scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(artifacts,'unverified-draft.png')});
-    await preview.locator('.roadmap-node-action[aria-label^="Studia "]').first().click();
+    await preview.locator('.roadmap-node-action[aria-label^="Study "]').first().click();
     const draftStudy=page.locator('#roadmap-study');
     await draftStudy.waitFor({state:'visible'});
-    assert.match(await draftStudy.locator('.roadmap-study__eyebrow').textContent(), /Bozza non verificata/);
+    assert.match(await draftStudy.locator('.roadmap-study__eyebrow').textContent(), /Unverified draft/);
     await page.screenshot({path:path.join(artifacts,'draft-study.png')});
     await draftStudy.locator('.roadmap-study__back').click();
     const data = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
@@ -974,7 +974,7 @@ try {
     assert.equal(await page.locator('.roadmap-history').count(), 1);
     assert.equal(await page.locator('.roadmap-history').getAttribute('open'), null);
     await page.locator('.roadmap-history > summary').click();
-    assert.match(await page.locator('.roadmap-history').textContent(), /1\/5 tappe salvate/);
+    assert.match(await page.locator('.roadmap-history').textContent(), /1\/5 stages saved/);
     assert.equal(verified.roadmapResumedFrom, interrupted.id);
     if (legacyDraftCase) assert.ok(messages.some(message => message.id === 'empty-restart' && message.error.message.includes('engineLine')),
       'An empty failed restart remains retained after another retry');
@@ -1134,7 +1134,7 @@ try {
   assert.match(await page.locator('#chat-title').textContent() || '', /Frontend moderno/);
 
   const exportMenu = card.locator('.roadmap-export');
-  assert.match(await exportMenu.locator('summary').textContent() || '', /Esporta/);
+  assert.match(await exportMenu.locator('summary').textContent() || '', /Export/);
   assert.equal(await exportMenu.locator('.roadmap-export__menu').isVisible(), false,
     'download formats should stay in a compact menu until requested');
   await exportMenu.locator('summary').click();
@@ -1187,16 +1187,16 @@ try {
   });
   assert.ok(layout.map.width >= 200 && layout.map.right <= layout.graph.left, `The stage map sits beside the curriculum: ${JSON.stringify(layout)}`);
   assert.equal(layout.mapItems.length, roadmap.stages.length + 1, 'One map entry per stage plus the final project');
-  assert.match(layout.mapItems[1], /JavaScript essenziale.*4 blocchi.*dopo la tappa 1/);
+  assert.match(layout.mapItems[1], /JavaScript essenziale.*4 blocks.*after stage 1/);
   assert.ok(layout.graph.width <= 862, `The curriculum keeps a readable column: ${JSON.stringify(layout)}`);
   assert.ok(Math.abs(layout.firstTopic.left - layout.secondTopic.left) <= 1,
     `Roadmap topics should share one vertical reading rail: ${JSON.stringify(layout)}`);
   assert.deepEqual(layout.collapsed, [false, false, true, true, true], 'The current stage and the next are open; later stages start collapsed');
   assert.equal(await card.locator('.roadmap-stage[data-stage-id="framework"] .roadmap-stage__body').isVisible(), false);
-  assert.match(await page.locator('#roadmap-head-shape').textContent(), /5 tappe · 20 blocchi/);
-  assert.match(await page.locator('#roadmap-head-effort').textContent(), /\d+ h richieste/);
-  assert.equal(await page.locator('#roadmap-head-status').textContent(), 'Verificato');
-  assert.match(await card.locator('.roadmap-verified-notice').textContent(), /Percorso verificato/);
+  assert.match(await page.locator('#roadmap-head-shape').textContent(), /5 stages · 20 blocks/);
+  assert.match(await page.locator('#roadmap-head-effort').textContent(), /\d+ h required/);
+  assert.equal(await page.locator('#roadmap-head-status').textContent(), 'Verified');
+  assert.match(await card.locator('.roadmap-verified-notice').textContent(), /Learning path verified/);
   await page.screenshot({path: path.join(artifacts, 'learn-verified.png')});
   // The map opens and reveals a collapsed stage; its toggle closes it again.
   await card.locator('.roadmap-map__item[data-stage-id="production-quality"]').click();
@@ -1213,13 +1213,13 @@ try {
   assert.equal(await qualityToggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await qualityStage.locator('.roadmap-stage__body').isVisible(), false);
   assert.match(await card.locator('.roadmap-stage[data-stage-id="web-foundations"] .roadmap-stage__checkpoint').textContent(),
-    /Checkpoint della tappa.*Completa un progetto integrato/);
+    /Stage checkpoint.*Completa un progetto integrato/);
 
   const firstTopic = card.locator('.roadmap-topic[data-topic-id="html-semantics"]');
   await firstTopic.locator('.roadmap-topic__toggle').click();
   await firstTopic.locator('.roadmap-topic__detail').waitFor({ state: 'visible' });
-  assert.match(await firstTopic.locator('.roadmap-topic__detail').textContent() || '', /Concetti chiave[\s\S]*Risultato atteso[\s\S]*Pratica[\s\S]*Verifica di padronanza/);
-  assert.equal(await firstTopic.locator('.roadmap-topic__check').getAttribute('aria-label'), 'Segna come completato: HTML semantico');
+  assert.match(await firstTopic.locator('.roadmap-topic__detail').textContent() || '', /Key concepts[\s\S]*Outcome[\s\S]*Practice[\s\S]*Mastery check/);
+  assert.equal(await firstTopic.locator('.roadmap-topic__check').getAttribute('aria-label'), 'Mark complete: HTML semantico');
   await firstTopic.locator('.roadmap-topic__check').click();
   await page.waitForFunction(() => document.querySelector('.roadmap-topic[data-topic-id="html-semantics"]')?.classList.contains('is-complete'));
   await page.waitForTimeout(900);
@@ -1241,7 +1241,7 @@ try {
     'the persisted Roadmap should contain the repaired claim rather than the rejected draft');
 
   // Add a child on the same visual branch and verify the graph override is persisted.
-  await topicMenu(page, 'HTML semantico', 'Aggiungi un blocco dopo HTML semantico');
+  await topicMenu(page, 'HTML semantico', 'Add a block after HTML semantico');
   const addForm = firstTopic.locator('.roadmap-add');
   await addForm.locator('input.roadmap-add__input').fill('Accessibilità HTML');
   await addForm.locator('.roadmap-add__description').fill('Struttura, nomi accessibili e navigazione da tastiera.');
@@ -1268,7 +1268,7 @@ try {
     });
     throw new Error(`Roadmap block generation never exposed its live status: ${JSON.stringify({ diagnostic, blockRequests: blockAttempts })}`, { cause: error });
   }
-  assert.match(await addForm.locator('.roadmap-add__status').textContent() || '', /Avvio|Ragiono|Scrivo/,
+  assert.match(await addForm.locator('.roadmap-add__status').textContent() || '', /Starting|Thinking|Writing/,
     'Add should visibly show that the model is elaborating the learner input');
   assert.equal(await addForm.locator('button[type="submit"]').isDisabled(), true,
     'Add should prevent duplicate submissions while the model is working');
@@ -1290,8 +1290,8 @@ try {
   assert.equal(added?.resources?.[0]?.url, roadmapSources[0]);
   assert.equal(savedReply.roadmapVerification.status,'modified',
     'A generated manual block cannot inherit the earlier roadmap verdict');
-  assert.match(await card.locator('.roadmap-draft-notice').textContent(), /modificato.*non verificato/i);
-  assert.equal(await page.locator('#roadmap-head-status').textContent(), 'Modificato · non verificato');
+  assert.match(await card.locator('.roadmap-draft-notice').textContent(), /modified.*not verified/i);
+  assert.equal(await page.locator('#roadmap-head-status').textContent(), 'Modified · not verified');
   await page.screenshot({path: path.join(artifacts, 'learn-modified.png')});
   const blockRequests = chatRequests.filter((entry) =>
     (entry.messages?.find((message) => message.role === 'system')?.content || '').includes('DStudio roadmap-block expansion protocol')
@@ -1357,7 +1357,7 @@ try {
     return graph.stages[0].topics.slice(0,3).map(t=>t.id).join(',')===`html-semantics,css-layout,${id}`;
   },customId);
   // Deleting a referenced prerequisite cannot remove its study chat or graph.
-  await topicMenu(page, 'HTML semantico', 'Elimina HTML semantico');
+  await topicMenu(page, 'HTML semantico', 'Delete HTML semantico');
   await page.locator('#confirm-dialog[open]').waitFor();
   await page.locator('#confirm-go').click();
   await page.waitForFunction(()=>[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('Cannot remove a prerequisite')));
@@ -1366,7 +1366,7 @@ try {
   await page.reload({waitUntil:'networkidle'});await page.clock.resume();
   await page.locator('#tab-roadmap').click();
   await card.waitFor({state:'visible'});
-  assert.match(await card.locator('.roadmap-draft-notice').textContent(), /modificato.*non verificato/i,
+  assert.match(await card.locator('.roadmap-draft-notice').textContent(), /modified.*not verified/i,
     'Reload cannot restore the old verified badge on an edited graph');
 
   // Every block owns a dedicated Tutor room with a per-thread thinking choice.
@@ -1562,7 +1562,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.chat-item--active .chat-item__title')?.textContent === 'Frontend personale');
 
   // Delete the custom block through the in-app confirmation flow.
-  await topicMenu(page, 'Accessibilità HTML', 'Elimina Accessibilità HTML');
+  await topicMenu(page, 'Accessibilità HTML', 'Delete Accessibilità HTML');
   await page.locator('#confirm-dialog[open]').waitFor({ state: 'visible' });
   await page.locator('#confirm-go').click();
   await page.waitForFunction(() => document.querySelectorAll('.roadmap-topic').length === 20);
@@ -1624,13 +1624,13 @@ try {
     'a restored interrupted update must not keep displaying a live loading trace');
   assert.equal(await page.locator('.roadmap-card').count(), 1,
     'the previous verified roadmap must remain visible while a replacement is interrupted');
-  assert.match(await interruptedState.textContent() || '', /roadmap precedente è ancora disponibile|modello locale è stato interrotto/i);
+  assert.match(await interruptedState.textContent() || '', /previous roadmap is still available|local model was interrupted/i);
   await interruptedState.locator('.roadmap-attempt__prompt > summary').click();
   assert.match(await interruptedState.locator('.roadmap-attempt__prompt').textContent() || '', /TypeScript avanzato/,
     'the learner must be able to inspect the prompt behind an unknown update');
-  assert.match(await interruptedState.locator('[data-act="retry"]').textContent() || '', /Riprova l’aggiornamento/);
-  assert.match(await interruptedState.locator('[data-act="restore-roadmap"]').textContent() || '', /Torna alla roadmap precedente/);
-  assert.match(await page.locator('.roadmap-attempt-wrap .roadmap-note.is-pending').textContent(), /Mantieni gli esercizi di accessibilità.*quando riprendi/,
+  assert.match(await interruptedState.locator('[data-act="retry"]').textContent() || '', /Retry the update/);
+  assert.match(await interruptedState.locator('[data-act="restore-roadmap"]').textContent() || '', /Back to the previous roadmap/);
+  assert.match(await page.locator('.roadmap-attempt-wrap .roadmap-note.is-pending').textContent(), /Mantieni gli esercizi di accessibilità.*when you resume/,
     'A message written during an update stays visible with the paused update');
   const recoveredState = await page.evaluate(() => {
     const chats = JSON.parse(localStorage.getItem('ds4web.chats.v2') || '{}').chats || [];
@@ -1680,8 +1680,8 @@ try {
   await orphanedState.waitFor({ state: 'visible' });
   assert.equal(await page.locator('.roadmap-loading__trace').count(), 0,
     'a first interrupted roadmap must not keep displaying a dead loading trace');
-  assert.match(await orphanedState.textContent() || '', /bozza non è in esecuzione|modello locale è stato interrotto/i);
-  assert.match(await orphanedState.locator('[data-act="retry"]').textContent() || '', /Riprova la roadmap/);
+  assert.match(await orphanedState.textContent() || '', /Generation interrupted|local model was interrupted/i);
+  assert.match(await orphanedState.locator('[data-act="retry"]').textContent() || '', /Retry the roadmap/);
 
   assert.deepEqual(pageErrors, [], `page errors: ${JSON.stringify({ pageErrors, missingRequests }, null, 2)}`);
   assert.ok(chatRequests.length > 20 && chatRequests.every(entry => entry.model === modelFixture.id),

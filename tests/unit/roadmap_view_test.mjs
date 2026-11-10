@@ -29,13 +29,13 @@ assert.equal(summary.byTopic.has('basi/stage'), false, 'Stage-level checks are n
 assert.equal(summary.byStage.has('global'), false, 'Global checks are not attributed to a stage');
 assert.deepEqual([summary.completed, summary.total, summary.missing], [7, 10, 3]);
 assert.equal(api.roadmapAuditSummary(null).total, 0);
-assert.equal(api.roadmapAuditLabel(summary.byStage.get('basi')), '2 confermati · 1 da verificare');
-assert.equal(api.roadmapAuditLabel({supported: 1, unverified: 0, contradicted: 2, not_factual: 0}), '1 confermato · 2 contraddetti');
-assert.equal(api.roadmapAuditLabel({supported: 0, unverified: 0, contradicted: 0, not_factual: 3}), 'nessun fatto da verificare');
+assert.equal(api.roadmapAuditLabel(summary.byStage.get('basi')), '2 confirmed · 1 to verify');
+assert.equal(api.roadmapAuditLabel({supported: 1, unverified: 0, contradicted: 2, not_factual: 0}), '1 confirmed · 2 contradicted');
+assert.equal(api.roadmapAuditLabel({supported: 0, unverified: 0, contradicted: 0, not_factual: 3}), 'nothing factual to verify');
 
 assert.deepEqual(api.roadmapHours([{estimatedHours: 2.5}, {estimatedHours: 3, optional: true}, {estimatedHours: 'x'}, {}]),
   {required: 2.5, optional: 3});
-assert.equal(api.roadmapHoursText(9.5), '9,5 h');
+assert.equal(api.roadmapHoursText(9.5), '9.5 h');
 assert.equal(api.roadmapHoursText(13), '13 h');
 
 const roadmap = {stages: [
@@ -45,9 +45,9 @@ const roadmap = {stages: [
 ]};
 assert.deepEqual(api.roadmapStageDependencies(roadmap), [[], [1], [1, 2]],
   'Only earlier stages count; self, missing and repeated prerequisites are ignored');
-assert.equal(api.roadmapDependencyText([]), 'punto di partenza');
-assert.equal(api.roadmapDependencyText([1]), 'dopo la tappa 1');
-assert.equal(api.roadmapDependencyText([2, 3, 4]), 'dopo le tappe 2, 3 e 4');
+assert.equal(api.roadmapDependencyText([]), 'starting point');
+assert.equal(api.roadmapDependencyText([1]), 'after stage 1');
+assert.equal(api.roadmapDependencyText([2, 3, 4]), 'after stages 2, 3 and 4');
 
 assert.equal(api.roadmapShortTitle('Concetti fondamentali: marketing, valore, scambio'), 'Concetti fondamentali');
 assert.equal(api.roadmapShortTitle('Ricerca, dati e analisi del mercato'), 'Ricerca, dati e analisi del mercato',

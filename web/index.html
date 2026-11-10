@@ -9006,11 +9006,11 @@
         <button type="button" id="btn-toggle-sidebar" class="btn btn--icon" aria-label="Open conversations menu" aria-expanded="false">☰</button>
         <div class="chat__heading">
           <h1 class="chat__title" id="chat-title">DStudio</h1>
-          <div class="roadmap-head-stats" id="roadmap-head-stats" hidden aria-label="Avanzamento del percorso">
+          <div class="roadmap-head-stats" id="roadmap-head-stats" hidden aria-label="Learning path progress">
             <span class="roadmap-head-chip roadmap-head-stats__progress">
               <span class="roadmap-head-stats__track"><span class="roadmap-head-stats__bar" id="roadmap-head-progress"></span></span>
               <span class="roadmap-head-stats__pct" id="roadmap-head-pct">0%</span>
-              <span id="roadmap-head-complete">0 di 0 completati</span>
+              <span id="roadmap-head-complete">0 of 0 complete</span>
             </span>
             <span class="roadmap-head-chip" id="roadmap-head-shape"></span>
             <span class="roadmap-head-chip" id="roadmap-head-effort"></span>
@@ -11909,7 +11909,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
     function roadmapModelName(modelId) {
       const id = String(modelId || '');
-      return /deepseek/i.test(id) ? 'DeepSeek' : /qwen/i.test(id) ? 'Qwen' : /glm/i.test(id) ? 'GLM' : /laguna/i.test(id) ? 'Laguna' : 'il modello';
+      return /deepseek/i.test(id) ? 'DeepSeek' : /qwen/i.test(id) ? 'Qwen' : /glm/i.test(id) ? 'GLM' : /laguna/i.test(id) ? 'Laguna' : 'the model';
     }
 
     function roadmapNotesFor(chat, sourceMsgId) {
@@ -16304,7 +16304,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             if (roadmap) {
               delete message.webSearching;
               message.roadmapPending = false; message.finishReason = 'error';
-              message.error = { message: 'Il modello locale è stato interrotto: questa roadmap non è più in generazione.', type: 'roadmap-interrupted' };
+              message.error = { message: 'The local model was interrupted: this roadmap is no longer being generated.', type: 'roadmap-interrupted' };
             } else message.finishReason = 'interrupted';
             recovered = true;
           }
@@ -17158,16 +17158,16 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function roadmapAuditLabel(counts) {
       if (!counts) return '';
       const parts = [];
-      if (counts.supported) parts.push(`${counts.supported} ${counts.supported === 1 ? 'confermato' : 'confermati'}`);
-      if (counts.unverified) parts.push(`${counts.unverified} da verificare`);
-      if (counts.contradicted) parts.push(`${counts.contradicted} ${counts.contradicted === 1 ? 'contraddetto' : 'contraddetti'}`);
-      if (!parts.length && counts.not_factual) parts.push('nessun fatto da verificare');
+      if (counts.supported) parts.push(`${counts.supported} confirmed`);
+      if (counts.unverified) parts.push(`${counts.unverified} to verify`);
+      if (counts.contradicted) parts.push(`${counts.contradicted} contradicted`);
+      if (!parts.length && counts.not_factual) parts.push('nothing factual to verify');
       return parts.join(' · ');
     }
 
     function roadmapHoursText(hours) {
       const value = Math.round((Number(hours) || 0) * 2) / 2;
-      return `${String(value).replace('.', ',')} h`;
+      return `${value} h`;
     }
 
     function roadmapHours(topics) {
@@ -17188,9 +17188,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     }
 
     function roadmapDependencyText(numbers) {
-      if (!numbers?.length) return 'punto di partenza';
-      if (numbers.length === 1) return `dopo la tappa ${numbers[0]}`;
-      return `dopo le tappe ${numbers.slice(0, -1).join(', ')} e ${numbers.at(-1)}`;
+      if (!numbers?.length) return 'starting point';
+      if (numbers.length === 1) return `after stage ${numbers[0]}`;
+      return `after stages ${numbers.slice(0, -1).join(', ')} and ${numbers.at(-1)}`;
     }
 
     function roadmapShortTitle(title, max = 48, { comma = false } = {}) {
@@ -17208,7 +17208,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
     function roadmapCheckpointParts(text) {
       const clauses = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.;])\s+/).filter(Boolean);
       const clean = clause => clause.replace(/[;.]\s*$/, '').trim();
-      const capital = clause => clause.charAt(0).toLocaleUpperCase('it') + clause.slice(1);
+      const capital = clause => clause.charAt(0).toLocaleUpperCase() + clause.slice(1);
       return { summary: clean(clauses[0] || ''), criteria: clauses.slice(1).map(clause => capital(clean(clause))).filter(Boolean) };
     }
 
@@ -17407,10 +17407,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         panels.forEach((panel) => {
           const elapsed = Math.max(0, Math.floor((Date.now() - Number(panel.dataset.startedAt)) / 1000));
           const quiet = Math.max(0, Math.floor((Date.now() - Number(panel.dataset.updatedAt)) / 1000));
-          panel.querySelector('.roadmap-loading__elapsed').textContent = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')} trascorsi`;
+          panel.querySelector('.roadmap-loading__elapsed').textContent = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')} elapsed`;
           panel.querySelector('.roadmap-loading__heartbeat').textContent = quiet >= 15
-            ? `In attesa del prossimo aggiornamento · ultima attività ${quiet} s fa. La ricerca e il modello locale possono richiedere tempo.`
-            : 'Attività in corso · gli aggiornamenti compaiono appena arrivano.';
+            ? `Waiting for the next update · last activity ${quiet}s ago. Local research and model preparation can take time.`
+            : 'Live activity · updates appear as research and model work arrive.';
         });
       }
 
@@ -17458,13 +17458,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
               ].filter(Boolean)),
               el('span', { class: 'roadmap-loading__elapsed', 'aria-live': 'off' }),
             ]),
-            el('ol', { class: 'roadmap-phases', 'aria-label': 'Fasi della generazione' }, roadmapProgressSteps(message).map(item =>
+            el('ol', { class: 'roadmap-phases', 'aria-label': 'Generation phases' }, roadmapProgressSteps(message).map(item =>
               el('li', { class: `roadmap-phase is-${item.state}`, ...(item.state === 'active' ? { 'aria-current': 'step' } : {}) }, [
                 el('span', { class: 'roadmap-phase__bar', 'aria-hidden': 'true' }),
                 el('span', { class: 'roadmap-phase__label', text: item.label }),
               ]))),
             el('div', { class: 'roadmap-loading__current', role: 'status', 'aria-live': 'polite' }, [
-              el('span', { class: 'roadmap-loading__eyebrow', text: 'ATTIVITÀ ATTUALE' }),
+              el('span', { class: 'roadmap-loading__eyebrow', text: 'CURRENT ACTIVITY' }),
               el('div', { class: 'roadmap-loading__activity', text: activity }),
               el('div', { class: 'roadmap-loading__received' }),
             ]),
@@ -17472,7 +17472,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
               ? rows : [step('active', activity)]),
             el('div', { class: 'roadmap-loading__footer' }, [
               el('div', { class: 'roadmap-loading__heartbeat', 'aria-live': 'off' }),
-              el('div', { text: 'Puoi fermare in qualsiasi momento con il quadrato nel campo qui sotto. Quello che scrivi ora arriva al modello al passo successivo, senza ricominciare.' }),
+              el('div', { text: 'You can stop at any time with the square in the prompt below. What you write now reaches the model at its next step, without starting over.' }),
             ]),
           ]),
         ]);
@@ -17489,13 +17489,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const total = build?.outline.stages.length || 0, written = build?.stages.length || 0;
         const judged = ['curriculum-judge', 'repairing-curriculum', 'verified'].includes(status);
         const steps = [
-          { label: 'Ricerca', done: !m.webSearching && !!(m.roadmapActivity || build) },
-          { label: 'Struttura', done: !!build },
+          { label: 'Research', done: !m.webSearching && !!(m.roadmapActivity || build) },
+          { label: 'Structure', done: !!build },
         ];
-        if (total && total <= 8) for (let i = 0; i < total; i += 1) steps.push({ label: `Tappa ${i + 1}`, done: i < written });
-        else steps.push({ label: total ? `Tappe ${written}/${total}` : 'Tappe', done: !!total && written === total });
-        steps.push({ label: m.roadmapAudit ? `Verifica ${m.roadmapAudit.completed}/${m.roadmapAudit.total}` : 'Verifica', done: judged });
-        steps.push({ label: 'Giudizio', done: status === 'verified' });
+        if (total && total <= 8) for (let i = 0; i < total; i += 1) steps.push({ label: `Stage ${i + 1}`, done: i < written });
+        else steps.push({ label: total ? `Stages ${written}/${total}` : 'Stages', done: !!total && written === total });
+        steps.push({ label: m.roadmapAudit ? `Verification ${m.roadmapAudit.completed}/${m.roadmapAudit.total}` : 'Verification', done: judged });
+        steps.push({ label: 'Review', done: status === 'verified' });
         const active = steps.findIndex(item => !item.done);
         return steps.map((item, index) => ({ ...item, state: item.done ? 'done' : index === active ? 'active' : 'todo' }));
       }
@@ -17503,14 +17503,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function roadmapProgressTitle(m) {
         const build = m.roadmapBuild?.outline ? m.roadmapBuild : null, label = m.roadmapActivity?.label || '';
         const status = m.roadmapVerification?.status;
-        if (m.webSearching) return 'Sto cercando e leggendo le fonti';
-        if (/^Answering your/.test(label)) return 'Rispondo ai tuoi messaggi';
-        if (/^Applying (?:your|\d+) feedback/.test(label)) return 'Applico la modifica che hai chiesto';
-        if (!build) return m.roadmapActivity ? 'Preparo la struttura del percorso' : 'Preparo il modello locale';
-        if (build.stages.length < build.outline.stages.length) return `Sto scrivendo la tappa ${build.stages.length + 1} di ${build.outline.stages.length}`;
-        if (status === 'curriculum-judge') return 'Valuto la progettazione del percorso';
-        if (status === 'repairing-facts' || status === 'repairing-curriculum') return 'Correggo i difetti trovati';
-        return m.roadmapAudit ? `Verifico i fatti · ${m.roadmapAudit.completed} di ${m.roadmapAudit.total}` : 'Verifico i fatti';
+        if (m.webSearching) return 'Searching and reading sources';
+        if (/^Answering your/.test(label)) return 'Answering your messages';
+        if (/^Applying (?:your|\d+) feedback/.test(label)) return 'Applying the change you asked for';
+        if (!build) return m.roadmapActivity ? 'Preparing the learning path structure' : 'Preparing the local model';
+        if (build.stages.length < build.outline.stages.length) return `Writing stage ${build.stages.length + 1} of ${build.outline.stages.length}`;
+        if (status === 'curriculum-judge') return 'Reviewing the learning design';
+        if (status === 'repairing-facts' || status === 'repairing-curriculum') return 'Correcting the defects found';
+        return m.roadmapAudit ? `Checking facts · ${m.roadmapAudit.completed} of ${m.roadmapAudit.total}` : 'Checking facts';
       }
 
       function roadmapProgressSubtitle(m) {
@@ -17523,15 +17523,15 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function buildRoadmapDraftCallout(chat, m, build) {
         const total = build.outline.stages.length, written = build.stages.length;
         const blocks = build.outline.stages.reduce((sum, stage) => sum + stage.topics.length, 0);
-        const stages = total === 1 ? '1 tappa' : `${total} tappe`;
+        const stages = total === 1 ? '1 stage' : `${total} stages`;
         const text = written < total
-          ? `Prima bozza pronta: ${stages} e ${blocks === 1 ? '1 blocco' : `${blocks} blocchi`}, ${written}/${total} tappe scritte. Puoi leggerla mentre ${roadmapModelName(chat.model)} scrive i dettagli.`
-          : `Bozza completa: ${total === 1 ? 'la tappa è scritta' : `tutte le ${total} tappe sono scritte`}. Puoi leggerla mentre verifico i fatti${m.roadmapAudit ? ` (${m.roadmapAudit.completed}/${m.roadmapAudit.total})` : ''}.`;
+          ? `First draft ready: ${stages} and ${blocks === 1 ? '1 block' : `${blocks} blocks`}, ${written}/${total} stages written. You can read it while ${roadmapModelName(chat.model)} writes the details.`
+          : `Draft complete: ${total === 1 ? 'the stage is written' : `all ${total} stages are written`}. You can read it while the facts are checked${m.roadmapAudit ? ` (${m.roadmapAudit.completed}/${m.roadmapAudit.total})` : ''}.`;
         const icon = el('span', { class: 'roadmap-draft-callout__icon', 'aria-hidden': 'true' });
         icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 4 4 10-10"/></svg>';
         return el('div', { class: 'roadmap-draft-callout', role: 'status' }, [
           icon, el('span', { class: 'roadmap-draft-callout__text', text }),
-          el('button', { class: 'btn roadmap-draft-callout__read', type: 'button', 'data-act': 'scroll-roadmap-draft', text: 'Leggi la bozza' }),
+          el('button', { class: 'btn roadmap-draft-callout__read', type: 'button', 'data-act': 'scroll-roadmap-draft', text: 'Read the draft' }),
         ]);
       }
 
@@ -17544,23 +17544,23 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const reason = m.error?.message || '';
         const needsSources = /No read-source|need more source evidence/.test(reason);
         const storage = /could not be saved|could not.*save|history.*save|Free storage/i.test(reason);
-        const title = needsSources ? 'Verifica incompleta · servono altre fonti'
-          : storage ? 'Salvataggio non riuscito · la bozza è conservata'
-          : savedBuild ? 'Bozza ferma · non ancora verificata' : 'Generazione interrotta';
+        const title = needsSources ? 'Verification incomplete · more sources needed'
+          : storage ? 'Save failed · the draft is kept'
+          : savedBuild ? 'Draft stopped · not yet verified' : 'Generation interrupted';
         const overview = !savedBuild || needsSources || storage
           ? roadmapFailureMessage({ ...m, roadmapBuild: savedBuild }, modelUnavailable)
           : written === total
-            ? `Tutte le ${total} tappe sono scritte: puoi leggerle e studiarle come bozza. Modifiche e completamento si attivano dopo la verifica.`
-            : `${written}/${total} tappe scritte: puoi già leggerle. Alla ripresa scrivo le altre, poi verifico i fatti.`;
+            ? `All ${total} stages are written: you can read and study them as a draft. Editing and completion unlock after verification.`
+            : `${written}/${total} stages written: you can read them now. Resuming writes the rest, then checks the facts.`;
         const summary = m.roadmapAudit ? roadmapAuditSummary(m.roadmapAudit) : null;
         let verify = null;
         if (summary?.total) {
           const parts = [
-            ['supported', summary.all.supported, n => `${n} ${n === 1 ? 'confermato' : 'confermati'}`],
-            ['not_factual', summary.all.not_factual, n => `${n} senza fatti da verificare`],
-            ['unverified', summary.all.unverified, n => `${n} da verificare`],
-            ['contradicted', summary.all.contradicted, n => `${n} ${n === 1 ? 'contraddetto' : 'contraddetti'}`],
-            ['missing', summary.missing, n => `${n} ancora da fare`],
+            ['supported', summary.all.supported, n => `${n} confirmed`],
+            ['not_factual', summary.all.not_factual, n => `${n} not factual`],
+            ['unverified', summary.all.unverified, n => `${n} to verify`],
+            ['contradicted', summary.all.contradicted, n => `${n} contradicted`],
+            ['missing', summary.missing, n => `${n} still to do`],
           ].filter(([, n]) => n);
           const bar = el('div', { class: 'roadmap-status__bar', role: 'img', 'aria-label': parts.map(([, n, text]) => text(n)).join(', ') });
           for (const [key, n] of parts) {
@@ -17570,8 +17570,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           }
           verify = el('div', { class: 'roadmap-status__verify' }, [
             el('div', { class: 'roadmap-status__verify-head' }, [
-              el('span', { text: 'Verifica dei fatti' }),
-              el('span', { text: `${summary.completed} di ${summary.total} controlli salvati` }),
+              el('span', { text: 'Fact check' }),
+              el('span', { text: `${summary.completed} of ${summary.total} checks saved` }),
             ]),
             bar,
             el('ul', { class: 'roadmap-status__legend' }, parts.map(([key, n, text]) =>
@@ -17579,22 +17579,22 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           ]);
         }
         const caption = [
-          modelUnavailable ? 'Prima avvio il modello.' : '',
-          summary?.total ? `Continua da ${summary.completed}/${summary.total}: i controlli ancora validi vengono riusati.`
-            : savedBuild ? 'Riparte dalle tappe già salvate.' : 'Riusa le fonti già raccolte.',
+          modelUnavailable ? 'The model starts first.' : '',
+          summary?.total ? `Continues from ${summary.completed}/${summary.total}: checks that are still valid are reused.`
+            : savedBuild ? 'Continues from the saved stages.' : 'Reuses the sources already collected.',
         ].filter(Boolean).join(' ');
         const icon = el('span', { class: 'roadmap-status__icon', 'aria-hidden': 'true' });
         icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
-        return el('section', { class: 'roadmap-direct-error roadmap-status', 'aria-label': 'Stato della bozza' }, [
+        return el('section', { class: 'roadmap-direct-error roadmap-status', 'aria-label': 'Draft status' }, [
           el('div', { class: 'roadmap-status__title' }, [icon, el('h2', { text: title })]),
           el('p', { class: 'roadmap-status__overview', text: overview }),
           verify,
-          pendingNotes ? el('p', { class: 'roadmap-status__notes', text: `${pendingNotes} ${pendingNotes === 1 ? 'messaggio aspetta' : 'messaggi aspettano'} una risposta: alla ripresa ${pendingNotes === 1 ? 'viene letto' : 'vengono letti'} prima del passo successivo.` }) : null,
+          pendingNotes ? el('p', { class: 'roadmap-status__notes', text: `${pendingNotes} ${pendingNotes === 1 ? 'message is' : 'messages are'} waiting for an answer: on resume ${pendingNotes === 1 ? 'it is' : 'they are'} read before the next step.` }) : null,
           el('div', { class: 'roadmap-status__actions' }, [
             el('button', { class: 'btn btn--primary roadmap-direct-error__retry', type: 'button', 'data-act': 'retry',
-              text: modelUnavailable ? (savedBuild ? 'Avvia il modello e riprendi la bozza' : 'Avvia il modello e riprova') : savedBuild ? 'Riprendi bozza' : 'Riprova la roadmap' }),
+              text: modelUnavailable ? (savedBuild ? 'Start the model and resume the draft' : 'Start the model and retry') : savedBuild ? 'Resume draft' : 'Retry the roadmap' }),
             el('span', { class: 'roadmap-status__caption', text: caption }),
-            hasPreviousRoadmap ? el('button', { class: 'btn', type: 'button', 'data-act': 'restore-roadmap', text: 'Torna alla roadmap precedente' }) : null,
+            hasPreviousRoadmap ? el('button', { class: 'btn', type: 'button', 'data-act': 'restore-roadmap', text: 'Back to the previous roadmap' }) : null,
           ].filter(Boolean)),
           roadmapDiagnostics(m),
         ].filter(Boolean));
@@ -17610,14 +17610,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       }
 
       function roadmapFailureMessage(message, modelUnavailable) {
-        if (modelUnavailable) return 'Il modello locale è spento. Avvialo per riprendere la roadmap.';
+        if (modelUnavailable) return 'The local model is off. Start it to resume the roadmap.';
         if (/No read-source|need more source evidence/.test(message.error?.message || ''))
-          return 'Servono altre fonti leggibili per completare le verifiche. La bozza resta salvata.';
+          return 'More readable sources are needed to complete the checks. The draft stays saved.';
         if (/could not be saved|could not.*save|history.*save|Free storage/i.test(message.error?.message || ''))
-          return 'Il salvataggio di questo tentativo non è riuscito. La bozza disponibile è conservata: puoi riprovare la ripresa.';
+          return 'This attempt could not be saved. The available draft is kept: you can retry resuming it.';
         if (message.roadmapBuild?.outline)
-          return 'La generazione è stata interrotta. I blocchi salvati sono disponibili per la ripresa; la verifica non è ancora completa.';
-        return 'La generazione della roadmap è stata interrotta. Puoi riprovare con le fonti già raccolte.';
+          return 'Generation was interrupted. The saved stages are available to resume; verification is not complete yet.';
+        return 'Roadmap generation was interrupted. You can retry with the sources already collected.';
       }
 
       function roadmapSavedBuild(chat, message) {
@@ -17637,9 +17637,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
       function roadmapDiagnostics(message) {
         if (!message.error?.message) return null;
-        const step = message.roadmapActivity?.label ? `Ultimo passaggio: ${message.roadmapActivity.label}\n\n` : '';
+        const step = message.roadmapActivity?.label ? `Last step: ${message.roadmapActivity.label}\n\n` : '';
         return el('details', { class: 'roadmap-diagnostics' }, [
-          el('summary', { text: 'Dettagli tecnici' }),
+          el('summary', { text: 'Technical details' }),
           el('pre', { text: `${step}${String(message.error.message).slice(0, 4000)}` }),
         ]);
       }
@@ -17657,14 +17657,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         if (!notes.length && !live) return null;
         const name = roadmapModelName(chat.model);
         const decision = note => note.revise && note.revise !== 'none'
-          ? el('p', { class: 'roadmap-note__decision', text: note.appliedAt ? 'Modifica applicata alla bozza.' : 'Modifica in programma: viene applicata appena la bozza è coerente, poi ricontrollata.' })
+          ? el('p', { class: 'roadmap-note__decision', text: note.appliedAt ? 'Change applied to the draft.' : 'Change planned: it is applied once the draft is consistent, then checked again.' })
           : null;
-        return el('section', { class: 'roadmap-notes', 'aria-label': `Messaggi a ${name}` }, [
+        return el('section', { class: 'roadmap-notes', 'aria-label': `Messages to ${name}` }, [
           el('div', { class: 'roadmap-notes__head' }, [
-            el('h2', { text: `Messaggi a ${name}` }),
-            el('span', { text: live ? 'Risponde al prossimo passaggio, senza ricominciare la roadmap. Le tappe successive tengono conto di quello che scrivi.' : 'I messaggi in attesa ricevono risposta quando riprendi la bozza.' }),
+            el('h2', { text: `Messages to ${name}` }),
+            el('span', { text: live ? 'Answers at the next step, without restarting the roadmap. Later stages take what you write into account.' : 'Waiting messages are answered when you resume the draft.' }),
           ]),
-          notes.length ? null : el('p', { class: 'roadmap-notes__empty', text: 'Scrivi nel campo qui sotto per fare una domanda o dire cosa non ti convince.' }),
+          notes.length ? null : el('p', { class: 'roadmap-notes__empty', text: 'Write in the prompt below to ask a question or say what does not convince you.' }),
           notes.length ? el('ol', { class: 'roadmap-notes__list' }, notes.slice(-12).map(note => el('li', { class: `roadmap-note is-${note.state}`, 'data-note-id': note.id }, [
             el('p', { class: 'roadmap-note__text', text: note.text }),
             note.state === 'answered'
@@ -17674,8 +17674,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
                   decision(note),
                 ].filter(Boolean))
               : el('p', { class: 'roadmap-note__status', text: note.state === 'failed'
-                  ? `Risposta non riuscita${note.error ? `: ${note.error}` : ''}. Il messaggio resta un'indicazione per le tappe successive.`
-                  : live ? `In attesa: ${name} lo legge al prossimo passaggio.` : 'In attesa: verrà letto quando riprendi la bozza.' }),
+                  ? `No answer${note.error ? `: ${note.error}` : ''}. The message still guides the later stages.`
+                  : live ? `Waiting: ${name} reads it at the next step.` : 'Waiting: it is read when you resume the draft.' }),
           ]))) : null,
         ].filter(Boolean));
       }
@@ -17685,18 +17685,18 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           && (message.roadmapBuild || message.roadmapActivity || message.roadmapVerification || message.roadmapDismissed));
         if (!attempts.length) return null;
         return el('details', { class: 'roadmap-history' }, [
-          el('summary', { text: `Tentativi precedenti (${attempts.length})` }),
+          el('summary', { text: `Previous attempts (${attempts.length})` }),
           el('ol', {}, attempts.slice(-12).reverse().map(message => {
             const build = message.roadmapBuild;
             const status = message.roadmapOverride || message.roadmapVerification?.status === 'modified'
-              ? 'Modificato · non verificato' : message.roadmapVerification?.status === 'verified' ? 'Completato' : 'Interrotto';
+              ? 'Modified · not verified' : message.roadmapVerification?.status === 'verified' ? 'Completed' : 'Interrupted';
             return el('li', {}, [
               el('time', { text: new Date(message.createdAt).toLocaleString() }),
-              el('span', { text: `${status}${build?.outline ? ` · ${build.stages.length}/${build.outline.stages.length} tappe salvate` : ''}` }),
+              el('span', { text: `${status}${build?.outline ? ` · ${build.stages.length}/${build.outline.stages.length} stages saved` : ''}` }),
               roadmapDiagnostics(message),
             ].filter(Boolean));
           })),
-          attempts.length > 12 ? el('p', { text: 'Sono mostrati gli ultimi 12 tentativi. Gli altri restano salvati nella conversazione.' }) : null,
+          attempts.length > 12 ? el('p', { text: 'The last 12 attempts are shown. The others stay saved in the conversation.' }) : null,
         ].filter(Boolean));
       }
 
@@ -17707,24 +17707,24 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const modelUnavailable = Store.getState().ui.connection === 'down';
         const prompt = roadmapAttemptPrompt(chat, attempt);
         const title = live
-          ? 'Sto preparando una nuova versione'
-          : 'La roadmap precedente è ancora disponibile';
+          ? 'Preparing a new version'
+          : 'The previous roadmap is still available';
         const description = live
-          ? 'La roadmap attuale resta qui finché la nuova bozza non supera i controlli.'
+          ? 'The current roadmap stays here until the new draft passes its checks.'
           : roadmapFailureMessage(attempt, modelUnavailable);
         const actions = live
           ? [el('button', {
               class: 'btn roadmap-attempt__restore', type: 'button', 'data-act': 'restore-roadmap',
-              text: 'Annulla e mantieni questa roadmap',
+              text: 'Cancel and keep this roadmap',
             })]
           : [
               el('button', {
                 class: 'btn roadmap-attempt__retry', type: 'button', 'data-act': 'retry',
-                text: modelUnavailable ? 'Avvia il modello e riprova' : 'Riprova l’aggiornamento',
+                text: modelUnavailable ? 'Start the model and retry' : 'Retry the update',
               }),
               el('button', {
                 class: 'btn roadmap-attempt__restore', type: 'button', 'data-act': 'restore-roadmap',
-                text: 'Torna alla roadmap precedente',
+                text: 'Back to the previous roadmap',
               }),
             ];
         const notice = el('section', {
@@ -17736,9 +17736,9 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           el('div', { class: 'roadmap-attempt__copy' }, [
             el('h2', { text: title }),
             el('p', { text: description }),
-            live ? el('p', { class: 'roadmap-attempt__activity', text: attempt.roadmapActivity?.label || 'Preparazione in corso' }) : roadmapDiagnostics(attempt),
+            live ? el('p', { class: 'roadmap-attempt__activity', text: attempt.roadmapActivity?.label || 'Preparing' }) : roadmapDiagnostics(attempt),
             prompt ? el('details', { class: 'roadmap-attempt__prompt' }, [
-              el('summary', { text: 'Mostra il prompt inviato' }),
+              el('summary', { text: 'Show the prompt that was sent' }),
               el('p', { text: prompt }),
             ]) : null,
           ].filter(Boolean)),
@@ -17762,7 +17762,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const exportMenu = el('details', { class: 'roadmap-export' });
         const exportSummary = el('summary', {}, [
           (() => { const icon = el('span', { 'aria-hidden': 'true' }); icon.innerHTML = iconSvg('download', 14); return icon; })(),
-          el('span', { text: 'Esporta' }),
+          el('span', { text: 'Export' }),
           el('span', { class: 'roadmap-export__chevron', 'aria-hidden': 'true', text: '⌄' }),
         ]);
         const exportOptions = el('div', { class: 'roadmap-export__menu', role: 'menu' });
@@ -17770,7 +17770,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           const base = roadmapSlug(roadmap.title, 'roadmap');
           const original = button.innerHTML;
           button.disabled = true;
-          button.textContent = 'Preparo…';
+          button.textContent = 'Preparing…';
           exportMenu.open = false;
           try {
             if (format === 'json') {
@@ -17784,15 +17784,15 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
                 downloadBlob(canvasRoadmapPdf(canvas), `${base}.pdf`);
               }
             }
-            toast(`Percorso esportato in ${format.toUpperCase()}.`, 'info');
+            toast(`Learning path exported as ${format.toUpperCase()}.`, 'info');
           } catch (error) {
-            toast(`Esportazione non riuscita: ${error?.message || error}`, 'error');
+            toast(`Export failed: ${error?.message || error}`, 'error');
           } finally {
             button.disabled = false;
             button.innerHTML = original;
           }
         };
-        [['png', 'Immagine'], ['pdf', 'Documento'], ['json', 'Dati']].forEach(([format, label]) => {
+        [['png', 'Image'], ['pdf', 'Document'], ['json', 'Data']].forEach(([format, label]) => {
           const option = el('button', { class: 'roadmap-export__option', type: 'button', role: 'menuitem' }, [
             el('span', { text: label }),
             el('span', { class: 'roadmap-export__ext', text: format.toUpperCase() }),
@@ -17834,7 +17834,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           type: 'button', text, title: label, 'aria-label': label,
         });
         const openStudy = (kind, stage, node) => {
-          if (Store.isChatStreaming(chat.id)) { toast('Ferma la verifica in corso prima di aprire lo studio.', 'info'); return; }
+          if (Store.isChatStreaming(chat.id)) { toast('Stop the current verification before opening study.', 'info'); return; }
           RoadmapStudy.open({
             chatId: chat.id, messageId: message.id, roadmap: cloneRoadmap(roadmap),
             unverified: readOnly || !!message.roadmapOverride || message.roadmapVerification?.status === 'modified',
@@ -17892,8 +17892,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             },
             roadmap: roadmapContext,
           };
-          onStatus?.('Avvio il modello locale…');
-          const ready = await Switcher.ensureChatReady(settings, signal, () => onStatus?.('Avvio il modello locale…'));
+          onStatus?.('Starting the local model…');
+          const ready = await Switcher.ensureChatReady(settings, signal, () => onStatus?.('Starting the local model…'));
           settings = ready?.requestSettings || settings;
           return completeRoadmapPhase({
             request: { settings, model: settings.model,
@@ -17904,10 +17904,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             signal, label: 'Developing the learning block', stream: Api.streamChat,
             isCurrent: () => !!Store.getChat(chat.id)?.messages.some(item => item.id === message.id),
             onProgress: snapshot => onStatus?.(snapshot.content.length
-              ? 'Scrivo il blocco…' : 'Ragiono su prerequisiti e ambito…'),
+              ? 'Writing the learning block…' : 'Thinking about prerequisites and scope…'),
             onRetry: (attempt, issue, snapshot) => onStatus?.(snapshot.repetition
-              ? 'Ripetizione rilevata · recupero il blocco…'
-              : `Blocco incompleto · nuovo tentativo ${attempt + 1}…`),
+              ? 'Repetition detected · recovering this block…'
+              : `Incomplete block · retrying attempt ${attempt + 1}…`),
             normalize: raw => {
               const generated = extractRoadmapBlockFromAssistant(raw, title, description, allowedUrls);
               if (!generated) throw new Error('Return one complete learning block with hours, concepts, outcome, practice and assessment.');
@@ -17918,14 +17918,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const buildAddForm = ({ stageId, afterTopicId = '', branch = '' }) => {
           const input = el('input', {
             class: 'roadmap-add__input', type: 'text', maxlength: '140', required: '',
-            placeholder: 'Titolo del blocco', 'aria-label': 'Titolo del nuovo blocco',
+            placeholder: 'Block title', 'aria-label': 'New learning block title',
           });
           const description = el('textarea', {
             class: 'roadmap-add__input roadmap-add__description', maxlength: '500', rows: '2', required: '',
-            placeholder: 'Cosa deve insegnare questo blocco?', 'aria-label': 'Descrizione del nuovo blocco',
+            placeholder: 'What should this block teach?', 'aria-label': 'New learning block description',
           });
-          const add = el('button', { class: 'btn btn--primary', type: 'submit', text: 'Aggiungi' });
-          const cancel = el('button', { class: 'btn', type: 'button', text: 'Annulla' });
+          const add = el('button', { class: 'btn btn--primary', type: 'submit', text: 'Add' });
+          const cancel = el('button', { class: 'btn', type: 'button', text: 'Cancel' });
           const statusText = el('span');
           const status = el('div', { class: 'roadmap-add__status', hidden: '', role: 'status', 'aria-live': 'polite' }, [
             el('span', { class: 'roadmap-add__spinner', 'aria-hidden': 'true' }), statusText,
@@ -17941,8 +17941,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             input.disabled = active;
             description.disabled = active;
             add.disabled = active;
-            add.textContent = active ? 'Creo…' : 'Aggiungi';
-            cancel.textContent = active ? 'Ferma' : 'Annulla';
+            add.textContent = active ? 'Creating…' : 'Add';
+            cancel.textContent = active ? 'Stop' : 'Cancel';
             status.hidden = !active && !label;
             status.classList.toggle('is-active', active);
             statusText.textContent = label;
@@ -17958,13 +17958,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             if (!title) { input.focus(); return; }
             if (!requestedDescription) { description.focus(); return; }
             if (Store.isChatStreaming(chat.id)) {
-              toast('Aspetta la fine della generazione in corso prima di aggiungere un blocco.', 'warn');
+              toast('Wait for the current generation before adding a block.', 'warn');
               return;
             }
             generationController = new AbortController();
             const runController = generationController;
             Store.setChatStreaming(chat.id, runController);
-            setGenerating(true, 'Preparo il contesto del percorso…');
+            setGenerating(true, 'Preparing the roadmap context…');
             try {
               const generated = await generateRoadmapTopic({
                 stageId, afterTopicId, branch, title, description: requestedDescription,
@@ -18002,10 +18002,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
               }
             } catch (error) {
               if (error?.name === 'AbortError' || runController.signal.aborted) {
-                setGenerating(false, 'Generazione fermata.');
+                setGenerating(false, 'Generation stopped.');
               } else {
-                setGenerating(false, error?.message || 'Non sono riuscito a creare il blocco.');
-                toast(`Non sono riuscito a creare il blocco: ${error?.message || error}`, 'error');
+                setGenerating(false, error?.message || 'Could not create the block.');
+                toast(`Could not create the roadmap block: ${error?.message || error}`, 'error');
               }
             } finally {
               if (Store.getChatAbort(chat.id) === runController) Store.setChatStreaming(chat.id, null);
@@ -18055,7 +18055,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           if (body) body.hidden = !open;
           if (toggle) {
             toggle.setAttribute('aria-expanded', String(open));
-            toggle.setAttribute('aria-label', `${open ? 'Nascondi' : 'Mostra'} i blocchi di ${stageEl.dataset.title}`);
+            toggle.setAttribute('aria-label', `${open ? 'Hide' : 'Show'} the blocks of ${stageEl.dataset.title}`);
           }
           if (remember) rememberStageChoice(message.id, stageEl.dataset.stageId, open);
         };
@@ -18097,7 +18097,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const auditBar = (counts, className) => {
           const total = counts ? counts.supported + counts.not_factual + counts.unverified + counts.contradicted : 0;
           if (!total) return null;
-          const bar = el('span', { class: className, role: 'img', 'aria-label': `Verifica: ${roadmapAuditLabel(counts)}` });
+          const bar = el('span', { class: className, role: 'img', 'aria-label': `Checks: ${roadmapAuditLabel(counts)}` });
           for (const key of ['supported', 'not_factual', 'unverified', 'contradicted']) {
             if (!counts[key]) continue;
             const segment = el('span', { class: `roadmap-audit-seg is-${key}` });
@@ -18112,7 +18112,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const done = progress[topic.id] === true;
             node.classList.toggle('is-complete', done);
             check.setAttribute('aria-pressed', String(done));
-            check.setAttribute('aria-label', `${done ? 'Segna come da fare' : 'Segna come completato'}: ${topic.title}`);
+            check.setAttribute('aria-label', `${done ? 'Mark incomplete' : 'Mark complete'}: ${topic.title}`);
           }
           card.querySelectorAll('.roadmap-stage').forEach((stageEl) => {
             const stageTopics = topicNodes.filter(({ stageId }) => stageId === stageEl.dataset.stageId);
@@ -18122,14 +18122,14 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const item = mapItems.get(stageEl.dataset.stageId);
             if (item) {
               item.classList.toggle('is-complete', complete);
-              item.querySelector('.roadmap-map__progress').textContent = done ? `${done} di ${stageTopics.length} completati` : '';
+              item.querySelector('.roadmap-map__progress').textContent = done ? `${done} of ${stageTopics.length} complete` : '';
             }
           });
           syncRoadmapHeader(chat);
         };
 
-        const map = el('nav', { class: 'roadmap-map', 'aria-label': 'Mappa del percorso' }, [
-          el('span', { class: 'roadmap-map__eyebrow', text: 'MAPPA DEL PERCORSO' }),
+        const map = el('nav', { class: 'roadmap-map', 'aria-label': 'Learning path map' }, [
+          el('span', { class: 'roadmap-map__eyebrow', text: 'LEARNING PATH MAP' }),
         ]);
         const goToStage = (stageEl) => {
           setStageOpen(stageEl, true);
@@ -18145,11 +18145,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           const stageAudit = audit?.byStage.get(stage.id);
           const metaParts = [
             stage.duration,
-            `${stage.topics.length} ${stage.topics.length === 1 ? 'blocco' : 'blocchi'}`
-              + (isUnwritten || !(hours.required + hours.optional) ? '' : ` · ${roadmapHoursText(hours.required)}${hours.optional ? ` + ${roadmapHoursText(hours.optional)} facoltative` : ''}`),
+            `${stage.topics.length} ${stage.topics.length === 1 ? 'block' : 'blocks'}`
+              + (isUnwritten || !(hours.required + hours.optional) ? '' : ` · ${roadmapHoursText(hours.required)}${hours.optional ? ` + ${roadmapHoursText(hours.optional)} optional` : ''}`),
             roadmapDependencyText(dependencies[stageIndex]),
           ].filter(Boolean);
-          const studyStage = nodeAction(draftStudy ? 'Studia la bozza' : 'Studia la tappa', `Studia ${stage.title}`);
+          const studyStage = nodeAction(draftStudy ? 'Study draft' : 'Study stage', `Study ${stage.title}`);
           studyStage.classList.add('roadmap-stage__study');
           const toggle = el('button', { class: 'roadmap-stage__toggle', type: 'button', 'aria-controls': `${stageDomId}-body` });
           toggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
@@ -18158,13 +18158,13 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             ...metaParts.map(text => el('span', { text })),
             stageAudit && !isUnwritten ? el('span', { class: `roadmap-audit-chip${stageAudit.unverified || stageAudit.contradicted ? ' is-open' : ''}`, text: roadmapAuditLabel(stageAudit) }) : null,
             isUnwritten ? el('span', { class: `roadmap-stage__writing${draftRunning && firstUnwritten ? ' is-active' : ''}`,
-              text: draftRunning && firstUnwritten ? 'In scrittura' : 'Da scrivere' }) : null,
+              text: draftRunning && firstUnwritten ? 'Writing' : 'To be written' }) : null,
           ].filter(Boolean));
           const actions = el('div', { class: 'roadmap-stage__actions' }, [
             isUnwritten ? null : studyStage,
-            readOnly || isUnwritten ? null : actionMenu(`Altre azioni: ${stage.title}`, [
-              { text: 'Aggiungi un blocco alla tappa', label: `Aggiungi un blocco a ${stage.title}`, run: () => addStageTopic() },
-              { text: 'Elimina la tappa', label: `Elimina ${stage.title}`, danger: true, run: () => deleteStage() },
+            readOnly || isUnwritten ? null : actionMenu(`More actions: ${stage.title}`, [
+              { text: 'Add a block to this stage', label: `Add a block to ${stage.title}`, run: () => addStageTopic() },
+              { text: 'Delete stage', label: `Delete ${stage.title}`, danger: true, run: () => deleteStage() },
             ]),
             toggle,
           ].filter(Boolean));
@@ -18174,7 +18174,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             actions,
           ]);
           const stageEl = el('section', { class: `roadmap-stage${isUnwritten ? ' is-unwritten' : ''}`, id: stageDomId,
-            'data-stage-id': stage.id, 'data-title': stage.title, 'aria-label': `Tappa ${stageIndex + 1}: ${stage.title}` }, [stageNode]);
+            'data-stage-id': stage.id, 'data-title': stage.title, 'aria-label': `Stage ${stageIndex + 1}: ${stage.title}` }, [stageNode]);
           const body = el('div', { class: 'roadmap-stage__body', id: `${stageDomId}-body` });
           if (stage.description && !isUnwritten) body.append(el('p', { class: 'roadmap-stage__desc', text: stage.description }));
           const topics = el('div', { class: 'roadmap-stage__topics' });
@@ -18187,7 +18187,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const metaLine = el('span', { class: 'roadmap-topic__meta' }, [
               el('span', { text: [
                 topic.estimatedHours ? roadmapHoursText(topic.estimatedHours) : '',
-                prerequisites.length ? `richiede ${prerequisites.length > 2 ? `${prerequisites.slice(0, 2).join(', ')} e altri ${prerequisites.length - 2}` : prerequisites.join(', ')}` : 'nessun prerequisito',
+                prerequisites.length ? `requires ${prerequisites.length > 2 ? `${prerequisites.slice(0, 2).join(', ')} and ${prerequisites.length - 2} more` : prerequisites.join(', ')}` : 'no prerequisites',
               ].filter(Boolean).join(' · ') }),
               topicAudit && !isUnwritten ? el('span', { class: `roadmap-topic__audit${topicAudit.unverified || topicAudit.contradicted ? ' is-open' : ''}`, text: roadmapAuditLabel(topicAudit) }) : null,
             ].filter(Boolean));
@@ -18196,27 +18196,27 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             }, [
               el('span', { class: 'roadmap-topic__heading' }, [
                 el('span', { class: 'roadmap-topic__title', text: topic.title }),
-                isUnwritten ? el('span', { class: 'roadmap-topic__tag', text: 'Dettagli in arrivo' })
-                  : topic.optional ? el('span', { class: 'roadmap-topic__tag', text: 'Facoltativo' }) : null,
+                isUnwritten ? el('span', { class: 'roadmap-topic__tag', text: 'Details coming' })
+                  : topic.optional ? el('span', { class: 'roadmap-topic__tag', text: 'Optional' }) : null,
               ].filter(Boolean)),
               isUnwritten ? null : metaLine,
             ].filter(Boolean));
             const detail = el('div', { class: 'roadmap-topic__detail', id: detailId, hidden: '' });
-            if (isUnwritten) detail.append(el('p', { class: 'roadmap-topic__unwritten', text: 'Questa tappa non è ancora scritta: qui ci sono solo titolo e prerequisiti della struttura salvata.' }));
+            if (isUnwritten) detail.append(el('p', { class: 'roadmap-topic__unwritten', text: 'This stage is not written yet: only the title and prerequisites from the saved structure are shown.' }));
             if (topic.summary) detail.append(el('p', { class: 'roadmap-topic__summary', text: topic.summary }));
             if (topic.keyConcepts?.length) detail.append(el('div', { class: 'roadmap-topic__concepts' }, [
-              el('span', { class: 'roadmap-topic__label', text: 'Concetti chiave' }),
+              el('span', { class: 'roadmap-topic__label', text: 'Key concepts' }),
               el('div', { class: 'roadmap-topic__chips' }, topic.keyConcepts.map(text => el('span', { class: 'roadmap-chip', text }))),
             ]));
-            const facets = [['Risultato atteso', topic.outcome], ['Pratica', topic.practice], ['Verifica di padronanza', topic.assessment]].filter(([, text]) => text);
+            const facets = [['Outcome', topic.outcome], ['Practice', topic.practice], ['Mastery check', topic.assessment]].filter(([, text]) => text);
             if (facets.length) detail.append(el('div', { class: 'roadmap-topic__facets' }, facets.map(([label, text]) =>
               el('div', { class: 'roadmap-facet' }, [el('span', { class: 'roadmap-facet__label', text: label }), el('p', { text })]))));
             if (topic.resources.length) {
-              const resources = el('div', { class: 'roadmap-topic__resources', 'aria-label': 'Fonti del blocco' }, [
-                el('span', { class: 'roadmap-topic__label', text: 'Fonti' }),
+              const resources = el('div', { class: 'roadmap-topic__resources', 'aria-label': 'Block sources' }, [
+                el('span', { class: 'roadmap-topic__label', text: 'Sources' }),
               ]);
               topic.resources.forEach((resource) => {
-                const label = resource.title || resource.source || resource.url || 'Fonte';
+                const label = resource.title || resource.source || resource.url || 'Source';
                 resources.append(resource.url
                   ? el('a', { class: 'roadmap-topic__resource', href: resource.url, target: '_blank', rel: 'noopener noreferrer', title: resource.why || resource.url, text: label })
                   : el('span', { class: 'roadmap-topic__resource', title: resource.why || '', text: label }));
@@ -18226,22 +18226,22 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const side = topic.branch || (topicIndex % 2 === 0 ? 'left' : 'right');
             const dragHandle = readOnly ? null : el('button', {
               class: 'roadmap-topic__drag', type: 'button', draggable: 'true',
-              title: `Trascina ${topic.title} per riordinarlo`, 'aria-label': `Trascina ${topic.title} per riordinarlo`,
+              title: `Drag ${topic.title} to reorder`, 'aria-label': `Drag ${topic.title} to reorder`,
             });
             if (dragHandle) dragHandle.innerHTML = '<svg width="10" height="16" viewBox="0 0 12 18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.2"/><circle cx="9" cy="3" r="1.2"/><circle cx="3" cy="9" r="1.2"/><circle cx="9" cy="9" r="1.2"/><circle cx="3" cy="15" r="1.2"/><circle cx="9" cy="15" r="1.2"/></svg>';
-            const studyTopic = nodeAction(draftStudy ? 'Studia la bozza' : 'Studia', `Studia ${topic.title}`);
+            const studyTopic = nodeAction(draftStudy ? 'Study draft' : 'Study', `Study ${topic.title}`);
             const rowActions = el('span', { class: 'roadmap-node-actions', ...(isUnwritten ? { hidden: '' } : {}) }, [
               studyTopic,
-              readOnly ? null : actionMenu(`Altre azioni: ${topic.title}`, [
-                { text: 'Aggiungi un blocco dopo', label: `Aggiungi un blocco dopo ${topic.title}`, run: (event) => showBranchForm(event) },
-                { text: 'Elimina il blocco', label: `Elimina ${topic.title}`, danger: true, run: (event) => removeTopic(event) },
+              readOnly ? null : actionMenu(`More actions: ${topic.title}`, [
+                { text: 'Add a block after this one', label: `Add a block after ${topic.title}`, run: (event) => showBranchForm(event) },
+                { text: 'Delete block', label: `Delete ${topic.title}`, danger: true, run: (event) => removeTopic(event) },
               ]),
             ].filter(Boolean));
-            const detailStudy = el('button', { class: 'btn btn--primary roadmap-topic__study', type: 'button', text: 'Studia questo blocco' });
-            const detailAdd = el('button', { class: 'btn roadmap-topic__add', type: 'button', text: 'Aggiungi un blocco dopo' });
+            const detailStudy = el('button', { class: 'btn btn--primary roadmap-topic__study', type: 'button', text: 'Study this block' });
+            const detailAdd = el('button', { class: 'btn roadmap-topic__add', type: 'button', text: 'Add a block after this one' });
             if (!isUnwritten) detail.append(el('div', { class: 'roadmap-topic__detail-actions' }, [
               detailStudy,
-              draftStudy ? el('span', { class: 'roadmap-draft-tag', text: 'Tutor in modalità bozza' }) : null,
+              draftStudy ? el('span', { class: 'roadmap-draft-tag', text: 'Draft tutor' }) : null,
               detailAdd,
             ].filter(Boolean)));
             const topicEl = el('article', {
@@ -18331,11 +18331,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const removeTopic = async (event) => {
               event?.stopPropagation();
               const remainingTopics = roadmap.stages.reduce((sum, item) => sum + item.topics.length, 0);
-              if (remainingTopics <= 1) { toast('Un percorso ha bisogno di almeno un blocco.', 'warn'); return; }
+              if (remainingTopics <= 1) { toast('A roadmap needs at least one learning block.', 'warn'); return; }
               const ok = await askConfirm({
-                title: 'Eliminare il blocco?',
-                body: `“${topic.title}” e la sua chat di studio verranno rimossi.`,
-                cta: 'Elimina il blocco',
+                title: 'Delete learning block?',
+                body: `“${topic.title}” and its study chat will be removed.`,
+                cta: 'Delete block',
               });
               if (!ok) return;
               const next = cloneRoadmap(roadmap);
@@ -18349,7 +18349,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             on(studyTopic, 'click', (event) => { event.stopPropagation(); openStudy('topic', stage, topic); });
             on(detailStudy, 'click', () => openStudy('topic', stage, topic));
             on(detailAdd, 'click', showBranchForm);
-            if (readOnly) { check.disabled = true; check.title = 'Disponibile dopo la verifica'; detailAdd.disabled = true; detailAdd.title = 'Disponibile dopo la verifica'; }
+            if (readOnly) { check.disabled = true; check.title = 'Available after verification'; detailAdd.disabled = true; detailAdd.title = 'Available after verification'; }
             topics.append(topicEl);
             topicNodes.push({ topic, node: topicEl, check, stageId: stage.id });
           });
@@ -18359,11 +18359,11 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             body.insertBefore(buildAddForm({ stageId: stage.id }), topics);
           };
           const deleteStage = async () => {
-            if (roadmap.stages.length <= 1) { toast('Un percorso ha bisogno di almeno una tappa.', 'warn'); return; }
+            if (roadmap.stages.length <= 1) { toast('A roadmap needs at least one stage.', 'warn'); return; }
             const ok = await askConfirm({
-              title: 'Eliminare la tappa?',
-              body: `“${stage.title}”, tutti i suoi blocchi e le loro chat di studio verranno rimossi.`,
-              cta: 'Elimina la tappa',
+              title: 'Delete stage?',
+              body: `“${stage.title}”, all its blocks and their study chats will be removed.`,
+              cta: 'Delete stage',
             });
             if (!ok) return;
             const next = cloneRoadmap(roadmap);
@@ -18376,12 +18376,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           if (stage.checkpoint) {
             const parts = roadmapCheckpointParts(stage.checkpoint);
             const head = [
-              el('span', { class: 'roadmap-checkpoint__label', text: 'Checkpoint della tappa' }),
+              el('span', { class: 'roadmap-checkpoint__label', text: 'Stage checkpoint' }),
               el('span', { class: 'roadmap-checkpoint__summary', text: parts.summary }),
             ];
             body.append(parts.criteria.length
               ? el('details', { class: 'roadmap-stage__checkpoint' }, [
-                  el('summary', {}, [...head, el('span', { class: 'roadmap-checkpoint__more', text: `${parts.criteria.length} ${parts.criteria.length === 1 ? 'criterio' : 'criteri'}` })]),
+                  el('summary', {}, [...head, el('span', { class: 'roadmap-checkpoint__more', text: `${parts.criteria.length} ${parts.criteria.length === 1 ? 'criterion' : 'criteria'}` })]),
                   el('ul', {}, parts.criteria.map(text => el('li', { text }))),
                 ])
               : el('div', { class: 'roadmap-stage__checkpoint' }, head));
@@ -18399,8 +18399,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             el('span', { class: 'roadmap-map__body' }, [
               el('span', { class: 'roadmap-map__title', text: roadmapShortTitle(stage.title, 44) }),
               el('span', { class: 'roadmap-map__meta', text: isUnwritten
-                ? `${stage.topics.length} blocchi · ${draftRunning && firstUnwritten ? 'in scrittura' : 'da scrivere'}`
-                : `${stage.topics.length} ${stage.topics.length === 1 ? 'blocco' : 'blocchi'}${hours.required + hours.optional ? ` · ${roadmapHoursText(hours.required)}${hours.optional ? ` + ${roadmapHoursText(hours.optional)}` : ''}` : ''}` }),
+                ? `${stage.topics.length} ${stage.topics.length === 1 ? 'block' : 'blocks'} · ${draftRunning && firstUnwritten ? 'writing' : 'to be written'}`
+                : `${stage.topics.length} ${stage.topics.length === 1 ? 'block' : 'blocks'}${hours.required + hours.optional ? ` · ${roadmapHoursText(hours.required)}${hours.optional ? ` + ${roadmapHoursText(hours.optional)}` : ''}` : ''}` }),
               el('span', { class: 'roadmap-map__meta', text: roadmapDependencyText(dependencies[stageIndex]) }),
               el('span', { class: 'roadmap-map__progress' }),
               isUnwritten ? null : auditBar(stageAudit, 'roadmap-map__audit'),
@@ -18412,34 +18412,34 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         });
         if (roadmap.capstone) {
           const capstoneId = `roadmap-${message.id}-capstone`.replace(/[^a-z0-9_-]/gi, '-');
-          const studyCapstone = nodeAction(draftStudy ? 'Studia la bozza' : 'Studia il progetto', `Studia ${roadmap.capstone.title}`);
+          const studyCapstone = nodeAction(draftStudy ? 'Study draft' : 'Study project', `Study ${roadmap.capstone.title}`);
           const capstoneAudit = audit && roadmapAuditLabel(audit.capstone);
-          const capstoneEl = el('section', { class: 'roadmap-capstone', id: capstoneId, 'aria-label': `Progetto finale: ${roadmap.capstone.title}` }, [
+          const capstoneEl = el('section', { class: 'roadmap-capstone', id: capstoneId, 'aria-label': `Final project: ${roadmap.capstone.title}` }, [
             el('div', { class: 'roadmap-capstone__head' }, [
               el('div', {}, [
-                el('div', { class: 'roadmap-capstone__label', text: 'PROGETTO FINALE' }),
+                el('div', { class: 'roadmap-capstone__label', text: 'FINAL PROJECT' }),
                 el('h2', { class: 'roadmap-capstone__title', text: roadmap.capstone.title }),
               ]),
               el('div', { class: 'roadmap-stage__actions' }, [
                 studyCapstone,
-                readOnly ? null : actionMenu(`Altre azioni: ${roadmap.capstone.title}`, [
-                  { text: 'Elimina il progetto finale', label: `Elimina ${roadmap.capstone.title}`, danger: true, run: () => deleteCapstone() },
+                readOnly ? null : actionMenu(`More actions: ${roadmap.capstone.title}`, [
+                  { text: 'Delete final project', label: `Delete ${roadmap.capstone.title}`, danger: true, run: () => deleteCapstone() },
                 ]),
               ].filter(Boolean)),
             ]),
             roadmap.capstone.description ? el('p', { class: 'roadmap-capstone__desc', text: roadmap.capstone.description }) : null,
             roadmap.capstone.deliverables?.length ? el('div', { class: 'roadmap-capstone__group' }, [
-              el('span', { class: 'roadmap-topic__label', text: 'Consegne' }),
+              el('span', { class: 'roadmap-topic__label', text: 'Deliverables' }),
               el('ul', { class: 'roadmap-capstone__deliverables' }, roadmap.capstone.deliverables.map((text) => el('li', { text }))),
             ]) : null,
             roadmap.capstone.successCriteria.length ? el('div', { class: 'roadmap-capstone__group' }, [
-              el('span', { class: 'roadmap-topic__label', text: 'Criteri di riuscita' }),
+              el('span', { class: 'roadmap-topic__label', text: 'Success criteria' }),
               el('ul', { class: 'roadmap-capstone__criteria' }, roadmap.capstone.successCriteria.map((criterion) => el('li', { text: criterion }))),
             ]) : null,
-            capstoneAudit ? el('p', { class: 'roadmap-capstone__audit', text: `Verifica del progetto: ${capstoneAudit}` }) : null,
+            capstoneAudit ? el('p', { class: 'roadmap-capstone__audit', text: `Project checks: ${capstoneAudit}` }) : null,
           ].filter(Boolean));
           const deleteCapstone = async () => {
-            const ok = await askConfirm({ title: 'Eliminare il progetto finale?', body: `“${roadmap.capstone.title}” e la sua chat di studio verranno rimossi.`, cta: 'Elimina il progetto' });
+            const ok = await askConfirm({ title: 'Delete final project?', body: `“${roadmap.capstone.title}” and its study chat will be removed.`, cta: 'Delete project' });
             if (!ok) return;
             const next = cloneRoadmap(roadmap);
             next.capstone = null;
@@ -18450,8 +18450,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
           const item = el('a', { class: 'roadmap-map__item is-capstone', href: `#${capstoneId}` }, [
             el('span', { class: 'roadmap-map__rail', 'aria-hidden': 'true' }, [el('span', { class: 'roadmap-map__badge' })]),
             el('span', { class: 'roadmap-map__body' }, [
-              el('span', { class: 'roadmap-map__title', text: 'Progetto finale' }),
-              el('span', { class: 'roadmap-map__meta', text: `Integra tutte le tappe${roadmap.capstone.deliverables?.length ? ` · ${roadmap.capstone.deliverables.length} consegne` : ''}` }),
+              el('span', { class: 'roadmap-map__title', text: 'Final project' }),
+              el('span', { class: 'roadmap-map__meta', text: `Combines every stage${roadmap.capstone.deliverables?.length ? ` · ${roadmap.capstone.deliverables.length} deliverables` : ''}` }),
             ]),
           ]);
           item.querySelector('.roadmap-map__badge').innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>';
@@ -18467,15 +18467,15 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
 
         const toolbar = el('div', { class: 'roadmap-card__toolbar' });
         if (verified) {
-          const when = message.roadmapVerification?.verifiedAt ? new Date(message.roadmapVerification.verifiedAt).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : '';
+          const when = message.roadmapVerification?.verifiedAt ? new Date(message.roadmapVerification.verifiedAt).toLocaleDateString('en-US', { day: 'numeric', month: 'long' }) : '';
           toolbar.append(el('div', { class: 'roadmap-verified-notice', role: 'status' }, [
             el('span', { class: 'roadmap-verified-notice__dot', 'aria-hidden': 'true' }),
-            el('span', { text: `Percorso verificato${when ? ` il ${when}` : ''}: fatti controllati sulle fonti e progettazione didattica approvata.` }),
+            el('span', { text: `Learning path verified${when ? ` on ${when}` : ''}: facts checked against sources and learning design approved.` }),
           ]));
         } else if (modified) {
           toolbar.append(el('section', { class: 'roadmap-draft-notice', role: 'status' }, [
-            el('strong', { text: 'Percorso modificato — non verificato' }),
-            el('span', { text: 'Le modifiche sono salvate. La verifica precedente non certifica questa versione del percorso.' }),
+            el('strong', { text: 'Learning path modified — not verified' }),
+            el('span', { text: 'Your changes are saved. The earlier verification does not certify this version of the path.' }),
           ]));
         }
         toolbar.append(exportMenu);
@@ -18554,8 +18554,8 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         let roadmap = source ? roadmapForMessage(source) : null, state = '', partial = null;
         if (roadmap) {
           // Older roadmaps carry no verification record: show no claim for them.
-          state = source.roadmapOverride || source.roadmapVerification?.status === 'modified' ? 'Modificato · non verificato'
-            : source.roadmapVerification?.status === 'verified' ? 'Verificato' : '';
+          state = source.roadmapOverride || source.roadmapVerification?.status === 'modified' ? 'Modified · not verified'
+            : source.roadmapVerification?.status === 'verified' ? 'Verified' : '';
         } else {
           // A draft shows its shape too; it cannot record completion yet.
           const last = [...(chat.messages || [])].reverse().find(message => message.role === 'assistant' && !message.roadmapDismissed);
@@ -18564,7 +18564,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             partial = roadmapDraftPreview(last.roadmapBuild);
             roadmap = partial?.roadmap || null;
           }
-          if (roadmap) state = Store.isChatStreaming(chat.id) ? 'Bozza in scrittura · non verificata' : 'Bozza ferma · non verificata';
+          if (roadmap) state = Store.isChatStreaming(chat.id) ? 'Draft being written · not verified' : 'Draft stopped · not verified';
         }
         if (!roadmap) {
           stats.hidden = true;
@@ -18583,18 +18583,18 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const effortLabel = qs('#roadmap-head-effort');
         if (bar) bar.style.width = `${pct}%`;
         if (pctLabel) pctLabel.textContent = `${pct}%`;
-        if (completeLabel) completeLabel.textContent = `${complete} di ${total} completati`;
+        if (completeLabel) completeLabel.textContent = `${complete} of ${total} complete`;
         // Unwritten stages carry no estimates yet: say the total is partial.
         if (effortLabel) effortLabel.textContent = partial && partial.written < partial.total
-          ? `${roadmapHoursText(hours.required + hours.optional)} stimate finora · ${partial.written}/${partial.total} tappe scritte`
+          ? `${roadmapHoursText(hours.required + hours.optional)} estimated so far · ${partial.written}/${partial.total} stages written`
           : hours.required || hours.optional
-            ? `${roadmapHoursText(hours.required)} richieste${hours.optional ? ` + ${roadmapHoursText(hours.optional)} facoltative` : ''}` : 'ore non stimate';
+            ? `${roadmapHoursText(hours.required)} required${hours.optional ? ` + ${roadmapHoursText(hours.optional)} optional` : ''}` : 'hours not estimated';
         const shape = qs('#roadmap-head-shape');
-        if (shape) shape.textContent = `${roadmap.stages.length} ${roadmap.stages.length === 1 ? 'tappa' : 'tappe'} · ${total} ${total === 1 ? 'blocco' : 'blocchi'}`;
+        if (shape) shape.textContent = `${roadmap.stages.length} ${roadmap.stages.length === 1 ? 'stage' : 'stages'} · ${total} ${total === 1 ? 'block' : 'blocks'}`;
         const status = qs('#roadmap-head-status');
         if (status) {
           status.textContent = state;
-          status.dataset.state = state.startsWith('Verificato') ? 'verified' : state.startsWith('Modificato') ? 'modified' : 'draft';
+          status.dataset.state = state.startsWith('Verified') ? 'verified' : state.startsWith('Modified') ? 'modified' : 'draft';
         }
         stats.hidden = false;
       }
@@ -19603,7 +19603,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const now = Date.now();
         if (!force && now < autoRecoveryNotBefore) return null;
         autoRecoveryNotBefore = now + AUTO_RECOVERY_COOLDOWN_MS;
-        toast('Il motore locale non è in esecuzione. DStudio lo sta avviando…', 'info');
+        toast('The local engine is not running. DStudio is starting it…', 'info');
         autoRecoveryFlight = (async () => {
           try {
             await Switcher.ensureChatReady(Store.getSettings(), undefined, () => {});
@@ -19618,7 +19618,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
             const reason = error?.message || 'motivo non disponibile';
             if (reason !== lastAutoRecoveryError) {
               lastAutoRecoveryError = reason;
-              toast(`Il riavvio automatico non è riuscito: ${reason}`, 'error');
+              toast(`Automatic restart failed: ${reason}`, 'error');
             }
             // The diagnostics explain the concrete failure (model file, port,
             // memory, engine path…) instead of leaving a passive Start button.
@@ -19923,20 +19923,20 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       // the draft's reuse. The note is durably saved before it is acknowledged.
       async function addRoadmapNote(chat, text, attachments) {
         if (attachments?.length) {
-          toast('Durante la generazione puoi inviare solo testo. Allega i file in una nuova richiesta quando la roadmap è pronta.', 'warn');
+          toast('During generation you can send text only. Attach files in a new request once the roadmap is ready.', 'warn');
           return false;
         }
         const body = String(text || '').trim();
         if (!body) return false;
         if (body.length > ROADMAP_NOTE_LIMITS.text) {
-          toast(`Il messaggio supera ${ROADMAP_NOTE_LIMITS.text} caratteri. Accorcialo: la bozza resta nel campo.`, 'warn');
+          toast(`The message exceeds ${ROADMAP_NOTE_LIMITS.text} characters. Shorten it; your text stays in the prompt.`, 'warn');
           return false;
         }
         const sourceMsgId = chat.messages.findLast(message => message.role === 'user')?.id;
         const existing = roadmapNotesFor(chat, sourceMsgId);
         if (!sourceMsgId || existing.length >= ROADMAP_NOTE_LIMITS.perRequest ||
             existing.filter(note => note.state === 'pending').length >= ROADMAP_NOTE_LIMITS.pending) {
-          toast('Ci sono già molti messaggi in attesa di risposta. Aspetta la prossima risposta; il testo resta nel campo.', 'warn');
+          toast('Many messages are already waiting for an answer. Wait for the next answer; your text stays in the prompt.', 'warn');
           return false;
         }
         const note = { id: uniqueId(), sourceMsgId, text: body, createdAt: Date.now(), state: 'pending' };
@@ -23263,15 +23263,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           if (!announcedDraft) {
             announcedDraft = true;
             if (!resumedDraft) {
-              const stagesText = build.outline.stages.length === 1 ? '1 tappa' : `${build.outline.stages.length} tappe`;
-              toast(`Prima bozza pronta: ${stagesText} e ${blocks === 1 ? '1 blocco' : `${blocks} blocchi`}. Puoi leggerla qui sotto mentre ${modelName} scrive i dettagli.`, 'info');
+              const stagesText = build.outline.stages.length === 1 ? '1 stage' : `${build.outline.stages.length} stages`;
+              toast(`First draft ready: ${stagesText} and ${blocks === 1 ? '1 block' : `${blocks} blocks`}. You can read it below while ${modelName} writes the details.`, 'info');
               Messages.announce('First roadmap draft ready to read');
             }
           }
           if (!announcedComplete && build.stages.length === build.outline.stages.length) {
             announcedComplete = true;
-            toast(build.outline.stages.length === 1 ? 'Bozza completa: la tappa è scritta. Ora controllo i fatti; puoi già leggerla.'
-              : `Bozza completa: tutte le ${build.outline.stages.length} tappe sono scritte. Ora controllo i fatti; puoi già leggerla.`, 'info');
+            toast(build.outline.stages.length === 1 ? 'Draft complete: the stage is written. Fact checking starts now; you can already read it.'
+              : `Draft complete: all ${build.outline.stages.length} stages are written. Fact checking starts now; you can already read it.`, 'info');
             Messages.announce('Roadmap draft complete; verification continues');
           }
           renderIfActive();
@@ -23315,13 +23315,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             // One reply decides one rewrite; it is recorded on the last message.
             await patchNotes(note => answers.has(note.id) ? { ...note, state: 'answered', answer: answers.get(note.id), answeredAt: at,
               ...(note.id === lastId ? { revise: reply.revise, stageIds: reply.stageIds, revision: reply.revision } : { revise: 'none' }) } : null);
-            toast(reply.revise === 'none' ? `${modelName} ha risposto al tuo messaggio.` : `${modelName} ha risposto e applicherà la modifica alla bozza.`, 'info');
+            toast(reply.revise === 'none' ? `${modelName} answered your message.` : `${modelName} answered and will apply the change to the draft.`, 'info');
             Messages.announce('The model answered your message');
           } catch (cause) {
             if (cause?.name === 'AbortError' || controller.signal.aborted || !isCurrent()) throw cause;
             const ids = new Set(pending.map(note => note.id));
             await patchNotes(note => ids.has(note.id) ? { ...note, state: 'failed', error: String(cause?.message || cause).slice(0, 400) } : null);
-            toast(`${modelName} non è riuscito a rispondere: la roadmap continua e il tuo messaggio resta come indicazione.`, 'warn');
+            toast(`${modelName} could not answer: the roadmap continues and your message remains as guidance.`, 'warn');
           } finally { answeringNotes = false; }
         };
         const beforePhase = async () => {
@@ -23348,7 +23348,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             }
             const ids = new Set(requested.map(note => note.id)), at = Date.now();
             await patchNotes(note => ids.has(note.id) ? { ...note, appliedAt: at } : null);
-            toast('La modifica richiesta è stata applicata alla bozza.', 'info');
+            toast('The requested change was applied to the draft.', 'info');
           }
           throw roadmapIncomplete('Too many consecutive feedback rewrites. The draft and your messages remain saved; resume when ready.');
         };
@@ -24396,7 +24396,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           message.role === 'assistant' && !!roadmapForMessage(message));
         if (previousIndex < 0) {
           abortStream(chat.id);
-          toast('Non esiste ancora una roadmap precedente da ripristinare.', 'warn');
+          toast('There is no previous roadmap to restore yet.', 'warn');
           return;
         }
 
@@ -24417,7 +24417,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         Store.setChatStreaming(chat.id, null);
         Messages.renderChat(chat, { stickToBottom: true });
-        toast('Mostro di nuovo la roadmap precedente. Il prompt annullato resta conservato.', 'info');
+        toast('Showing the previous roadmap again. The cancelled prompt is kept.', 'info');
       }
 
       function isResearching(chatId = Store.getActiveChat()?.id) {
@@ -25007,7 +25007,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             if (!message.content) message.content = 'The previous study response was interrupted.';
           }
         });
-        eyebrowEl.textContent = `${context.roadmap.title} · ${context.stage?.title || 'Final project'}${context.unverified ? ' · Bozza non verificata' : ''}`;
+        eyebrowEl.textContent = `${context.roadmap.title} · ${context.stage?.title || 'Final project'}${context.unverified ? ' · Unverified draft' : ''}`;
         titleEl.textContent = context.node.title;
         Composer.beginTutorAttachmentSession(renderTutorAttachments);
         Composer.beginTutorModelSession(modelHost);
@@ -25572,7 +25572,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         }
         const aid = Store.getActiveChat()?.id;
         if (aid && curMode === 'roadmap' && Chat.isBusy(aid) && hasFiles) {
-          toast('Durante la generazione puoi inviare solo testo. Allega i file in una nuova richiesta quando la roadmap è pronta.', 'warn');
+          toast('During generation you can send text only. Attach files in a new request once the roadmap is ready.', 'warn');
           return;
         }
         if (aid && Chat.isBusy(aid) && !hasFiles) {
@@ -27082,10 +27082,10 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           const modelName = roadmapModelName(Store.getActiveChat()?.model || Store.getSettings().model);
           const hasPath = !!Store.getActiveChat()?.messages?.some(message => message.role === 'assistant');
           input.placeholder = busy
-            ? `Scrivi a ${modelName} mentre genera: cosa non ti convince o una domanda…`
-            : hasPath ? 'Chiedi una modifica al percorso, per esempio più esercizi pratici in una tappa…'
+            ? `Write to ${modelName} while it generates: what does not convince you, or a question…`
+            : hasPath ? 'Ask for a change, for example more hands-on exercises in a stage…'
               : 'Describe what you want to learn, your level and available time; paste source links here too…';
-          if (busy) sendBtn.title = `Invia a ${modelName}: risponde al prossimo passaggio, senza ricominciare`;
+          if (busy) sendBtn.title = `Send to ${modelName}: it answers at the next step, without starting over`;
         }
         stopBtn.hidden = !busy;
         const stopLabel = preparing ? 'Stop attachment preparation' : researching ? 'Stop research' : 'Stop response';
@@ -31180,9 +31180,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
               // A draft without an accepted roadmap: say where it stands.
               const last = [...(c.messages || [])].reverse().find(message => message.role === 'assistant' && !message.roadmapDismissed);
               const build = last?.roadmapBuild?.outline ? last.roadmapBuild : null;
-              const text = gen ? (build ? `In generazione · ${build.stages.length}/${build.outline.stages.length} tappe` : 'In generazione')
-                : last?.roadmapAudit ? `Bozza ferma · verifica ${last.roadmapAudit.completed}/${last.roadmapAudit.total}`
-                : build ? `Bozza ferma · ${build.stages.length}/${build.outline.stages.length} tappe` : '';
+              const text = gen ? (build ? `Generating · ${build.stages.length}/${build.outline.stages.length} stages` : 'Generating')
+                : last?.roadmapAudit ? `Draft stopped · checks ${last.roadmapAudit.completed}/${last.roadmapAudit.total}`
+                : build ? `Draft stopped · ${build.stages.length}/${build.outline.stages.length} stages` : '';
               if (text) body.append(el('span', { class: `chat-item__status${gen ? ' is-live' : ''}`, text }));
             }
           }

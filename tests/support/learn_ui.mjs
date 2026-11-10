@@ -5,12 +5,12 @@ export const topicAction = (page, label) => page.locator(`.roadmap-topic ${actio
 const topicRow = (page, label) => page.locator('.roadmap-topic__node', { has: page.locator(actionSelector(label)) });
 
 export async function studyTopic(page, title) {
-  await topicRow(page, `Studia ${title}`).hover();
-  await page.getByRole('button', { name: `Studia ${title}`, exact: true }).click();
+  await topicRow(page, `Study ${title}`).hover();
+  await page.getByRole('button', { name: `Study ${title}`, exact: true }).click();
 }
 
 export async function topicMenu(page, title, item) {
-  await topicRow(page, `Altre azioni: ${title}`).hover();
-  await page.getByRole('button', { name: `Altre azioni: ${title}`, exact: true }).click();
+  await topicRow(page, `More actions: ${title}`).hover();
+  await page.getByRole('button', { name: `More actions: ${title}`, exact: true }).click();
   await page.getByRole('menuitem', { name: item, exact: true }).click();
 }

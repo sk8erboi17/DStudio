@@ -457,11 +457,11 @@ The November 10 Learn workspace redesign is covered by the same production
 scenarios:
 
 - the normal scenario checks the stage map, map navigation and stage
-  collapse, header chips, the verified and modified notices, the Italian block
+  collapse, header chips, the verified and modified notices, the block
   details, and menu-based add/delete;
 - recovery and missing-evidence scenarios check the single status panel;
 - `ui_roadmap_hover_controls_playwright_test.mjs` checks that hover and
-  keyboard focus reveal *Studia* and the **⋯** menu without moving them, and
+  keyboard focus reveal *Study* and the **⋯** menu without moving them, and
   that arrow keys and Escape work in the menu;
 - `tests/support/learn_ui.mjs` reaches block actions the way a learner does;
 - `tests/unit/roadmap_view_test.mjs` executes the audit, hour, dependency,
