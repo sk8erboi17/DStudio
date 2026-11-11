@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { census, parseMakefile } from '../support/test_census.mjs';
+import { census, detectNeeds, parseMakefile } from '../support/test_census.mjs';
 
 const rules = parseMakefile([
   'TEST_BUILD := tests/.build', 'TEST_SERVER := $(TEST_BUILD)/server', '# comment: not-a-target', '.PHONY: a b',
@@ -16,6 +16,26 @@ assert.deepEqual(rules.get('a').recipe, ['@node tests/unit/one_test.mjs tests/.b
 assert.deepEqual(rules.get('check-fast').prerequisites, ['a', 'native'], 'repeated rules accumulate');
 assert.ok(!rules.has('.PHONY') && !rules.has('VALUE') && !rules.has('#'));
 assert.equal(rules.get('b').recipe.length, 1, 'a continued recipe line is one command');
+
+// Prerequisites detected from what a file and its recipe name.
+const selectable = "import { chromium, webkit, firefox } from 'playwright';\nconst name = process.env.DSTUDIO_TEST_BROWSER || 'chromium';\n";
+assert.deepEqual(detectNeeds({ file: 'tests/browser/a_test.mjs', text: selectable, recipes: ['@node tests/browser/a_test.mjs'] }), ['browser:chromium'],
+  'a selectable test runs in its default browser, not in every browser it can name');
+assert.deepEqual(detectNeeds({ file: 'tests/browser/a_test.mjs', text: selectable,
+  recipes: ['@node tests/browser/a_test.mjs', '@DSTUDIO_TEST_BROWSER=webkit node tests/browser/a_test.mjs', '@DSTUDIO_TEST_BROWSER=webkit node tests/browser/other.mjs'] }),
+  ['browser:chromium+webkit']);
+assert.deepEqual(detectNeeds({ file: 'tests/browser/a_test.mjs', text: selectable, recipes: ['@node tests/support/run_all.mjs'] }), ['browser:chosen-by-its-runner']);
+assert.deepEqual(detectNeeds({ file: 'tests/browser/b_test.mjs', recipes: ['@node tests/browser/b_test.mjs'],
+  text: "import { chromium, webkit } from 'playwright';\nconst only = process.env.DSTUDIO_TEST_BROWSER;\n" }), ['browser:chromium+webkit'],
+  'without a default, an unset variable means every browser the file names');
+assert.deepEqual(detectNeeds({ file: 'tests/browser/c_test.mjs', text: "const { webkit } = await import('playwright');\n" }), ['browser:webkit']);
+assert.deepEqual(detectNeeds({ file: 'tests/unit/d_test.mjs', text: "const collector = 'playwright';\n" }), [], 'a string is not an import');
+assert.deepEqual(detectNeeds({ file: 'tests/live/e.mjs', text: "execFileSync('pdftotext', [file]);\n", prerequisites: ['tests/.build/dstudio-server-test'] }),
+  ['host-test-binary', 'real-engine-or-weights', 'tool:poppler']);
+assert.deepEqual(detectNeeds({ file: 'tests/unit/f_test.py', text: 'import json\nfrom PIL import Image\nPLOT = ROOT / "bench/plot.py"\n',
+  readRepoFile: (relative) => relative === 'bench/plot.py' ? 'import matplotlib\nmatplotlib.use("Agg")\n' : null }), ['python:PIL', 'python:matplotlib'],
+  'a script loaded by path contributes its module imports');
+assert.deepEqual(detectNeeds({ file: 'tests/unit/g_test.py', text: '# matplotlib is mentioned, not imported\nimport os\n' }), []);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'census-'));
 try {
@@ -51,9 +71,13 @@ try {
   assert.deepEqual(result.summary.unreached, ['tests/browser/orphan_page_test.mjs', 'tests/browser/orphan_part.mjs', 'tests/integration/orphan_test.mjs'],
     'a file reached only from an unreached test stays unreached');
   assert.equal(result.summary.explicitOnly, 3);
+  assert.deepEqual(row('tests/live/real_test.mjs').needs, ['real-engine-or-weights']);
+  assert.deepEqual(row('tests/unit/one_test.mjs').needs, []);
+  assert.deepEqual(result.summary.needs, { 'real-engine-or-weights': 2 });
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
 
 const real = census(process.cwd());
 assert.ok(real.summary.total > 200 && real.summary.inCheckFast > 100);
 assert.equal(real.summary.total, Object.values(real.summary.byKind).reduce((a, b) => a + b, 0));
-console.log(`PASS: suite census resolves targets, compiled tests, gates, imports and unreached files (synthetic tree); this repository: ${real.summary.total} files, ${real.summary.unreached.length} reached by no target`);
+assert.ok(real.summary.needs['host-test-binary'] > 10 && real.summary.needs['real-engine-or-weights'] === real.summary.byKind.live);
+console.log(`PASS: suite census resolves targets, compiled tests, gates, imports, unreached files and detected prerequisites (synthetic tree); this repository: ${real.summary.total} files, ${real.summary.unreached.length} reached by no target`);

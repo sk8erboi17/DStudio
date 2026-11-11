@@ -44,6 +44,18 @@ target starts; their commands are here so that they are accounted for:
 A file reached by nothing is not evidence of anything: wire it to a target,
 give its command in a guide, or remove it in the final simplification step.
 
+The census also lists, for each file, the prerequisites it can detect from
+what the file and the recipe that runs it name (`--needs` prints them per
+file): the browsers a recipe actually selects, the host test binary or the
+app, Python modules outside the standard library, external tools such as
+Poppler, CMake, ffmpeg or Git, and real weights for everything under
+`tests/live/`. On November 11, 2026, of 282 files: 48 start a browser (16 in
+Chromium only, 26 in Chromium and WebKit, 4 in WebKit only, 1 in all three,
+1 not determined), 49 need the host test binary, 50 a real engine or weights
+and 5 Matplotlib.
+This is a reading aid derived from the sources, not a guarantee: a suite that
+lacks a prerequisite must still report itself as not run or blocked.
+
 `node tests/support/gate_run.mjs check-fast` runs a gate one target at a time
 (`--only TARGET,...` reruns some of them). Each invocation owns a new directory
 in ignored `tests/.artifacts/gate-runs/` with one log per target and a
@@ -53,6 +65,13 @@ blocked. The verdict of a target is its exit status, never its printed lines.
 A rerun does not replace an earlier run, so an intermittent failure stays on
 record beside the rerun that passed. `make test-gate-run` checks the runner on
 a synthetic Makefile.
+
+`node tests/support/gate_run.mjs --cases RUN_DIR` lists the case lines of a
+finished run with their state (`--json` for every line): the case-level
+census of what that run executed. It reads the retained logs and changes
+nothing. The complete run of November 11 (`check-fast-h83qnj`) lists 2,414
+passed and 2 failed case lines over 122 targets; targets that print no case
+line per check are counted by their exit status only.
 
 ## Topic guides and section links
 

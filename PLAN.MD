@@ -260,8 +260,14 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    the target, gate or documented manual command that reaches it (276 files,
    none reached by nothing; see [the test index](tests/README.md#suite-census)),
    and the four live runners that erased their earlier receipts now write a
-   new run directory each time. Still open: the census is per file, not per
-   case, and does not yet record each suite's prerequisites and exclusions.
+   new run directory each time. Since November 11 the census lists the
+   prerequisites it can detect per file (the browsers a recipe selects, host
+   or app binary, Python modules, external tools, real weights), and
+   `gate_run.mjs --cases RUN_DIR` lists the case lines of a finished gate run
+   with their state. Still open: the prerequisites are detected from the
+   sources, not declared and checked; suites that print no line per case are
+   known by exit status only; and the real-model suites have no single
+   case-level listing across their receipts.
 4. Complete the coordinator using existing runners and the frozen
    [common corpus](tests/fixtures/common_model_quality_cases.py).
    `tests/live/quality_multihardware.mjs` exists since November 10: it reads

@@ -3,7 +3,13 @@
 // test and judges no result; it reports files that no target or other test
 // reaches, so an unrun test is visible instead of silently counted.
 //
-//   node tests/support/test_census.mjs [--json] [--root DIR]
+// For each file it also lists the prerequisites it can detect from what the
+// file and the recipe that runs it actually name (a browser, the host binary,
+// Python modules outside the standard library, external tools, real weights).
+// Detection is a reading aid: a suite that lacks a prerequisite must still
+// report it as not run or blocked when executed.
+//
+//   node tests/support/test_census.mjs [--json] [--needs] [--root DIR]
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -34,6 +40,44 @@ export function parseMakefile(text) {
     }
   }
   return rules;
+}
+
+// Prerequisites named by a test file's own text and by the recipes and
+// prerequisites of the targets that run it. `readRepoFile` returns the text of
+// a repository file or null. A Python test that loads a repository script by
+// path inherits that script's module imports.
+const BROWSERS = ['chromium', 'webkit', 'firefox'];
+const PYTHON_MODULES = ['matplotlib', 'PIL', 'numpy', 'docx', 'openpyxl', 'pptx', 'fitz', 'pypdf', 'mlx', 'mlx_lm'];
+const TOOLS = { poppler: /\b(?:pdftotext|pdftoppm|pdfinfo)\b/, cmake: /\bcmake\b/, ffmpeg: /\bffmpeg\b/, git: /['"`]git['"`]|\bgit (?:apply|init|clone|-C)\b/,
+  'macos-automation': /\b(?:osascript|screencapture)\b/, curl: /['"`]curl['"`]/, 'sandbox-exec': /\bsandbox-exec\b/ };
+export function detectNeeds({ file, text, recipes = [], prerequisites = [], readRepoFile = () => null }) {
+  const needs = new Set();
+  if (file.split('/')[1] === 'live') needs.add('real-engine-or-weights');
+  if (/(?:from\s*|import\(\s*|require\(\s*)['"`]playwright['"`]/.test(text)) {
+    // A test that reads DSTUDIO_TEST_BROWSER runs in the browser each recipe
+    // line selects (its own default when the line sets none), not in every
+    // browser it can name. Started by another test, the runner chooses.
+    const named = BROWSERS.filter((name) => new RegExp(`\\b${name}\\b`).test(text));
+    const fallback = text.match(/DSTUDIO_TEST_BROWSER\s*\|\|\s*['"`](\w+)['"`]/)?.[1];
+    const unset = fallback ? [fallback] : named;   // no default: every browser the file names
+    const lines = recipes.filter((recipe) => recipe.includes(file));
+    let run;
+    if (/DSTUDIO_TEST_BROWSER/.test(text)) run = lines.length
+      ? [...new Set(lines.flatMap((line) => { const chosen = line.match(/DSTUDIO_TEST_BROWSER=(\w+)/)?.[1]; return chosen ? [chosen] : unset; }))]
+      : ['chosen-by-its-runner'];
+    else run = named;
+    needs.add(`browser:${(run.length ? run : ['unspecified']).sort().join('+')}`);
+  }
+  if (prerequisites.some((p) => /dstudio-server-test$/.test(p)) || recipes.some((r) => /dstudio-server-test/.test(r))) needs.add('host-test-binary');
+  if (prerequisites.some((p) => p === 'dstudio' || p === 'app') || recipes.some((r) => /(?:^|\s)(?:\.\/)?dstudio(?:\s|$)/.test(r))) needs.add('app-binary');
+  const pythonTexts = [];
+  if (file.endsWith('.py')) pythonTexts.push(text);
+  for (const match of text.match(/[A-Za-z0-9_./-]+\.py\b/g) || []) { const loaded = readRepoFile(match); if (loaded) pythonTexts.push(loaded); }
+  for (const python of pythonTexts) for (const name of PYTHON_MODULES)
+    if (new RegExp(`^\\s*(?:import|from)\\s+${name}\\b`, 'm').test(python)) needs.add(`python:${name}`);
+  const all = [text, ...recipes].join('\n');
+  for (const [tool, pattern] of Object.entries(TOOLS)) if (pattern.test(all)) needs.add(`tool:${tool}`);
+  return [...needs].sort();
 }
 
 function closure(rules, start) {
@@ -86,6 +130,11 @@ export function census(root) {
       for (const [target, rule] of rules) if (!out.has(target) && rule.prerequisites.some((p) => out.has(p))) { out.add(target); grew = true; } }
     return out;
   };
+  const readRepoFile = (relative) => {
+    const full = path.resolve(root, relative);
+    if (!full.startsWith(path.resolve(root) + path.sep)) return null;
+    try { return fs.statSync(full).isFile() ? fs.readFileSync(full, 'utf8') : null; } catch { return null; }
+  };
   const rows = files.map((file) => {
     const targets = targetsReaching(file);
     const via = [...reachedBy.get(file)];
@@ -96,7 +145,10 @@ export function census(root) {
     return { file, kind: file.split('/')[1], targets: [...new Set([...direct.get(file)].filter((target) => !target.includes('/')).concat(runners))].sort(),
       buildProducts: built.sort(),
       gates: Object.keys(gates).filter((gate) => [...targets].some((target) => gates[gate].has(target))),
-      reachedByTests: via.sort(), reached: targets.size > 0 || via.length > 0 };
+      reachedByTests: via.sort(), reached: targets.size > 0 || via.length > 0,
+      needs: detectNeeds({ file, text: readRepoFile(file) || '', readRepoFile,
+        recipes: [...direct.get(file)].flatMap((target) => rules.get(target).recipe),
+        prerequisites: [...direct.get(file)].flatMap((target) => rules.get(target).prerequisites) }) };
   });
   // Reached only through another test: inherit that test's reachability.
   for (let changed = true; changed;) { changed = false;
@@ -126,6 +178,7 @@ export function census(root) {
     byKind: Object.fromEntries(KINDS.map((kind) => [kind, count((row) => row.kind === kind)])),
     inCheckFast: count((row) => row.gates.includes('check-fast')), inCheckReal: count((row) => row.gates.includes('check-real')),
     explicitOnly: count((row) => row.reached && row.gates.length === 0),
+    needs: Object.fromEntries([...new Set(rows.flatMap((row) => row.needs))].sort().map((need) => [need, count((row) => row.needs.includes(need))])),
     // No target runs these. `documentedManual` have their command in a guide; `unreached` have nothing.
     documentedManual: rows.filter((row) => !row.reached && row.documentedIn.length).map((row) => row.file),
     unreached: rows.filter((row) => !row.reached && !row.documentedIn.length).map((row) => row.file) } };
@@ -142,5 +195,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
     console.log(`reached by check-fast ${s.inCheckFast}, by check-real ${s.inCheckReal}, by an explicit target only ${s.explicitOnly}, by a documented manual command only ${s.documentedManual.length}, by nothing ${s.unreached.length}`);
     for (const file of s.documentedManual) console.log(`MANUAL    ${file} (${result.files.find((row) => row.file === file).documentedIn.join(', ')})`);
     for (const file of s.unreached) console.log(`UNREACHED ${file}`);
+    console.log(`detected prerequisites (files): ${Object.entries(s.needs).map(([need, n]) => `${need} ${n}`).join(', ')}`);
+    if (args.includes('--needs')) for (const row of result.files) if (row.needs.length) console.log(`NEEDS     ${row.file}: ${row.needs.join(', ')}`);
   }
 }
