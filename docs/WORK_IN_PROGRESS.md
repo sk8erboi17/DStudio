@@ -2,6 +2,8 @@
 
 The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
 resumed it: complete every item below, then the final simplification step.
+**It is paused since November 11** at the owner's request; the order in which
+to resume is in [the plan](../PLAN.MD#pause).
 [PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
 its short index. A documentation, download-integrity or simulated UI pass does
 not close a model-quality gate.

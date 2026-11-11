@@ -9,6 +9,41 @@ media ([P13](#p13)). This authorizes the campaign's sequential real-model runs o
 maintainer's Mac, including the owner-reserved quality reruns; it does not turn
 an unfinished, failed or blocked requirement into a pass.
 
+<a id="pause"></a>
+**Paused on November 11, 2026 at the owner's request.** The slices in
+progress were finished, verified and published; nothing new was started and
+no model, engine or campaign queue is running. Resume in this order:
+
+1. Laguna prefill (P6.2): wire `patch/ds4-laguna-prefill-chunk` into the
+   managed installer and launch path, run `make test-laguna-prefill-chunk-live`
+   (exact comparison, then 40k and 60k-token prompts), then rerun Laguna's
+   common-100.
+2. The cancelled real-model queue: the host runner's restart fault-injection
+   check (Qwen3.6 IQ4_XS, engine killed after case 6), pi/OpenCode on Laguna
+   (runner now selects its checkout), and the three `check-real` suites (now
+   starting Chat with explicit weights).
+3. Design projects (P8): generate the thirteen briefs not yet run, keeping the
+   five recorded outcomes, then audit all eighteen.
+4. Disk KV snapshots (P3.2): write and run the real-weight check on Qwen3.6
+   and Qwen3.8-27B before enabling them by default.
+5. Vision corpus (P4): the real-model runner and its runs, the remaining
+   simulated scenarios, text-only isolation, and replacing the live vision UI
+   check.
+6. Agent comparisons (P9): the scripted mechanics test, `--plan`, six-agent
+   publication, then the real lanes.
+7. P12 inputs: the 54 uncovered usage cases (not started), and an opt-in,
+   bounded copy of the resident server's output so that failures such as the
+   27B MLX `generation thread died` can be diagnosed.
+8. Everything else in P0–P13 that the sections below still list as open,
+   including the native desktop matrix (P1, P7), real inference per mode
+   (P5.3), numerics, protocols and Learn/Search quality (P6), profiling
+   (P10), the final build (P11; the installed app predates the November 11
+   fixes) and the README and media (P13).
+
+The frozen campaign worktree `../DStudio-campaign` (detached at `afdeea2b`,
+receipts linked into this repository's ignored `tests/.artifacts/`) is kept
+for resuming; move it to the resume commit before the next real-model run.
+
 Completed tranches, superseded reconnaissance, original failures and exact
 receipt identities are in the [archived plan](docs/history/plan-through-2026-10-01.md).
 Use [the WIP](docs/WORK_IN_PROGRESS.md) for the shorter backlog,
@@ -785,6 +820,15 @@ The sixteen added systems require separate future generated-output qualification
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human
    edits to benchmark output.
+   November 11: generation started on DeepSeek V4 Flash Vision-Exp through
+   the native Design runtime (`design-projects/p8-20261111-0716-deepseek-v4-vision-exp`)
+   and was interrupted when the owner paused the campaign: four projects
+   delivered a file (`folio-field-index`, `folio-reading-desk`,
+   `signal-repair-queue`, `forma-project-settings`), `signal-incident-triage`
+   reached the frozen 30-minute turn limit, `forma-room-reservation` was
+   interrupted seconds after it started, and twelve were not run; all
+   eighteen stay in the denominator. None is audited yet (item 3), and a
+   delivered file is not a passing project.
 3. Independently audit original immutable exports: actual controls, filters,
    forms/radio buttons/dialogs, item-specific state, Back/undo/persistence;
    standalone offline and the real opaque preview iframe without weakening CSP.
