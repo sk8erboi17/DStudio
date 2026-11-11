@@ -747,6 +747,22 @@ are retained in ignored `tests/.artifacts/ui-simulated/run-jxwQp1/` and
 interaction evidence, not a performance benchmark or proof of every possible
 UI state. All engines, generations, tools and downloads were simulated.
 
+## Cloud and remote backends
+
+`make test-ui-cloud-backend` (`tests/browser/ui_cloud_backend_playwright_test.mjs`,
+Chromium and WebKit) uses Settings -> Connection in the production page: a
+Server URL receives the chat and clearing it returns to the local engine; a
+DeepSeek key and cloud model saved there serve the chat with that key and
+survive a reopened page; a wrong (401) or out-of-credit (402) key shows the
+provider's own error once with Retry and nothing is retried; an emptied key is
+refused with a message (before November 12, 2026 the question was answered by
+the local model while Connection showed the cloud); switching back to Local
+starts the saved local model and continues the conversation. **Simulated:**
+the DeepSeek API (a loopback server the browser's requests to
+`api.deepseek.com` are routed to), the remote endpoint, the host and engine;
+every other external request is refused. Agent, Cowork and Design launches on
+the cloud backend are not exercised here.
+
 ## Conversation history persistence
 
 `make test-chat-store-unit` executes the production native store with isolated

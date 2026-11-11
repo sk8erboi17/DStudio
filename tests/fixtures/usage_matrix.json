@@ -1784,7 +1784,14 @@
           "id": "generated-file-opens-in-office-app",
           "use": "The user opens a generated DOCX, PPTX, XLSX or PDF in an office application and it opens without a repair prompt.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/cowork_office_files_open_test.py",
+              "target": "test-cowork-office-open",
+              "evidence": "model-free",
+              "covers": "The production Office helper's DOCX, PPTX, edited XLSX and PDF open in macOS Quick Look, textutil (DOCX) and poppler without warnings and pass a strict OOXML package check; Word, Excel and PowerPoint are not driven, so this is weaker evidence."
+            }
+          ]
         },
         {
           "id": "follow-up-in-same-cowork-session",
@@ -5645,7 +5652,14 @@
           "id": "insufficient-disk-space",
           "use": "The disk fills up or has too little free space for a download; the download stops with a clear message and a resumable partial.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_download_disk_full_playwright_test.mjs",
+              "target": "test-download-disk-full",
+              "evidence": "model-free",
+              "covers": "The production page, host and Qwen downloader with real curl fill a task-owned HFS+ volume: the toast names \"No space left on device\", the byte-exact partial is shown as Paused, and Resume after freeing space continues with an HTTP range from a loopback Hugging Face fixture."
+            }
+          ]
         },
         {
           "id": "ssd-streaming-prefill-of-varied-prompts",
@@ -6159,7 +6173,14 @@
           "id": "delete-partial-download",
           "use": "The user deletes the partial files of a stopped download to free disk space and the bytes are removed.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_partial_download_delete_playwright_test.mjs",
+              "target": "test-partial-download-delete",
+              "evidence": "model-free",
+              "covers": "Delete partial in Settings -> Models (refused while the download runs, confirmed in a dialog) removes a stopped ds4 .part and the Laguna cache partials through the real host; the volume regains exactly those bytes and the completed model is untouched."
+            }
+          ]
         }
       ]
     },
@@ -9114,7 +9135,14 @@
           "id": "configure-cloud-or-remote-in-settings",
           "use": "The user enters and saves a cloud API key or a remote endpoint in the Settings Connection pane and switches the backend there.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "Enters a Server URL and then a DeepSeek key in Settings -> Connection, switches the backend and the cloud model: each chat goes to the chosen endpoint with the saved key, and a reopened page keeps the settings (simulated provider and endpoint)."
+            }
+          ]
         },
         {
           "id": "function-calling-through-v1-endpoint",
@@ -9457,7 +9485,14 @@
           "id": "cloud-key-missing-or-rejected",
           "use": "The cloud API key is missing, wrong or out of credit; the error from the provider is shown and nothing is retried silently.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "A wrong (401) and an out-of-credit (402) key show the provider's own error once with Retry and no further request; an emptied key is refused with a message and nothing is sent to the provider or to the local model."
+            }
+          ]
         },
         {
           "id": "non-utf8-text-in-remote-conversation",
@@ -9559,7 +9594,14 @@
           "id": "restore-local-engine-after-cloud-run",
           "use": "After working with a cloud backend the user switches back to the local model.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "After cloud turns, selecting Local in Connection starts the saved local GGUF (not the cloud model) through /api/start, sends the next turn to the local engine without the key and continues the same conversation."
+            }
+          ]
         }
       ]
     },
@@ -10193,7 +10235,14 @@
           "id": "no-disk-space-during-install-or-build",
           "use": "The disk fills up while an engine is being copied or built; the failure is reported and a later retry works.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/install_disk_full_test.py",
+              "target": "test-install-disk-full",
+              "evidence": "model-free",
+              "covers": "The production main source installer and the host's --install-engine llama hit a real ENOSPC on task-owned HFS+ volumes while copying and while building (stand-in cmake): the cause is reported, nothing is published, no partial copy or objects keep the space, and a retry installs."
+            }
+          ]
         },
         {
           "id": "patches-apply-repeat-and-restore",
@@ -10434,7 +10483,14 @@
           "id": "relaunch-after-force-quit-with-model-loaded",
           "use": "The app is force-quit while a model is loaded and a turn is running; on the next launch no leftover engine blocks the start and the conversation is intact.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/force_quit_relaunch_test.mjs",
+              "target": "test-force-quit-relaunch",
+              "evidence": "simulated",
+              "covers": "SIGKILL of the real host while a scripted llama-server standing in for the loaded model streams a Chat turn: guard, server and relay exit, the engine port is free, and the relaunched host starts the model again and serves the conversation saved during the turn byte for byte."
+            }
+          ]
         }
       ]
     }

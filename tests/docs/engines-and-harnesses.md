@@ -24,6 +24,22 @@ all workbook sheets or semantic verification. Output is bounded both to 750,000
 characters and below the bridge's 1 MiB UTF-8 byte limit. These are file/tool
 regressions; run the separate real Qwen tools gate below to assess that workflow.
 
+### Generated Office files open without repair
+
+`make test-cowork-office-open` (`tests/integration/cowork_office_files_open_test.py`,
+macOS) runs the production Office helper through its command line, as the
+native bridge does, to write a DOCX, a PPTX, an XLSX (then edited and
+appended) and a PDF, and opens them with readers that share no code with it:
+Quick Look renders each, `textutil` (the Cocoa Word importer) reads the DOCX
+text in order, poppler reports no syntax warning or repair for the PDF, and a
+strict OOXML package check covers the structures Office repairs (content
+types, relationships, sheet names, row and cell order, style and string
+indexes, slide ids and the layout/master/theme chain). A negative control
+shows the package check and `textutil` reject damaged copies; Quick Look is
+lenient and only shows that the content renders. Word, Excel and PowerPoint
+are not driven (only Excel is installed, and it is GUI-only), so this is
+weaker evidence than opening the files in Office.
+
 ### Qwen3.6 and Qwen3.8-27B on llama.cpp
 
 Both models run on DStudio's bundled llama.cpp `b11836` (`f5027fb`), built
@@ -436,6 +452,25 @@ A native ownership regression keeps a separate process alive while cancelling
 the blocked installer; the download must not inherit the host's model-stop
 signal handler. New cold owner state is 4,108 bytes, with a fixed two-file scan
 and at most four one-byte downloader phase notifications. No hot layout changes.
+
+`make test-download-disk-full` (Chromium and WebKit, macOS) drives Settings ->
+Models in the production page against the real host, whose model store is on
+a small task-owned HFS+ volume (`hdiutil`). The production
+`scripts/download-qwen-variant.py` and its real `curl` fill the volume: the
+failure toast names `[Errno 28] No space left on device` (the host reports the
+downloader's last line as `downloadError`; before November 12, 2026 only
+"Download or verification failed" was shown), the partial is byte-exact and
+shown as Paused, and Resume after freeing space continues with an HTTP range.
+**Simulated:** the Hugging Face server (a loopback fixture passed with the
+downloader's test-only `--base-url`) and the llama.cpp installer stub.
+
+`make test-partial-download-delete` (Chromium and WebKit, macOS) deletes the
+partial files of a stopped download from Settings: refused while the download
+runs and without confirmation, then a stopped ds4 `.part` and the Laguna
+Hugging Face cache partials are removed through the real host, and the volume
+regains exactly those bytes; the completed model is untouched. The transfer
+(`download_model.sh` in the fixture checkout) and the cache files are
+simulated.
 
 `make test-qwen27-download` executes the real Python/curl downloader against tiny
 HTTP fixtures: hashes, exact-range resume, size bounds, concurrent leaders,

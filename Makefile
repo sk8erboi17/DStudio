@@ -444,6 +444,16 @@ test-ui-launch:
 	@node tests/browser/ui_launch_control_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_launch_control_playwright_test.mjs
 
+# Settings Connection: DeepSeek key, Server URL, the provider's 401/402 errors,
+# a missing key, and switching back to the local model (Chromium and WebKit).
+# SIMULATED DeepSeek API, remote endpoint, host and engine; no network.
+.PHONY: test-ui-cloud-backend
+test-ui-cloud-backend:
+	@node tests/browser/ui_cloud_backend_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_cloud_backend_playwright_test.mjs
+
+check-fast: test-ui-cloud-backend
+
 test-quality-baseline:
 	@node tests/unit/quality_baseline_test.mjs
 	@node tests/unit/artifact_run_test.mjs
@@ -772,6 +782,22 @@ test-mlx-model-ui:
 
 check-fast: test-mlx-install-unit test-mlx-download-host test-mlx-model-ui
 
+# Model downloads and disk space, in the production page against the real host
+# (Chromium and WebKit; macOS, task-owned HFS+ volumes made with hdiutil).
+# test-download-disk-full: the production Qwen downloader and curl hit a real
+# ENOSPC; the Hugging Face server is a SIMULATED loopback fixture. test-partial-
+# download-delete: Delete partial frees a stopped download's measured bytes;
+# the transfer and Laguna cache partials are SIMULATED. No network or model.
+.PHONY: test-download-disk-full test-partial-download-delete
+test-download-disk-full: $(TEST_SERVER)
+	@node tests/browser/ui_download_disk_full_playwright_test.mjs "$(TEST_SERVER)"
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_download_disk_full_playwright_test.mjs "$(TEST_SERVER)"
+test-partial-download-delete: $(TEST_SERVER)
+	@node tests/browser/ui_partial_download_delete_playwright_test.mjs "$(TEST_SERVER)"
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_partial_download_delete_playwright_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-download-disk-full test-partial-download-delete
+
 # Upgrade, interruption and recovery of the engine installations (PLAN.MD P5):
 # the production installers, host CLI, launch worker, guard and HTTP host as
 # real processes in task-owned profiles with spaces, network denied. Toolchains
@@ -785,6 +811,22 @@ test-install-recovery: $(TEST_SERVER)
 	@node tests/integration/install_recovery_host_test.mjs "$(TEST_SERVER)"
 
 check-fast: test-install-recovery
+
+# Engine installation on a full disk (task-owned HFS+ volumes via hdiutil): the
+# production main source installer and the host's --install-engine llama hit a
+# real ENOSPC while copying or building, then retry. SIMULATED cmake and
+# llama.cpp fixture snapshot, network denied, no model; macOS, under a minute.
+.PHONY: test-install-disk-full
+test-install-disk-full: $(TEST_SERVER)
+	@python3 tests/integration/install_disk_full_test.py "$(TEST_SERVER)"
+
+# Force quit (SIGKILL to the host) while a SCRIPTED llama-server stands in for
+# the loaded model and a Chat turn streams; then relaunch on the same profile.
+.PHONY: test-force-quit-relaunch
+test-force-quit-relaunch: $(TEST_SERVER)
+	@node tests/integration/force_quit_relaunch_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-install-disk-full test-force-quit-relaunch
 
 # REAL offline upgrades over an earlier installation, network denied, no model.
 # Explicit, outside check-fast: llama.cpp compiles for a few minutes of CPU;
@@ -1300,6 +1342,15 @@ test-cowork-http: $(TEST_SERVER)
 	@bash tests/integration/ds4_cowork_http_test.sh $(TEST_SERVER)
 
 test-cowork: test-cowork-unit test-cowork-browser test-cowork-http test-document-table-scale
+
+# Generated DOCX/PPTX/XLSX/PDF opened by readers that share no code with the
+# helper: Quick Look, textutil, poppler and a strict OOXML package check.
+# Word, Excel and PowerPoint are GUI-only here and NOT RUN. macOS; no model.
+.PHONY: test-cowork-office-open
+test-cowork-office-open:
+	@python3 tests/integration/cowork_office_files_open_test.py
+
+check-fast: test-cowork-office-open
 
 # A table at its bounds (100,000 cells, 512 sources) through the real helper;
 # synthetic data, no model. Records timings in tests/.artifacts.
