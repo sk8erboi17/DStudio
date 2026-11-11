@@ -714,8 +714,13 @@ check-fast: test-llama-kv-snapshot
 test-llama-kv-snapshot-runtime: $(TEST_BUILD)/llama_kv_snapshot_unit
 	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
 	@node tests/integration/llama_kv_snapshot_runtime_test.mjs $(TEST_BUILD)/llama_kv_snapshot_unit $(REMOTE_TOOL_AGENT) $(DESIGN_BINARY)
-# The real-weight check (tests/live/llama_kv_snapshot_live_test.mjs) is not
-# written yet; until it passes the store stays off by default.
+# REAL weights (Qwen3.6 UD-Q6_K_XL and Qwen3.8-27B UD-Q6_K_XL, one engine at a
+# time): the restored second turn must equal the live one; the re-prefilled one
+# is recorded. DSTUDIO_KV_MODELS=qwen36|qwen27 selects one. Until it passes the
+# store stays off by default.
+.PHONY: test-llama-kv-snapshot-live
+test-llama-kv-snapshot-live: $(TEST_SERVER)
+	@node tests/live/llama_kv_snapshot_live_test.mjs $(TEST_SERVER)
 
 # scripts/install-llama.py recipes (static macOS, dynamic Linux/Windows),
 # receipts and leases; toolchains simulated, nothing compiled.

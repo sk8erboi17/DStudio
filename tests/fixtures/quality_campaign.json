@@ -20,7 +20,13 @@
       "engineCommit": "448d5695d1c86401a4e9447c440feb983b73e6de",
       "admissionTarget": "laguna/macos/metal/laguna",
       "ssdStreaming": "off",
-      "plan": "maintainer"
+      "plan": "maintainer",
+      "identityChanges": [
+        {
+          "since": "2026-11-11T22:50:00Z",
+          "reason": "patch/ds4-laguna-prefill-chunk (4096-row prefill batches, attention key passes, single-store ring commit) installed by the app"
+        }
+      ]
     },
     {
       "id": "qwen36-35b-a3b-ud-q6-k-xl",

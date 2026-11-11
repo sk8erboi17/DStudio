@@ -66,7 +66,7 @@ try {
   if (selected.ok === false) await finish('failed', `engine checkout refused: ${JSON.stringify(selected)}`);
   const t0 = performance.now();
   const status = await startMode(server.baseUrl, { mode: 'server', model: 'standard', variant: 'flash', gguf: MODEL,
-    ctx: CTX, power: 100, think: 'off', ssdStreaming: 'off', workdir: '' }, 0);
+    ctx: CTX, power: 100, think: 'off', ssdStreaming: 'off', workdir: '', port: server.enginePort }, 0);
   receipt.startupSeconds = (performance.now() - t0) / 1000;
   receipt.engine.after = { patch: patchState(engineDir), serverSha256: sha(path.join(engineDir, 'ds4-server')) };
   receipt.engine.status = { mode: status.mode, ready: status.ready, modelFile: status.modelFile, ctx: status.config?.ctx ?? null };

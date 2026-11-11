@@ -136,7 +136,11 @@ applies the snapshot's verdict alone, like the host runner.
 it reads the ten selections of `tests/fixtures/quality_campaign.json` and every
 common-100 receipt, and prints per selection what ran on the current engine
 pin, model and memory mode. Receipts from retired engines, earlier pins or
-another memory mode are listed as not counted with the reason. The first
+another memory mode are listed as not counted with the reason. A change of
+DStudio's own adaptations of a pinned engine (its `patch/` set) is recorded in
+the selection's `identityChanges` (date and reason); receipts that started
+before the latest one ran another engine and are listed as not counted too
+(Laguna since the November 11 prefill patch). The first
 terminal result on the current identities is the one counted: a later rerun of
 unchanged deterministic work is listed but does not replace an initial
 failure. Contributor selections and missing weights are BLOCKED, and an

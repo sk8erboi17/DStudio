@@ -67,7 +67,11 @@ correct. All eight of its long texts completed (about five minutes each).
 The Laguna run is incomplete. On its first long text the engine answered
 HTTP 500 (`metal Laguna prefill failed at token 32768`) and the twelve tasks
 after it were not run; they stay in the denominator. That run had no engine
-restart between tasks.
+restart between tasks. It belongs to the Laguna engine as it was before
+November 11: the cause turned out to be two engine defects, now fixed by
+[a DStudio patch](../../../patch/ds4-laguna-prefill-chunk/README.md), so the
+patched engine needs its own run; until it has one, this bar shows the
+earlier engine.
 
 A diagnostic rerun on the same engine and weights, with an engine restart
 after each failed task and no other model or browser job on the machine
