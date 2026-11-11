@@ -873,15 +873,19 @@ anything is removed, the following inputs from that pass must be resolved:
   `design_pages_release_gate_test.mjs`, `lumen_disclosure_contract_test.mjs`.
   Some check a grader or harness that other tests depend on; decide per file
   whether that is its stated purpose (then say so in its guide) or whether it
-  is removed under item 5.
+  is removed under item 5. November 11: all eight check a harness, grader or
+  release-gate helper that live or browser tests depend on, and the guides now
+  say so instead of describing them as product tests; they are kept, and none
+  is counted as production coverage in the matrix.
 - Assertions that could not fail, corrected on November 11: the "did not stop
   its own worker" checks in `http_lan_test.sh` now observe the worker for a
   bounded time; the Learn test's rejected-claim pattern now matches the
   rejected text and the repaired practice is required; the harness live test
-  no longer passes its outside-workspace case when no read is attempted (not
-  yet rerun on real weights); two assertions in `engine_acceptance.mjs` on a
-  field nothing set are removed. Still open:
-  `ui_live_vision_playwright_test.mjs` attaches no image and grades no reply.
+  no longer passes its outside-workspace case when no read is attempted (rerun
+  on real weights the same day: three such cases reported BLOCKED, not pass);
+  two assertions in `engine_acceptance.mjs` on a field nothing set are
+  removed. Still open: `ui_live_vision_playwright_test.mjs` attaches no image
+  and grades no reply (being replaced by the vision corpus runner).
 - Guide statements wider than what runs, to correct in the guides or by
   extending the test: case counts that drifted (`test-launch-preflight`,
   `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,
@@ -892,7 +896,10 @@ anything is removed, the following inputs from that pass must be resolved:
   for four engines; Qwen branches described for `test-agent-compaction` and
   `test-agent-continuation`; patch-migration base counts;
   `test-ui-lan-cowork` described as the same flow as its HTTP test; the 64 MiB
-  and 64-caller history limits that no test executes.
+  and 64-caller history limits that no test executes. Corrected in the guides
+  on November 11 against the test files and their runs; the eight suites
+  described in both browsers now also run in WebKit in `check-fast`. The two
+  history limits remain without a test (counted among the uncovered cases).
 
 Acceptance: the usage-case matrix passes before and after; every removal has a
 recorded reason and passing differential evidence; the reduction (files, lines,
