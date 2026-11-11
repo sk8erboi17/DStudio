@@ -97,6 +97,73 @@ for (const scenario of scenarios) {
     active = null; save(); console.log(`${row.status} ${scenario.id}`);
   }
 }
+// A damaged or dangling engine-folder preference (profile/engine-checkout):
+// the host must still start, keep the file as it is, and report the problem
+// in /api/status and the /api/doctor engine-folder check. Every path stays
+// inside this run's directory; a value that falls back to a default folder
+// (an empty file, ".") is not used, because that default can be a real engine.
+const damagedPreferences = [
+  {id: 'preference-points-nowhere', missing: true, bytes: dir => Buffer.from(path.join(dir, 'missing-engine') + '\n')},
+  {id: 'preference-names-a-file', bytes: dir => { fs.writeFileSync(path.join(dir, 'engine-file'), 'not a folder\n');
+    return Buffer.from(path.join(dir, 'engine-file') + '\n'); }},
+  // Quotes, a backslash, control bytes and invalid UTF-8, without a newline.
+  {id: 'preference-damaged-bytes', missing: true, bytes: () => Buffer.from([0x01, ...Buffer.from('"quoted"\\back\tslash'), 0xff, 0xfe])},
+];
+report.plannedChecks += damagedPreferences.length;
+for (const scenario of damagedPreferences) {
+  const row = {id: scenario.id, status: 'NOT_RUN'}; report.cases.push(row); save();
+  if (cancelled) continue;
+  const directory = path.join(run, scenario.id), profile = path.join(directory, 'profile');
+  fs.mkdirSync(profile, {recursive: true});
+  const preference = path.join(profile, 'engine-checkout'), bytes = scenario.bytes(directory);
+  fs.writeFileSync(preference, bytes);
+  // The host reads one line and reports it as the folder it looked for.
+  const expected = bytes.toString('utf8').replace(/[\r\n][\s\S]*$/, '');
+  const port = await freePort(), base = `http://127.0.0.1:${port}`;
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(DS4|DSTUDIO_|Q36_|DYLD_|LD_)/.test(key)));
+  Object.assign(env, {DS4UI_DATA_DIR: profile, DS4UI_DEFER_ENGINE_START: '1', DS4UI_HOST: '127.0.0.1'});
+  const logFile = path.join(directory, 'host.log'), log = fs.openSync(logFile, 'wx');
+  const child = spawn(binary, [String(port)], {cwd: process.cwd(), env, stdio: ['ignore', log, log]});
+  fs.closeSync(log); active = child;
+  const terminal = new Promise(resolve => {
+    child.once('exit', (code, signal) => resolve({code, signal}));
+    child.once('error', error => resolve({error: error.message}));
+  });
+  try {
+    let state;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline && !cancelled) {
+      try {
+        const response = await fetch(base + '/api/status', {signal: AbortSignal.timeout(1000)});
+        assert.equal(response.status, 200); state = await response.json(); break;
+      } catch (error) {
+        if (child.exitCode !== null || child.signalCode !== null) throw error;
+        await sleep(25);
+      }
+    }
+    assert(state && !cancelled, 'the host must start despite the damaged preference');
+    row.state = {ds4dir: state.ds4dir, ds4dirOk: state.ds4dirOk, running: state.running};
+    assert.equal(state.ds4dir, expected, 'status names the folder the preference points to');
+    assert.equal(state.ds4dirOk, false, 'status reports that the engine folder is unusable');
+    assert.equal(state.running, false);
+    const doctor = await (await fetch(base + '/api/doctor', {signal: AbortSignal.timeout(5000)})).json();
+    row.doctor = doctor.checks.find(check => check.id === 'ds4');
+    assert.deepEqual(row.doctor, {id: 'ds4', label: 'Engine folder', state: 'error', message: `Install ds4 into ${expected}.`, action: 'setup-ds4'});
+    if (scenario.missing) assert.match(fs.readFileSync(logFile, 'utf8'), /explicit ds4 directory not found/);
+    assert.ok(fs.readFileSync(preference).equals(bytes), 'startup leaves the preference file as it was');
+    row.status = 'PASS';
+  } catch (error) {row.status = 'FAIL'; row.error = error.stack;}
+  finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    let timer;
+    row.exit = await Promise.race([terminal, new Promise(resolve => {timer = setTimeout(() => resolve(null), 5000);})]);
+    clearTimeout(timer);
+    if (!row.exit) {child.kill('SIGKILL'); row.exit = await terminal; row.status = 'FAIL'; row.cleanupError = 'graceful shutdown exceeded its deadline';}
+    if (row.exit.code !== 0) {row.status = 'FAIL'; row.cleanupError ||= 'host did not exit successfully';}
+    if (!fs.readFileSync(preference).equals(bytes)) {row.status = 'FAIL'; row.cleanupError ||= 'shutdown changed the preference file';}
+    active = null; save(); console.log(`${row.status} ${scenario.id}${row.error ? '\n' + row.error : ''}`);
+  }
+}
 report.finished = new Date().toISOString();
 report.passed = !cancelled && report.cases.every(row => row.status === 'PASS');
 assert.equal(hash(binary), report.binarySHA256, 'host binary changed during the test');

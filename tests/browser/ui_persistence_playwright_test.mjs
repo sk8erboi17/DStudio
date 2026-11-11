@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {artifactRunDir,freePort,sleep,writeArtifact} from '../support/real_harness.mjs';
@@ -180,6 +181,77 @@ try {
     assert.equal(await stale.evaluate(()=>storageStore.persistChatsNow()),true);
     assert.equal((await native()).chats.filter(c=>c.messages.length||c.transcript).length,0,'Old cached conversations must not reappear after Clear all');
     await clearer.close();await stale.close();
+  });
+  // The two history ceilings: one save carries at most 64 MiB, and at most 64
+  // save callers may wait. The excess is refused with a message; nothing is
+  // trimmed from memory, the browser copy or the native file.
+  await check('history over the 64 MiB save limit is refused explicitly and nothing is trimmed',async()=>{
+    const before=await(await fetch(base+'/api/store')).json();
+    const result=await page.evaluate(async()=>{
+      const Store=storageStore,chat=Store.createChat('chat'),size=64*1024*1024;
+      Store.appendMessage(chat.id,{id:'over-limit',role:'user',content:'q'.repeat(size),createdAt:Date.now()});
+      storageNotices.length=0;
+      const saved=await Store.persistChatsNow();
+      const outcome={id:chat.id,saved,message:Store.persistenceMessage(),notices:storageNotices.map(n=>[n.kind,n.message]),kept:Store.getChat(chat.id).messages[0].content.length};
+      const cached=await new Promise(resolve=>{const r=indexedDB.open('dstudio-history',1);r.onsuccess=()=>{const db=r.result,get=db.transaction('snapshots','readonly').objectStore('snapshots').get('chats.v2');get.onsuccess=()=>{db.close();resolve(get.result);};};});
+      outcome.cachedHasIt=typeof cached==='string'&&cached.includes(chat.id);
+      return outcome;
+    });
+    assert.equal(result.saved,false);
+    assert.match(result.message,/exceeds the 64 MiB storage limit/);
+    assert.deepEqual(result.notices,[['error',result.message]],'the refusal is shown, once');
+    assert.equal(result.kept,64*1024*1024,'the conversation keeps every byte in memory');
+    assert.equal(result.cachedHasIt,false,'the browser copy was not replaced by a partial save');
+    assert.deepEqual(await(await fetch(base+'/api/store')).json(),before,'the native history and its revision are unchanged');
+    // Removing the oversized conversation makes the next save succeed.
+    assert.equal(await page.evaluate(async id=>{storageStore.deleteChat(id);return storageStore.persistChatsNow();},result.id),true);
+    assert.ok((await native()).deleted.some(t=>t.id===result.id));
+  });
+  await check('more than 64 pending save callers: the excess is refused explicitly and no edit is lost',async()=>{
+    const result=await page.evaluate(async()=>{
+      const Store=storageStore,original=storageEngine.putStore;let release,entered,calls=0;
+      // Creating a conversation queues its own save; let it finish first so
+      // the count below is exactly the callers this check makes.
+      const chat=Store.createChat('chat'),pending=[];
+      if(!await Store.persistChatsNow())throw Error(Store.persistenceMessage());
+      const gate=new Promise(r=>release=r),ready=new Promise(r=>entered=r);
+      storageEngine.putStore=async(blob,...args)=>{if(++calls===1){entered();await gate;}return original(blob,...args);};
+      storageNotices.length=0;
+      Store.setChatMeta(chat.id,{edit:0});pending.push(Store.persistChatsNow());await ready;
+      for(let i=1;i<64;i++){Store.setChatMeta(chat.id,{edit:i});pending.push(Store.persistChatsNow());}
+      Store.setChatMeta(chat.id,{edit:64});
+      const refused=await Store.persistChatsNow(); // the 65th caller
+      const outcome={id:chat.id,refused,notice:storageNotices.at(-1),blocked:calls,inMemory:Store.getChat(chat.id).edit};
+      release();outcome.results=await Promise.all(pending);storageEngine.putStore=original;
+      outcome.writes=calls;outcome.after=await Store.persistChatsNow();
+      return outcome;
+    });
+    assert.equal(result.refused,false);
+    assert.deepEqual(result.notice,{message:'Too many conversation saves are pending. Your draft remains open.',kind:'error'});
+    assert.equal(result.blocked,1,'only the first save had reached the native store');
+    assert.equal(result.inMemory,64,'the refused caller\'s edit stays in memory');
+    assert.equal(result.results.length,64);assert.ok(result.results.every(saved=>saved===true),'all 64 admitted callers resolve as saved');
+    assert.equal(result.writes,2,'the 63 waiting callers share one later save');
+    assert.equal(result.after,true);
+    assert.equal((await native()).chats.find(c=>c.id===result.id).edit,64,'the next save carries the edit made by the refused caller');
+  });
+  await check('the host accepts a history of exactly 64 MiB, refuses one byte more and reloads it whole',async()=>{
+    const limit=64*1024*1024,head='{"v":2,"deleted":[],"chats":[{"id":"at-limit","mode":"chat","createdAt":1,"updatedAt":1,"messages":[{"id":"m","role":"user","createdAt":1,"content":"',tail='"}]}]}';
+    const exact=Buffer.from(head+'L'.repeat(limit-head.length-tail.length)+tail);assert.equal(exact.length,limit);
+    const file=path.join(profile,'ds4web-store.json'),rev=(await(await fetch(base+'/api/store')).json()).rev;
+    let response=await fetch(base+'/api/store',{method:'POST',headers:{'X-Requested-With':'ds4web','X-DStudio-Store-Revision':String(rev)},body:exact});
+    assert.equal(response.status,200);assert.equal((await response.json()).durable,true);
+    // One byte over: the host answers from the declared length, before reading the body.
+    const socket=net.connect(port,'127.0.0.1');await once(socket,'connect');
+    const reply=[];socket.on('data',d=>reply.push(d));
+    socket.write(`POST /api/store HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Requested-With: ds4web\r\nX-DStudio-Store-Revision: ${rev+1}\r\nContent-Length: ${limit+1}\r\n\r\n`);
+    await once(socket,'close');
+    assert.match(Buffer.concat(reply).toString(),/^HTTP\/1\.1 413 [^\r]*\r\n[\s\S]*store too large/);
+    assert.ok(fs.readFileSync(file).equals(exact),'the saved 64 MiB file is unchanged');
+    assert.equal((await(await fetch(base+'/api/storerev')).json()).rev,rev+1);
+    await stopHost();await startHost();
+    const reloaded=await(await fetch(base+'/api/store')).json();
+    assert.equal(JSON.stringify(reloaded.data),exact.toString(),'a restart loads the whole 64 MiB history');
   });
   report.status='PASS';
 }catch(error){report.status='FAIL';report.error=String(error.stack||error);throw error;}

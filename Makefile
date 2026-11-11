@@ -826,6 +826,13 @@ test-ui-persistence: $(TEST_SERVER)
 	@DSTUDIO_TEST_BROWSER=webkit DSTUDIO_TEST_LEARN_STORAGE_FAILURE=1 node tests/browser/ui_roadmap_playwright_test.mjs
 test-ui-browser: test-ui-persistence
 
+# Real host /v1 relay; a scripted engine process is killed mid-answer (no model).
+.PHONY: test-ui-chat-engine-death
+test-ui-chat-engine-death: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_engine_death_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_engine_death_playwright_test.mjs $(TEST_SERVER)
+check-fast: test-ui-chat-engine-death
+
 test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
 	@$(TEST_BUILD)/engine_setup_unit
 	@node tests/unit/agent_session_capability_test.mjs
