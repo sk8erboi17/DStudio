@@ -16839,6 +16839,12 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       const authHeaders = (settings = Store.getSettings()) => deepseekMode(settings)
         ? { Authorization: `Bearer ${settings.deepseekApiKey.trim()}` }
         : {};
+      // The cloud backend selected without a key is refused, never answered by
+      // another backend: the user chose where the request goes.
+      const cloudKeyMissing = (settings) => !isLanClientMode() &&
+        settings.chatBackend === 'deepseek' && !(settings.deepseekApiKey || '').trim();
+      const CLOUD_KEY_MISSING = 'DeepSeek API (cloud) is the selected backend, but no DeepSeek API key is saved. ' +
+        'Add the key in Settings → Connection, or choose Local ds4 there. Nothing was sent.';
 
       /* The embedding helper uses a separate Metal-backed llama-server process.
          Keeping it resident beside the 80+ GB chat model can make the next
@@ -17020,6 +17026,10 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       async function* streamChat(req, signal) {
         if (signal?.aborted) { yield { type: 'abort' }; return; }
         const settings = { ...(req.settings || Store.getSettings()) };
+        if (cloudKeyMissing(settings)) {
+          yield { type: 'error', message: CLOUD_KEY_MISSING, errType: 'cloud_key' };
+          return;
+        }
         let res;
         let sawDone = false;
         let lastFinishReason = null;
@@ -17111,6 +17121,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         const settings = { ...(req.settings || Store.getSettings()) };
         assertChatSelection(settings);
+        if (cloudKeyMissing(settings)) throw new Error(CLOUD_KEY_MISSING);
         const body = JSON.stringify(buildBody({ ...req, stream: false, settings }));
         await releaseLocalAuxiliaryModels(settings);
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -19607,7 +19618,7 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
       function canRecoverLocalEngine() {
         if (isLanClientMode()) return false;
         const settings = Store.getSettings();
-        if (settings.chatBackend === 'deepseek' && String(settings.deepseekApiKey || '').trim()) return false;
+        if (settings.chatBackend === 'deepseek') return false;
         const mode = typeof Switcher !== 'undefined' && Switcher.mode ? Switcher.mode() : 'server';
         const launching = typeof Switcher !== 'undefined' && Switcher.launching ? Switcher.launching() : null;
         return (mode === 'server' || mode === 'roadmap') && !launching;
@@ -38395,7 +38406,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
 
       function localChatBackend(settings) {
         if (isLanClientMode()) return false;
-        return !(settings?.chatBackend === 'deepseek' && String(settings?.deepseekApiKey || '').trim());
+        // Selecting the cloud never starts the local model, with or without a
+        // key (a missing key is reported by the API client instead).
+        return settings?.chatBackend !== 'deepseek';
       }
 
       function withAbort(promise, signal) {
