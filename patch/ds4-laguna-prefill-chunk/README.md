@@ -151,9 +151,9 @@ kernels they dispatch.
   stale build outputs after a patch state change. No model, no GPU work.
 - `make test-laguna-prefill-chunk-upgrade`: the production Chat launch step on
   a copy of the bundled Laguna engine whose `ds4-server` predates the patch:
-  the patch is applied and the server rebuilt, a ready server is kept, and a
-  pre-patch server newer than its sources is still rebuilt. Real `make`, no
-  model.
+  the patch is applied and the server rebuilt (and its build receipt
+  `.dstudio-build.json` written), a ready server is kept, and a pre-patch
+  server newer than its sources is still rebuilt. Real `make`, no model.
 - `make test-laguna-prefill-chunk-live` (real Laguna Q4_K_M weights, Metal,
   one engine process at a time): builds the unpatched and the patched engine
   in a new `tests/.artifacts/laguna-prefill-chunk/run-*`, compares logits and

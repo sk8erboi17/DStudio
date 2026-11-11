@@ -295,9 +295,15 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    engine revision from DStudio's source receipt and refuses an engine without
    one. Since November 11 both corpus runners store the compiler and tools
    present when a run starts, and the llama.cpp install receipt already holds
-   its CMake version and options. Still open: the ds4 installers do not record
-   the compiler and flags that built an engine (its binary SHA-256 is the
-   identity), and the installed app bundle is not bound to a run.
+   its CMake version and options. Since November 12 every ds4-family build
+   the host runs (installation, update, a Chat launch's rebuild) writes
+   `.dstudio-build.json` beside the checkout: compiler, make, the flags its
+   Makefile expands to and the SHA-256 of each executable
+   (`scripts/record-engine-build.sh`; checked by
+   `make test-laguna-prefill-chunk-upgrade`), and both corpus runners copy it
+   into their receipts. Builds made before that date, and the Agent/Design
+   runtime builds, have none. Still open: the installed app bundle is not
+   bound to a run.
 3. Complete the case-level census of unit, integration, browser, live, upstream
    and publication suites, including prerequisites and exclusions. Since
    November 10 `node tests/support/test_census.mjs` lists every test file and

@@ -85,9 +85,11 @@ stale for `make`. It loads no model and does no GPU work.
 The upgrade test runs the production `setup_ensure_server_metrics_runtime()`
 (the step every Chat launch and, since November 11, every local harness launch
 takes) on a copy of the bundled engine whose `ds4-server` was built before the
-patch: the patch is applied and the server rebuilt, a ready server is kept on
-the next launch, and a pre-patch server copied back newer than its sources is
-still detected from its contents and rebuilt (`make -B`).
+patch: the patch is applied and the server rebuilt, with a build receipt
+(`.dstudio-build.json`: compiler, make, the flags the Makefile expands to and
+the rebuilt server's SHA-256, compared with the file), a ready server is kept
+on the next launch, and a pre-patch server copied back newer than its sources
+is still detected from its contents and rebuilt (`make -B`).
 
 The live script builds the unpatched (baseline) and the patched engine in a
 new `tests/.artifacts/laguna-prefill-chunk/run-*` directory, refuses to start
