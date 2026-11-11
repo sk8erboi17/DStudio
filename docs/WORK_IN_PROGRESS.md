@@ -30,7 +30,9 @@ changing a bundled pin does not transfer them. The [engine admission matrix](ENG
 tracks missing release receipts separately from test outcomes.
 The common-100 results reviewed so far are published, with their charts and
 failures, in [the campaign report](benchmarks/quality-multihardware/README.md):
-five selections measured, none at the required 100/100.
+seven selections measured (every one that runs on this machine), none at
+the required 100/100. That gate measures the models; it closes as a
+documented FAIL unless a model passes it ([why](../PLAN.MD#closure)).
 
 ### Pinned Qwen variants: five representative checks (NOT RUN)
 

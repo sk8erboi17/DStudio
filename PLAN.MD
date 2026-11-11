@@ -159,9 +159,17 @@ Instead of one check per other variant (60 checks, about 1.4 TB of downloads), t
 verification plan is five representative real-weight checks with the
 production-host development gate (`make test-llama-resident-live
 DSTUDIO_LLAMA_MODELS=<id>`: its six checks, plus the refused image request on
-27B MLX), run one at a time, about 98 GB of downloads in total. All five are
-required and **NOT RUN**: disk space no longer blocks them (about 586 GiB free
-on October 25), but no weights have been downloaded for them yet:
+27B MLX), run one at a time, about 98 GB of downloads in total. All five were
+downloaded and verified on November 10 and run on November 11 through the
+production host on the bundled `b11836` / MLX pins (development checks):
+`qwen36-q4_k_m`, `qwen36-iq4_xs`, `qwen36-mxfp4_moe` and `qwen36-mlx-nvfp4`
+passed 6/6 each; `qwen27-mlx-4bit` passed 4/6 and stays FAIL. Its Design case
+saved a page without the exact requested heading (an answer failure), and its
+Chat request failed with the MLX server's `generation thread died`. The cause
+of that exception is not known: the host keeps only the last bytes of a
+resident server's output, so the server's traceback was not retained. Keep
+both failures; a bounded, opt-in log of the resident server's output is
+needed before that case can be diagnosed:
 
 | # | Variant (id) | Download | What it represents |
 | --- | --- | ---: | --- |
@@ -452,6 +460,13 @@ models and the MLX Qwen3.6, with development checks only.
    [the harness results](docs/HARNESSES.md)). Run them with GLM, Laguna,
    Qwen3.8-Flash-Next, DeepSeek V4.1 and a cloud endpoint, and qualify Plan,
    GSA and RSA with them. Keep their workspace confinement and model identity.
+   November 11 (`harness-live/run-QcD4eH`): on Qwen3.8-Flash-Next and V4.1
+   (SSD streaming effective) both harnesses completed the file and recall
+   cases; the outside-workspace case passed once and was BLOCKED three times
+   (the model attempted no read). Laguna failed at startup because the runner
+   did not select Laguna's checkout as the app does; corrected and queued
+   again. GLM is left to contributors; a cloud endpoint and Plan/GSA/RSA
+   remain open.
 
 Acceptance: four complete modes with independently checked effects, selected
 model identity and supported image/PDF semantics. Design receives its own gates.
@@ -560,14 +575,24 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    6/8, code 0/15: every program came inside Markdown fences, which the tasks
    forbid). The Qwen3.8-Flash-Next Q4 run did not start because the native
    runner refused beside a model-free test's client process; that check is
-   corrected and the run queued again (`run-MnogVK` retained).
+   corrected and the run queued again (`run-MnogVK` retained). It then scored
+   **75/100** on main `890898c` (`engine-acceptance/run-sjKpfC`; long context
+   8/8). DeepSeek V4.1 Flash 1017 Q2 scored **68/100** with expert SSD
+   streaming effective (`host-common-quality/run-2pbPSI`, clean tree
+   `afdeea2b`; long context 4/8, every request completed). With these, every
+   selection that can run on this machine has a counted common-100 result
+   ([public report](docs/benchmarks/quality-multihardware/README.md)); none
+   reaches 100/100.
    Retained from November 11: Laguna's common-100 run stopped at its first
    long-context case with `Metal command batch failed: Impacting
    Interactivity` in the second 16,384-token prefill batch (51/100, 12 not
-   run; `engine-acceptance/run-QMNdf9`). Establish whether it reproduces on an
-   idle machine, and whether Laguna needs smaller Metal batches as main has
-   with `--prefill-chunk`; an adaptation goes under `patch/` with a numerical
-   comparison against the 16,384-token batch.
+   run; `engine-acceptance/run-QMNdf9`). A diagnostic rerun with restarts and
+   no other job on the machine (`run-tAqoKo`, retained, not counted) reached
+   56/100 and failed all eight long contexts the same way, at token 16,384 or
+   32,768, with `kIOGPUCommandBufferCallbackErrorImpactingInteractivity`: it
+   does not depend on load. Laguna needs smaller Metal prefill batches as main
+   has with `--prefill-chunk`; an adaptation goes under `patch/` with a
+   numerical comparison against the 16,384-token batch (in progress).
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.
@@ -589,11 +614,11 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    facts, independently reopened DOCX/PDF/XLSX/PPTX content/formulas/revisions,
    interrupted tools, steering and resume without duplicated effects.
    Cowork on DeepSeek V4 Flash Vision-Exp IQ2XXS: resume profile 2/2; long
-   profile 10/11 so far. `ambiguous-edit` failed in a reasoning loop until the
-   test's one-hour limit and a second sample was stopped on request;
-   `path-escape`, `long-seed`, `long-followup`, `long-revision` and
-   `long-deck` have not run. Run them on runtime v106, which no longer declares
-   the refused shell tools, and keep the failed receipts. A reasoning-budget
+   profile **15/16**. `ambiguous-edit` failed in a reasoning loop until the
+   test's one-hour limit and a second sample was stopped on request; the five
+   remaining cases (`path-escape`, `long-seed`, `long-followup`,
+   `long-revision`, `long-deck`) passed 5/5 on November 11 on the installed
+   runtime. The failed receipts are kept. A reasoning-budget
    pause is proposed for the `ambiguous-edit` loop ([proposal 3](#proposals)).
 7. Complete Search/Research held-out answers and actual native-vision webpage
    checks beyond the existing development questions and single-model fixtures.
@@ -602,6 +627,10 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
 8. Execute every applicable standard/long/slow case from the P0 census.
    `make check-real` currently includes only ASCII diagrams, Search/Research
    and remote tests; `make check` alone is not complete campaign coverage.
+   On November 11 all three failed after their 30-minute wait without loading
+   a model: a fresh profile selects no default model any more, and the tests
+   relied on one. They now start Chat with explicit weights and are queued
+   again; the failed logs are kept.
 
 The frozen minimum text distribution remains:
 
@@ -903,7 +932,16 @@ verified outcomes; no dead link or orphaned media file remains.
 ## Closure
 
 Every P0–P13 row remains open until its remaining implementation and exact
-acceptance evidence are complete. A completed scoped fix is removed from the
+acceptance evidence are complete.
+
+Some gates measure the models, not DStudio. `quality-100` requires 100 of 100
+common tasks; on November 11 no selection exceeded 75/100, and almost every
+failure is an answer or format the model produced (wrong arithmetic, an
+unrequested wrapper, Markdown fences, a reply that is not a diff), not a
+transport, engine or application defect. Software-caused failures are fixed
+(P6.2); answer failures are not regraded, retried away or excluded. Such a
+gate therefore closes as a documented **FAIL** with its receipts and causes,
+not as qualification, unless a later model or engine version passes it. A completed scoped fix is removed from the
 implementation backlog while its invalidated or missing acceptance checks stay.
 Missing authority, credentials, permissions, compatible reference or Mac
 resources must have an explicit blocker/procedure. Other platforms are excluded,
