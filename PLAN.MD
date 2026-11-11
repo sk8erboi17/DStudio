@@ -522,6 +522,13 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    corpus reruns on November 10.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
+   Retained from November 11: Laguna's common-100 run stopped at its first
+   long-context case with `Metal command batch failed: Impacting
+   Interactivity` in the second 16,384-token prefill batch (51/100, 12 not
+   run; `engine-acceptance/run-QMNdf9`). Establish whether it reproduces on an
+   idle machine, and whether Laguna needs smaller Metal batches as main has
+   with `--prefill-chunk`; an adaptation goes under `patch/` with a numerical
+   comparison against the 16,384-token batch.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.
