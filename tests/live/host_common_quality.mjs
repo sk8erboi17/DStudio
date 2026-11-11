@@ -176,7 +176,7 @@ try {
 
   quality.report.runtime = { engine, selection: report.selection, weights: { totalBytes: report.weights.totalBytes,
     files: report.weights.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })) },
-    host: report.host, launch, effective: { ssdStreamingEffective: report.effective.ssdStreamingEffective, ctx: report.effective.ctx },
+    host: report.host, launch: report.launch, effective: { ssdStreamingEffective: report.effective.ssdStreamingEffective, ctx: report.effective.ctx },
     engine: report.engine, hardware: before.host, memoryBytes: before.memory.totalBytes, toolchainAtRun: toolchain() };
   const requestExtras = engine === 'ds4' ? {} : { chat_template_kwargs: { enable_thinking: false } };
   const restart = async ({ afterCaseId }) => {
