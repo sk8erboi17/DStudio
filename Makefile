@@ -714,8 +714,13 @@ check-fast: test-llama-kv-snapshot
 test-llama-kv-snapshot-runtime: $(TEST_BUILD)/llama_kv_snapshot_unit
 	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
 	@node tests/integration/llama_kv_snapshot_runtime_test.mjs $(TEST_BUILD)/llama_kv_snapshot_unit $(REMOTE_TOOL_AGENT) $(DESIGN_BINARY)
-# The real-weight check (tests/live/llama_kv_snapshot_live_test.mjs) is not
-# written yet; until it passes the store stays off by default.
+# REAL weights (Qwen3.6 UD-Q6_K_XL and Qwen3.8-27B UD-Q6_K_XL, one engine at a
+# time): the restored second turn must equal the live one; the re-prefilled one
+# is recorded. DSTUDIO_KV_MODELS=qwen36|qwen27 selects one. Until it passes the
+# store stays off by default.
+.PHONY: test-llama-kv-snapshot-live
+test-llama-kv-snapshot-live: $(TEST_SERVER)
+	@node tests/live/llama_kv_snapshot_live_test.mjs $(TEST_SERVER)
 
 # scripts/install-llama.py recipes (static macOS, dynamic Linux/Windows),
 # receipts and leases; toolchains simulated, nothing compiled.
@@ -955,9 +960,23 @@ test-v41-vision-pairing-live:
 # Laguna prefill batch patch: lifecycle on copies of the bundled Laguna engine,
 # composition after the runtime stack, a CPU compile of ds4-server/ds4 and the
 # engine resolver from a DS4_TEST_HOOKS object. No model, no GPU work.
-.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-live
+.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-upgrade test-laguna-prefill-chunk-live
 test-laguna-prefill-chunk-patch:
 	@node tests/integration/laguna_prefill_chunk_patch_test.mjs
+check-fast: test-laguna-prefill-chunk-patch
+
+# The Chat launch step (setup_ensure_server_metrics_runtime) on a copy of the
+# bundled Laguna engine whose ds4-server predates the batch patch: the patch is
+# applied and the server rebuilt (a real `make ds4-server`), a ready server is
+# kept, and a pre-patch server newer than its sources is still rebuilt. No
+# model, no GPU work. Build logs: tests/.artifacts/laguna-chat-upgrade/run-*.
+$(TEST_BUILD)/laguna_chat_upgrade: tests/integration/laguna_chat_upgrade.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/integration/laguna_chat_upgrade.c -o $@
+
+test-laguna-prefill-chunk-upgrade: $(TEST_BUILD)/laguna_chat_upgrade
+	@mkdir -p tests/.artifacts/laguna-chat-upgrade
+	@$(TEST_BUILD)/laguna_chat_upgrade "$$(mktemp -d "$$PWD/tests/.artifacts/laguna-chat-upgrade/run-XXXXXX")"
 
 # Real Laguna Q4_K_M weights on Metal, one engine at a time: batch 16384 versus
 # the patched default on a ~12k-token prompt (logits and greedy tokens), then a

@@ -214,6 +214,7 @@ try {
   console.error(`FAILED: ${error.message}`);
 } finally {
   if (server?.logPath) writeArtifact(run, 'host.log', safeReadTail(server.logPath, 400000));
+  if (server?.residentLogPath && fs.existsSync(server.residentLogPath)) writeArtifact(run, 'resident-server.log', safeReadTail(server.residentLogPath, 4 * 1024 * 1024));
   await shutdown();
   report.finished = new Date().toISOString(); save();
 }

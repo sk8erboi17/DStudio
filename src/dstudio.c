@@ -1491,6 +1491,7 @@ static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out,
 static pid_t g_setup_cmd_owner; /* dstudio_setup.c: owner of a background installation child */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz);
 static int run_ext_script(const char *script, const char *action);
+static int apply_ds4_build_patches(void);
 static int run_build_server_pld(void);
 static void git_branch_of(const char *dir, char *out, size_t outsz);
 static int native_glm_vision_installed(void);
@@ -5769,9 +5770,7 @@ static int run_build_jsonl_locked(const char *action) {
 
     /* Apply before checking core mtimes: Agent may be the first runtime built
      * after upgrading DStudio, without a preceding Chat launch. */
-    if (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply")) return 0;
+    if (!apply_ds4_build_patches()) return 0;
     if (qwen38_native &&
         !run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", "apply")) return 0;
 
@@ -6059,6 +6058,17 @@ static int run_ext_script_for_dir(const char *script, const char *action,
 
 static int run_ext_script(const char *script, const char *action) {
     return run_ext_script_for_dir(script, action, g_ds4_dir);
+}
+
+/* Engine-source patches that every ds4 build (Chat PLD, Agent/Cowork, Design)
+ * applies to the active checkout before compiling, in this order. Each script
+ * is idempotent and skips a checkout it does not adapt: the Laguna prefill
+ * batch patch, for example, reports "not needed" on ds4 main. */
+static int apply_ds4_build_patches(void) {
+    return run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-laguna-prefill-chunk.sh", "apply");
 }
 
 static char *build_piped_skill_sys(int runtime_mode, int structured_tools) {
@@ -6488,9 +6498,7 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
     }
     win_prepare_engine_runtime();
 #else
-    if (!prepared && (!run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") ||
-        !run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") ||
+    if (!prepared && (!apply_ds4_build_patches() ||
         !run_ext_script("src/harness/design/build-design.sh", "build"))) {
         snprintf(err, errsz, "build of ds4-design failed (see the serve terminal)");
         return 0;

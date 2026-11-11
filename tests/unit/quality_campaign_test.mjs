@@ -78,6 +78,22 @@ assert.deepEqual([cell.status, cell.passed, cell.failed], ['FAIL', 75, 25]);
 native.results[0].inference.installer.commit = '0aaea5a0000000000000000000000000000000000';
 cell = coverage(campaign, attemptsFromNativeReceipt(native, 'engine-acceptance/run-old')).rows.find((row) => row.selection === 'qwen38-flash-next-q4');
 assert.equal(cell.status, 'NOT_RUN', 'a result on an earlier engine pin does not transfer');
+// A recorded change of DStudio's engine adaptations: attempts that started
+// before it ran another engine; they stay listed and do not count.
+const laguna = (started) => attemptsFromNativeReceipt({ schema: 'dstudio.engine-acceptance.v1', started, results: [{ engine: 'laguna',
+  inference: { model: { path: '/store/gguf/laguna-s-2.1-Q4_K_M.gguf' }, installer: { engine: 'laguna', commit: byId['laguna-s21-q4-k-m'].engineCommit }, models: { data: [{ id: 'm' }] } },
+  quality: { report: { status: 'fail', evaluationUse: 'development-replay', started, finished: '2026-11-12T09:00:00Z',
+    summary: { denominator: 100, passed: started < '2026-11-11T22:50:00Z' ? 51 : 80, failed: 20, notRun: 0, pending: 0 } } } }] }, `engine-acceptance/run-${started}`)[0];
+const since = byId['laguna-s21-q4-k-m'].identityChanges.at(-1).since;
+assert.match(mismatch(byId['laguna-s21-q4-k-m'], laguna('2026-11-10T09:00:00Z')), new RegExp(`before the engine change of ${since}`));
+assert.equal(mismatch(byId['laguna-s21-q4-k-m'], laguna('2026-11-12T00:10:00Z')), '');
+cell = coverage(campaign, [laguna('2026-11-10T09:00:00Z')]).rows.find((row) => row.selection === 'laguna-s21-q4-k-m');
+assert.equal(cell.status, 'NOT_RUN', 'a result on the earlier engine does not count'); assert.equal(cell.excluded.length, 1);
+cell = coverage(campaign, [laguna('2026-11-10T09:00:00Z'), laguna('2026-11-12T00:10:00Z')]).rows.find((row) => row.selection === 'laguna-s21-q4-k-m');
+assert.deepEqual([cell.status, cell.passed, cell.counted], ['FAIL', 80, 'engine-acceptance/run-2026-11-12T00:10:00Z']);
+assert.throws(() => { const file = path.join(os.tmpdir(), `campaign-change-${process.pid}.json`);
+  fs.writeFileSync(file, JSON.stringify({ schema: 'dstudio.quality-campaign.v1', selections: [{ id: 'a', plan: 'maintainer', engine: 'ds4', identityChanges: [{ since: 'soon', reason: 'x' }] }], suites: [] }));
+  try { loadCampaign(file); } finally { fs.rmSync(file, { force: true }); } }, /identity change/);
 assert.deepEqual(attemptsFromNativeReceipt({ schema: 'other' }, 'x'), []);
 assert.equal(attemptFromHostReceipt({ schema: 'other' }, 'x'), null);
 
@@ -98,4 +114,4 @@ assert.throws(() => { const file = path.join(os.tmpdir(), `campaign-${process.pi
   fs.writeFileSync(file, JSON.stringify({ schema: 'dstudio.quality-campaign.v1', selections: [{ id: 'a', plan: 'maintainer', engine: 'ds4' }, { id: 'a', plan: 'maintainer', engine: 'ds4' }], suites: [] }));
   try { loadCampaign(file); } finally { fs.rmSync(file, { force: true }); } }, /duplicate/);
 
-console.log('PASS: campaign coverage keeps denominators, first terminal results, identity exclusions, BLOCKED rows and unreadable receipts (synthetic receipts; no model)');
+console.log('PASS: campaign coverage keeps denominators, first terminal results, identity exclusions (pins and recorded engine changes), BLOCKED rows and unreadable receipts (synthetic receipts; no model)');

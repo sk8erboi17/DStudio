@@ -42,7 +42,13 @@ slot count, context and vision modality (a 27B server without its projector
 loaded is not ready). A `/props` reply from another model or build is not
 ready. It has no retired-checkout or missing-projector-file case: the
 refusal of a checkout whose receipt names another engine, and of a 27B launch
-without its projector, is asserted by `make test-launch-preflight`.
+without its projector, is asserted by `make test-launch-preflight`. It also
+writes the opt-in copy of a resident server's output to a temporary file:
+nothing without `DSTUDIO_RESIDENT_LOG`; with it, one header per launch and
+the copied bytes up to the limit (`DSTUDIO_RESIDENT_LOG_MAX_BYTES`, at most
+64 MiB), then one truncation line and nothing after it; a symlinked path is
+not opened. Live runners started through `startDStudio` set the variable and
+keep the file as `resident-server.log`.
 
 `make test-resident-guard` (`tests/integration/resident_guard_test.mjs`) runs
 the real `--resident-guard` process with a stand-in server script. Closing the
@@ -153,11 +159,20 @@ A pass says nothing about whether a real model's state survives a restore.
 
 `make test-llama-kv-snapshot-runtime REMOTE_TOOL_AGENT=<ds4-agent-jsonl>
 DESIGN_BINARY=<ds4-design>` feeds what the real, already built runtimes print
-(simulated model frames, real restarts) to the production line parser. Not
-written yet: the real-weight check (one pinned Qwen model, a long
-conversation, engine restart, continuation at temperature 0 equal to the one
-after a normal re-prefill, both timed). Until it passes on both Qwen models the
-store stays off by default; the hybrid recurrent layers are the specific risk.
+(simulated model frames, real restarts) to the production line parser.
+
+`make test-llama-kv-snapshot-live` is the real-weight check (Qwen3.6 UD-Q6_K_XL
+and Qwen3.8-27B UD-Q6_K_XL, one engine at a time; `DSTUDIO_KV_MODELS` selects
+one). For each model three Agent sessions with the same two turns run in new
+production hosts with their own KV stores: *live* (the second turn reuses the
+slot in memory), *restore* (snapshot saved after the first turn, engine
+restarted, session switched back and restored from disk) and *reprefill* (the
+same with snapshots off). The first turn must be identical in all three; the
+restored second turn must equal the live one exactly, with the restored tokens
+as its cache and only the new message processed. The re-prefilled second turn
+is recorded but not judged: a batched prefill runs other kernels than
+token-by-token decode. Until it passes on both Qwen models the store stays off
+by default; the hybrid recurrent layers are the specific risk.
 
 ### Qwen3.6 on MLX (Apple Silicon)
 

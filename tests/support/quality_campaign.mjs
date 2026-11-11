@@ -13,6 +13,9 @@ export function loadCampaign(file) {
   for (const s of campaign.selections) {
     if (!['maintainer', 'contributor'].includes(s.plan)) throw new Error(`selection ${s.id}: unknown plan`);
     if (!['ds4', 'ds4-laguna', 'llama', 'mlx'].includes(s.engine)) throw new Error(`selection ${s.id}: unknown engine`);
+    for (const change of s.identityChanges || [])
+      if (!Number.isFinite(Date.parse(change.since)) || typeof change.reason !== 'string' || change.reason.trim().length < 8)
+        throw new Error(`selection ${s.id}: an identity change needs a date (since) and a reason`);
   }
   return campaign;
 }
@@ -61,6 +64,13 @@ export function mismatch(selection, attempt) {
     return `engine revision ${attempt.engineCommit || 'unrecorded'}, pin is ${selection.engineCommit}`;
   if (selection.ssdStreaming && attempt.ssdStreamingEffective !== (selection.ssdStreaming === 'on'))
     return `effective SSD streaming ${attempt.ssdStreamingEffective}, selection is qualified with streaming ${selection.ssdStreaming}`;
+  // DStudio's own adaptations of a pinned engine (its patch/ set) change the
+  // engine that runs without changing the pin. The campaign file records each
+  // such change; an attempt that started before the latest one ran another
+  // engine and stays listed, not counted.
+  const latest = (selection.identityChanges || []).reduce((last, change) => (!last || Date.parse(change.since) > Date.parse(last.since) ? change : last), null);
+  if (latest && !(Date.parse(attempt.started) >= Date.parse(latest.since)))
+    return `started before the engine change of ${latest.since}: ${latest.reason}`;
   return '';
 }
 

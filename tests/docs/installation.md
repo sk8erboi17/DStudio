@@ -53,28 +53,31 @@ No setup/build/catalog response is simulated. This is headless application/UI
 coverage, not Finder double-click, native title-bar, or native file-picker QA.
 Evidence and screenshots are retained in `tests/.artifacts/first-launch-*/`.
 
-To follow a successful setup with real loading of every supported installed GGUF:
+To follow a successful setup with real loading of every supported installed model:
 
 ```sh
-node tests/live/installed_models_e2e.mjs tests/.artifacts/first-launch-<successful-run> ds4/gguf
+node tests/live/installed_models_e2e.mjs tests/.artifacts/first-launch-<successful-run> ds4/gguf [NAME-FILTER]
 ```
 
 This heavyweight gate requires the existing inference engine to be stopped
 explicitly. It uses the freshly built runtimes and links their empty task-owned
-GGUF directory to existing weights, without copying or moving them. Models are
-loaded **one at a time**, with 8k context, DSpark off, resident Laguna and
-Qwen3.8-Flash-Next (its embedded BF16 n-grams read from SSD; a separate PLE
-file is listed as auxiliary and not loaded) and SSD expert streaming for main
-DeepSeek/GLM models. As written, the runner also requests SSD streaming for the
-Qwen3.6 files, which now run on llama.cpp; `make test-launch-preflight` shows
-that the host refuses that combination, so those rows are not qualified by this
-runner until it is corrected (read from the runner, not rerun). Each model must
-become ready, return exact arithmetic and JSON extraction
-answers through DStudio, then answer a checked prompt through the real Chat UI,
-including completed SSE and visible rendered text. No response is mocked.
-Auxiliary GGUFs and unsupported models are listed separately; missing weights,
-timeouts, truncated answers and failed checks are not passes. This does not
-qualify all quantizations, maximum context, vision, Agent or Cowork behavior.
+`gguf/` and `mlx/` directories to the existing model store, without copying or
+moving anything. Models are loaded **one at a time**, with 8k context, DSpark
+off and thinking off, on the engine the app routes them to: DeepSeek V4 Flash
+and Qwen3.8-Flash-Next on ds4 main (resident; Next reads its embedded BF16
+n-grams from SSD), Laguna from its own checkout, the Qwen3.6-35B-A3B and
+Qwen3.8-27B GGUFs on the bundled llama.cpp, the Qwen3.6 MLX folder on MLX, and
+DeepSeek V4.1 Flash 1017 only with expert SSD streaming (the effective mode is
+asserted). GLM 5.3 and the other V4.1 files are left to contributor hardware
+and listed as excluded with that reason, as are auxiliary files (vision
+encoders, projectors, DSpark, PLE, MTP). Each model must become ready on the
+expected engine process, return exact arithmetic and JSON extraction answers
+through DStudio, then answer a checked prompt through the real Chat UI
+(headless WebKit), including completed SSE and visible rendered text. No
+response is mocked. Missing weights, timeouts, truncated answers and failed
+checks are not passes. This does not qualify all quantizations, maximum
+context, vision, Agent or Cowork behavior. Updated on November 11 for the
+current engine routing; not yet run in that form.
 
 The inference gate starts a real `ds4-server`, waits for its live model catalog,
 and checks arithmetic, structured extraction, ordering, Unicode, multi-turn

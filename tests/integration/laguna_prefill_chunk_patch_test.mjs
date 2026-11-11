@@ -2,16 +2,18 @@
 // engine (src/engines/ds4-laguna-s21 is never written): apply, repeat apply,
 // restore to exact bytes, drift and partial patches refused without changes,
 // unrelated edits preserved, ds4 main skipped, composition after the managed
-// runtime patch stack, then a CPU compile of the patched ds4-server/ds4 and
-// of a DS4_TEST_HOOKS object whose resolver this test executes. The compile
-// loads no model and touches no GPU. Build outputs go stale when the patch
-// state changes.
+// runtime patch stack, then a build of the patched ds4-server/ds4, an offline
+// compile of the patched Metal library (ds4 compiles its shaders only when a
+// model loads) and a DS4_TEST_HOOKS object whose resolver this test executes.
+// Nothing loads a model or runs GPU work. Build outputs go stale when the
+// patch state changes.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { compileMetalLibrary } from '../support/ds4_metal_library.mjs';
 
 const root = process.cwd();
 const script = path.join(root, 'scripts/apply-ds4-laguna-prefill-chunk.sh');
@@ -23,12 +25,13 @@ const env = { ...process.env };
 delete env.DS4_METAL_PREFILL_CHUNK;
 const run = (dir, action, scriptPath = script) =>
   spawnSync('/bin/sh', [scriptPath, action], { encoding: 'utf8', timeout: 60000, env: { ...env, DS4_DIR: dir } });
-const touched = ['ds4.c', 'ds4_help.c'];
+const touched = ['ds4.c', 'ds4_help.c', 'ds4_metal.m', 'metal/laguna.metal'];
+// ds4 main has no metal/laguna.metal; only the files a checkout has are copied.
 const copySources = (from, to) => {
-  fs.mkdirSync(to, { recursive: true });
-  for (const f of touched) fs.copyFileSync(path.join(from, f), path.join(to, f));
+  fs.mkdirSync(path.join(to, 'metal'), { recursive: true });
+  for (const f of touched) if (fs.existsSync(path.join(from, f))) fs.copyFileSync(path.join(from, f), path.join(to, f));
 };
-const hashes = dir => Object.fromEntries(touched.map(f => [f, sha(path.join(dir, f))]));
+const hashes = dir => Object.fromEntries(touched.filter(f => fs.existsSync(path.join(dir, f))).map(f => [f, sha(path.join(dir, f))]));
 const edit = (file, from, to) => {
   const text = fs.readFileSync(file, 'latin1');
   assert.equal(text.split(from).length, 2, `${path.basename(file)}: anchor must occur once: ${from}`);
@@ -45,8 +48,7 @@ try {
   assert.deepEqual(hashes(dir), pristineHashes, 'check must not write');
   r = run(dir, 'apply'); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /: applied/);
   const patched = hashes(dir);
-  assert.notEqual(patched['ds4.c'], pristineHashes['ds4.c']);
-  assert.notEqual(patched['ds4_help.c'], pristineHashes['ds4_help.c']);
+  for (const f of touched) assert.notEqual(patched[f], pristineHashes[f], `${f} is part of the patch`);
   r = run(dir, 'apply'); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /already applied/);
   assert.deepEqual(hashes(dir), patched, 'a repeated apply must be a no-op');
   r = run(dir, 'build'); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /already applied/);
@@ -71,6 +73,23 @@ try {
   const partial = hashes(dir);
   r = run(dir, 'apply'); assert.equal(r.status, 1); assert.match(r.stderr, /partial or edited patch/);
   assert.deepEqual(hashes(dir), partial, 'a partial patch must change no file');
+  // Partial patch: the engine sources patched, the Metal kernels pristine.
+  copySources(pristine, dir);
+  r = run(dir, 'apply'); assert.equal(r.status, 0, r.stderr);
+  fs.copyFileSync(path.join(pristine, 'metal/laguna.metal'), path.join(dir, 'metal/laguna.metal'));
+  const partialKernels = hashes(dir);
+  r = run(dir, 'apply'); assert.equal(r.status, 1); assert.match(r.stderr, /partial or edited patch/);
+  assert.deepEqual(hashes(dir), partialKernels, 'a partial patch must change no file');
+  // Drift in the attention loops the patch rewrites (an equivalent bound,
+  // written differently upstream): refused, nothing written.
+  copySources(pristine, dir);
+  const kernels = path.join(dir, 'metal/laguna.metal');
+  const loops = fs.readFileSync(kernels, 'utf8').split('key_pos <= query_pos;');
+  assert.equal(loops.length, 4, 'the three prefill attention loops');
+  fs.writeFileSync(kernels, loops.join('key_pos < query_pos + 1u;'));
+  const kernelDrift = hashes(dir);
+  r = run(dir, 'apply'); assert.equal(r.status, 1); assert.match(r.stderr, /source drift/);
+  assert.deepEqual(hashes(dir), kernelDrift, 'kernel drift must change no file');
   // An edited applied patch is refused in the same way.
   copySources(pristine, dir);
   r = run(dir, 'apply'); assert.equal(r.status, 0, r.stderr);
@@ -114,12 +133,17 @@ try {
   assert.deepEqual(hashes(full), stack, 'restore after the stack returns to the stack bytes');
   r = run(full, 'apply'); assert.equal(r.status, 0, r.stderr);
 
-  // CPU compile of the patched engine (no model, no GPU work).
+  // Build of the patched engine (no model, no GPU work).
   const make = (...args) => spawnSync('make', ['-C', full, ...args], { encoding: 'utf8', timeout: 900000, env });
   r = make('-j4', 'ds4-server', 'ds4', 'ds4_cpu_test_hooks.o', 'ds4_distributed.o', 'ds4_tp.o', 'ds4_ssd.o', 'ds4_layer_pack.o');
   assert.equal(r.status, 0, (r.stdout + r.stderr).slice(-4000));
   const help = spawnSync(path.join(full, 'ds4-server'), ['--help'], { encoding: 'utf8', timeout: 30000, env });
   assert.match(help.stdout + help.stderr, /--prefill-chunk N\s+Graph prefill chunk size\. Default: .*Laguna 4096 on Metal, 16384 elsewhere \(16-16384\)/);
+
+  // The patched kernels, assembled into one library as ds4 does at startup.
+  const metal = compileMetalLibrary(full, tmp);
+  if (metal.status === 'not-run') console.log(`NOT RUN: offline Metal library compile (${metal.reason})`);
+  else assert.equal(metal.status, 'compiled', `patched Metal library: ${metal.errors.join('\n')}\n${metal.output}`);
 
   // The engine's own resolver, from a DS4_TEST_HOOKS build of the patched ds4.c.
   const probe = path.join(tmp, 'laguna_prefill_chunk_probe');
@@ -158,7 +182,7 @@ try {
   r = run(full, 'apply'); assert.equal(r.status, 0, r.stderr);
   assert.notEqual(make('-q', 'ds4-server').status, 0, 're-applying keeps the old binary stale');
   assert.deepEqual(hashes(pristine), pristineHashes, 'the bundled snapshot is untouched');
-  console.log('PASS: Laguna prefill chunk patch lifecycle, stack composition, CPU build and engine resolver');
+  console.log(`PASS: Laguna prefill patch lifecycle, stack composition, engine build, ${metal.status === 'compiled' ? 'Metal library compile' : 'Metal library compile NOT RUN'} and engine resolver`);
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

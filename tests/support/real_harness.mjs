@@ -325,6 +325,9 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
     process.env.PATH || '',
   ].filter(Boolean).join(path.delimiter);
   const logPath = path.join(home, 'dstudio.log');
+  // The host's bounded, opt-in copy of a llama.cpp or MLX server's output
+  // (src/dstudio_resident.c); the host itself keeps only its last bytes.
+  const residentLogPath = path.join(home, 'resident.log');
   const log = fs.openSync(logPath, 'w');
   const child = spawn(bin, [String(port), ds4Dir], {
     cwd: repoRoot,
@@ -335,6 +338,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
       PATH: toolPath,
       DS4UI_HOST: '127.0.0.1',
       DS4UI_PAGE_FROM_DISK: '1',
+      DSTUDIO_RESIDENT_LOG: residentLogPath,
       ...(isolatedEnginePort ? { DS4UI_ENGINE_PORT: String(enginePort) } : {}),
       ...env,
     },
@@ -361,6 +365,7 @@ export async function startDStudio({ binaryArg, label = 'dstudio-real', ignoreEx
         ggufs,
         home,
         logPath,
+        residentLogPath,
         child,
         async stop() {
           if (child.exitCode === null) {

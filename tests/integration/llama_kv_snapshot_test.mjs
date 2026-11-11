@@ -63,7 +63,7 @@ function installation(name) {
   // Simulated installer and builders: the launch path runs them, nothing is built.
   fixture(path.join(site.assets, 'scripts/install-llama.py'), 'import sys\nprint("fixture installer: nothing built")\nsys.exit(0)\n');
   for (const script of ['scripts/apply-ds4-glm53-m2max.sh', 'scripts/apply-ds4-vision-streaming.sh',
-    'scripts/apply-ds4-v41-vision-pairing.sh', 'src/harness/design/build-design.sh'])
+    'scripts/apply-ds4-v41-vision-pairing.sh', 'scripts/apply-ds4-laguna-prefill-chunk.sh', 'src/harness/design/build-design.sh'])
     fixture(path.join(site.assets, script), '#!/bin/sh\nexit 0\n', 0o755);
   for (const file of ['DESIGN.md', 'tokens.css', 'components.html', 'assets/preview.js', 'references/recipes.md'])
     fixture(path.join(site.assets, 'extension/design-systems/folio', file), 'Complete fixture\n');

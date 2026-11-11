@@ -1,6 +1,7 @@
 /* Production llama.cpp ownership decisions: which models it serves, which
  * modes and settings it admits, where it is installed, and the /props check
- * that alone makes a loading server ready. No process, network or model. */
+ * that alone makes a loading server ready, and the opt-in copy of its output
+ * (written to a temporary file). No process, network or model. */
 #define _GNU_SOURCE
 #include <assert.h>
 #define main dstudio_embedded_main_for_tests
@@ -189,6 +190,49 @@ int main(void) {
     assert(resident_probe_verdict(other_reply) == 0);
     g_resident.model_real[0] = '\0';
     assert(resident_props_match(one, strlen(one)) == 0);       /* nothing admitted */
-    puts("resident_runtime_unit: ok (production routing, preflight, llama.cpp /props and MLX /v1/models readiness; no process or model)");
+    /* Opt-in copy of the resident server's output (a temporary file only):
+     * nothing without DSTUDIO_RESIDENT_LOG; with it, a header per launch and
+     * the copied output, then one truncation line at the byte limit and
+     * nothing after it; a symlinked path is never opened. */
+    {
+        const char *tmp = getenv("TMPDIR");
+        char dir[512], logfile[600], link[600], target[600], text[1024];
+        snprintf(dir, sizeof dir, "%s/dstudio-resident-log-XXXXXX", tmp && tmp[0] ? tmp : "/tmp");
+        assert(mkdtemp(dir));
+        snprintf(logfile, sizeof logfile, "%s/resident.log", dir);
+        unsetenv("DSTUDIO_RESIDENT_LOG");
+        resident_log_open(7);
+        resident_log_copy("not copied\n", 11);
+        assert(g_resident_log < 0 && access(logfile, F_OK) != 0);
+        setenv("DSTUDIO_RESIDENT_LOG", logfile, 1);
+        setenv("DSTUDIO_RESIDENT_LOG_MAX_BYTES", "200", 1);
+        resident_log_open(7);
+        resident_log_copy("loading model\n", 14);
+        resident_log_copy("generation thread died\n", 23);
+        char big[256]; memset(big, 'x', sizeof big);
+        resident_log_copy(big, sizeof big);
+        resident_log_copy("after the limit\n", 16);
+        resident_log_open(8);
+        FILE *f = fopen(logfile, "rb");
+        assert(f);
+        size_t got = fread(text, 1, sizeof text - 1, f); fclose(f); text[got] = '\0';
+        assert(!strncmp(text, "--- resident launch task 7 at ", 30));
+        assert(strstr(text, "loading model\ngeneration thread died\n"));
+        assert(strstr(text, "--- resident log truncated at its byte limit ---"));
+        assert(!strchr(text, 'x') && !strstr(text, "after the limit") && !strstr(text, "task 8"));
+        assert(got <= 200 + 64);
+        close(g_resident_log); g_resident_log = -1; g_resident_log_bytes = 0; g_resident_log_truncated = 0;
+        g_resident_log_cap = RESIDENT_LOG_CAP;
+        snprintf(target, sizeof target, "%s/elsewhere.log", dir);
+        snprintf(link, sizeof link, "%s/link.log", dir);
+        assert(symlink(target, link) == 0);
+        setenv("DSTUDIO_RESIDENT_LOG", link, 1);
+        resident_log_open(9);
+        resident_log_copy("through a link\n", 15);
+        assert(g_resident_log < 0 && access(target, F_OK) != 0);
+        unsetenv("DSTUDIO_RESIDENT_LOG"); unsetenv("DSTUDIO_RESIDENT_LOG_MAX_BYTES");
+        unlink(link); unlink(logfile); rmdir(dir);
+    }
+    puts("resident_runtime_unit: ok (production routing, preflight, llama.cpp /props and MLX /v1/models readiness, opt-in output copy; no process or model)");
     return 0;
 }
