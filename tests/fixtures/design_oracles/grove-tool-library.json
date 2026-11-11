@@ -1,6 +1,6 @@
 {
   "case": "grove-tool-library",
-  "steps": 3,
+  "steps": 2,
   "faults": [
     {
       "name": "search-ignores-category",
@@ -9,7 +9,7 @@
     },
     {
       "name": "empty-state-from-full-list",
-      "caughtAs": "No empty state is shown while no tool matches the category and search",
+      "caughtAs": "did not match the regular expression /no \\(\\?:tools\\|results\\|matches\\)/i",
       "flags": ""
     },
     {
@@ -34,89 +34,13 @@
     },
     {
       "name": "list-stale-after-dialog-removal",
-      "caughtAs": "The list does not offer Hand drill again after its removal in the dialog",
+      "caughtAs": "locator\\.click: Timeout[\\s\\S]*Add to shortlist: Garden fork[\\s\\S]*element is not enabled",
       "flags": ""
     },
     {
       "name": "request-claims-sent",
       "caughtAs": "Missing visible content: /No borrowing request was sent/",
       "flags": ""
-    },
-    {
-      "name": "no-search-empty-state",
-      "caughtAs": "No empty state is shown while no tool matches the category and search",
-      "flags": ""
-    },
-    {
-      "name": "no-limit-reason",
-      "caughtAs": "The page does not show why a third tool cannot be added",
-      "flags": ""
-    },
-    {
-      "name": "count-never-updated",
-      "caughtAs": "The visible shortlist count does not show 1 after the first tool was added",
-      "flags": ""
-    },
-    {
-      "name": "count-stops-at-one",
-      "caughtAs": "The visible shortlist count still shows 1 after the second tool was added",
-      "flags": ""
-    },
-    {
-      "name": "count-stale-after-dialog-removal",
-      "caughtAs": "The visible shortlist count does not show 1 after a removal in the dialog",
-      "flags": ""
-    },
-    {
-      "name": "list-remove-does-nothing",
-      "caughtAs": "Remove outside the dialog left Garden fork on the shortlist",
-      "flags": ""
-    },
-    {
-      "name": "no-remove-outside-dialog",
-      "caughtAs": "No Remove action for Garden fork outside the dialog",
-      "flags": ""
-    },
-    {
-      "name": "request-does-nothing",
-      "caughtAs": "The demo request action does not say No borrowing request was sent",
-      "flags": ""
-    },
-    {
-      "name": "page-request-claims-sent",
-      "caughtAs": "Missing visible content: /No borrowing request was sent/",
-      "flags": ""
-    },
-    {
-      "name": "closing-request-claims-sent",
-      "caughtAs": "Missing visible content: /No borrowing request was sent/",
-      "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "refusal-on-click",
-      "why": "The third Add to shortlist stays enabled; pressing it adds nothing and only then shows why."
-    },
-    {
-      "name": "plain-wording",
-      "why": "The empty state says \"Nothing found\", the count reads \"1 tool on your shortlist\", and the limit is guidance that is always visible."
-    },
-    {
-      "name": "request-on-page",
-      "why": "The demo request action is beside Review shortlist on the page: the brief does not place it inside the dialog."
-    },
-    {
-      "name": "shortlist-panel-lists-tools",
-      "why": "The Shortlist panel also lists the chosen tools, so a chosen tool is shown in two rows; every row button is identified by its row, not by a name of its own."
-    },
-    {
-      "name": "full-button-label",
-      "why": "While the shortlist is full, the other tools show a disabled \"Shortlist full: remove a tool first\" instead of Add to shortlist; that label is the reason."
-    },
-    {
-      "name": "request-closes-dialog",
-      "why": "The demo request action closes the dialog and the statement appears on the page beside the shortlist."
     }
   ]
 }

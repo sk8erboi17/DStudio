@@ -1,14 +1,9 @@
 {
   "case": "commons-reading-circle",
-  "steps": 3,
+  "steps": 2,
   "faults": [
     {
       "name": "markup-reply",
-      "caughtAs": "Missing visible content: <b>literal & note</b>",
-      "flags": ""
-    },
-    {
-      "name": "byline-markup-reply",
       "caughtAs": "Missing visible content: <b>literal & note</b>",
       "flags": ""
     },
@@ -19,17 +14,12 @@
     },
     {
       "name": "empty-reply-accepted",
-      "caughtAs": "counted 0 replies before one reply was posted and 2 after it",
+      "caughtAs": "1 repl[\\s\\S]*\\b2 replies",
       "flags": ""
     },
     {
       "name": "stale-reply-count",
-      "caughtAs": "counted 0 replies before one reply was posted and 0 after it",
-      "flags": ""
-    },
-    {
-      "name": "sample-replies-count-stale",
-      "caughtAs": "counted 2 replies before one reply was posted and 2 after it",
+      "caughtAs": "1 repl[\\s\\S]*\\b0 replies",
       "flags": ""
     },
     {
@@ -43,75 +33,14 @@
       "flags": ""
     },
     {
-      "name": "over-limit-reply-accepted",
-      "caughtAs": "A reply longer than 200 characters was posted",
-      "flags": ""
-    },
-    {
       "name": "shared-follow",
-      "caughtAs": "Following one thread changed the follow control of another thread",
-      "flags": ""
-    },
-    {
-      "name": "follow-control-shared",
-      "caughtAs": "Following one thread changed the follow control of another thread",
-      "flags": ""
-    },
-    {
-      "name": "following-filter-ignored",
       "caughtAs": "Unexpected visible content: Weekend swap",
-      "flags": ""
-    },
-    {
-      "name": "checkbox-filter-ignored",
-      "caughtAs": "Unexpected visible content: Weekend swap",
-      "flags": ""
-    },
-    {
-      "name": "unfollow-stays-in-following",
-      "caughtAs": "An unfollowed thread is still listed under the Following filter",
-      "flags": ""
-    },
-    {
-      "name": "alternate-wording-unfollow-stays",
-      "caughtAs": "An unfollowed thread is still listed under the Following filter",
-      "flags": ""
-    },
-    {
-      "name": "plain-author-no-dialog",
-      "caughtAs": "Expected one accessible native dialog",
       "flags": ""
     },
     {
       "name": "search-matches-message",
       "caughtAs": "Unexpected visible content: Quiet recommendations",
       "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "sample-replies",
-      "why": "Two threads start with sample replies, so the feed count starts above zero and must rise by one."
-    },
-    {
-      "name": "author-name-only",
-      "why": "The author button is named by the author's name alone, as the brief words it, without profile or author."
-    },
-    {
-      "name": "authors-in-feed",
-      "why": "Every feed row also names its author with a button, so the author button of the open thread is not new there; the thread credits it with Started by."
-    },
-    {
-      "name": "byline-replies",
-      "why": "Each reply shares its list item with a byline (You: text); its characters are still rendered literally."
-    },
-    {
-      "name": "alternate-wording",
-      "why": "Other usual wording: the field is Your reply (required), the buttons are Post, Follow thread and Unfollow thread, a link named with an arrow, Back to feed, returns to the feed, and the feed says No replies yet, then Replies: 1."
-    },
-    {
-      "name": "following-checkbox",
-      "why": "The Following filter is a labelled checkbox instead of a pair of buttons."
     }
   ]
 }

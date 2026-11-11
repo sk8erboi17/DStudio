@@ -103,13 +103,6 @@ weights against `scripts/qwen-variants.json`, records the engine's own
 patch-set digest and the effective memory mode. A requested SSD-streaming mode
 that the runtime does not report as effective stops the run before the first
 case. Receipts stay in `tests/.artifacts/host-common-quality/`.
-With `--restart-failed-engine`, after a case whose HTTP exchange did not
-complete (a frozen deadline, a dropped connection) the runner stops its host
-and the engine, checks that the engine is gone and that weights and host
-binary are unchanged, starts both again in the same memory mode and goes on
-with the next case, at most eight times. The failed case is not retried and
-stays failed; each restart is recorded. Without the option the remaining cases
-stay not run, as in the native runner.
 
 The native path now reads the engine revision from DStudio's
 `.dstudio-source.json` receipt. A managed engine is installed from bundled

@@ -4,9 +4,8 @@
 <title>Authored room-wizard oracle fixture</title>
 <style>
 *{box-sizing:border-box}body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
-button,input[type=text],input[type=number],select{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
-input[type=text],input[type=number],select{display:block;width:12em}button:disabled{opacity:.55}
-[aria-pressed=true]{border-width:3px;font-weight:700}
+button,input[type=text]{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+input[type=text]{display:block;width:8em}button:disabled{opacity:.55}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}
 section{max-width:34rem;border:1px solid #8c96a2;padding:12px}
 ol{display:flex;flex-wrap:wrap;gap:4px 36px;margin:0;padding-left:24px}[aria-current]{font-weight:700;text-decoration:underline}
@@ -20,105 +19,67 @@ dt{font-weight:700}dd{margin:0 0 8px}
 <section aria-labelledby="step-title">
 <ol id="steps" aria-label="Steps"><li>Room</li><li>Time</li><li>Review</li></ol>
 <h2 id="step-title" tabindex="-1"></h2>
-<div id="room-step">
-<fieldset data-style="radios"><legend>Choose a room</legend>
-<label class="choice"><input type="radio" name="room" value="Cedar" onchange="pick('room',this.value)"><span>Cedar (4 people)</span></label>
-<label class="choice"><input type="radio" name="room" value="Birch" onchange="pick('room',this.value)"><span>Birch (8 people)</span></label></fieldset>
-<p data-style="selects"><label for="room-list">Room</label><select id="room-list" onchange="pick('room',this.value)">
-<option value="">Choose a room</option><option value="Cedar">Cedar (4 people)</option><option value="Birch">Birch (8 people)</option></select></p>
-<p data-style="buttons" role="group" aria-label="Room"><button data-pick="room" value="Cedar" onclick="pick('room',this.value)">Cedar (4 people)</button>
-<button data-pick="room" value="Birch" onclick="pick('room',this.value)">Birch (8 people)</button></p>
-<p id="room-note" hidden></p>
-</div>
+<fieldset id="room-step"><legend>Choose a room</legend>
+<label class="choice"><input type="radio" name="room" value="Cedar" onchange="pick(this)"><span>Cedar (4 people)</span></label>
+<label class="choice"><input type="radio" name="room" value="Birch" onchange="pick(this)"><span>Birch (8 people)</span></label></fieldset>
 <div id="time-step">
-<fieldset data-style="radios"><legend>Start time</legend>
-<label class="choice"><input type="radio" name="time" value="09:00" onchange="pick('time',this.value)"><span>09:00</span></label>
-<label class="choice"><input type="radio" name="time" value="14:00" onchange="pick('time',this.value)"><span>14:00</span></label></fieldset>
-<p data-style="selects"><label for="time-list">Time</label><select id="time-list" onchange="pick('time',this.value)"><option>09:00</option><option>14:00</option></select></p>
-<p data-style="buttons" role="group" aria-label="Time"><button data-pick="time" value="09:00" onclick="pick('time',this.value)">09:00</button>
-<button data-pick="time" value="14:00" onclick="pick('time',this.value)">14:00</button></p>
-<p id="time-note" hidden></p>
+<fieldset><legend>Start time</legend>
+<label class="choice"><input type="radio" name="time" value="09:00" onchange="pick(this)"><span>09:00</span></label>
+<label class="choice"><input type="radio" name="time" value="14:00" onchange="pick(this)"><span>14:00</span></label></fieldset>
 <p><label for="count">Participants</label><input type="text" inputmode="numeric" id="count" aria-describedby="count-help count-error" oninput="typed()"></p>
 <p id="count-help"></p><p id="count-error" role="alert" hidden></p></div>
 <dl id="review-step"></dl>
 <p id="done-step">No room was booked. This was a local demo with sample data.</p>
 <p><button id="back" onclick="go(-1)">Back</button> <button id="next" onclick="go(1)">Continue</button>
-<button id="confirm" onclick="confirmed()">Confirm</button> <button id="restart" onclick="restart()">Start over</button></p>
+<button id="confirm" onclick="go(1)">Confirm</button> <button id="restart" onclick="restart()">Start over</button></p>
 </section>
 <script>
-// window.fault switches on one deliberate defect; window.variant one other
-// correct rendering (see forma-room-reservation.json). Call render() after either.
-window.fault='';window.variant='';
+window.fault='';
 const rooms={Cedar:4,Birch:8},titles=['Room','Time','Review','Demo complete'];
-let state={step:0,room:'',time:'',count:''},capacity=0,frozen='';
+let state={step:0,room:'',time:'',count:''},capacity=0;
 const el=id=>document.getElementById(id);
-const is=(...names)=>names.includes(window.fault)||names.includes(window.variant);
 function countValid(){
-  if(state.count===''&&is('count-not-required'))return true;
   const count=Number(state.count);
-  return (is('fraction-accepted')?state.count.trim()!=='':/^\d+$/.test(state.count))&&count>=1&&count<=capacity;
+  return (window.fault==='fraction-accepted'?state.count.trim()!=='':/^\d+$/.test(state.count))&&count>=1&&count<=capacity;
 }
 function render(){
-  // Plain buttons expose no state: the choice is written out in a sentence below them.
-  const plain=is('plain-button-choices','plain-buttons-back-clears-room');
-  const step=state.step,style=is('select-controls')?'selects':plain||is('pressed-button-choices')?'buttons':'radios';
-  // A select always shows a time: its first option is the choice until another is made.
-  if(style==='selects'&&!state.time)state.time='09:00';
+  const step=state.step;
   document.querySelectorAll('#steps li').forEach((item,i)=>i===step?item.setAttribute('aria-current','step'):item.removeAttribute('aria-current'));
   el('step-title').textContent=titles[step];
-  ['room-step','time-step','review-step'].forEach((id,i)=>el(id).hidden=i!==step);
-  for(const group of document.querySelectorAll('[data-style]'))group.hidden=group.dataset.style!==style;
+  ['room-step','time-step','review-step','done-step'].forEach((id,i)=>el(id).hidden=i!==step);
   for(const input of document.querySelectorAll('input[type=radio]'))input.checked=input.value===state[input.name];
-  el('room-list').value=state.room;el('time-list').value=state.time;
-  for(const button of document.querySelectorAll('[data-pick]')){
-    if(plain)button.removeAttribute('aria-pressed');else button.setAttribute('aria-pressed',String(button.value===state[button.dataset.pick]));
-  }
-  for(const key of ['room','time']){el(key+'-note').hidden=!plain;el(key+'-note').textContent=state[key]?`Selected ${key}: ${state[key]}`:`No ${key} selected yet.`;}
-  el('count').type=style==='selects'?'number':'text';
   if(el('count').value!==state.count)el('count').value=state.count;
   const bad=state.count!==''&&!countValid();
   el('count-help').textContent=`Whole number from 1 to ${capacity} for ${state.room}.`;
   el('count').setAttribute('aria-invalid',String(bad));el('count-error').hidden=!bad;
   el('count-error').textContent=bad?`${state.count} is not a whole number from 1 to ${capacity}.`:'';
-  el('next').hidden=step>1;el('next').disabled=step===0?!state.room:!((state.time||is('time-not-required'))&&countValid());
-  // One fault leaves Confirm dead and shows the completion sentence and Start over on Review.
-  const done=step===3||is('confirm-does-nothing')&&step===2;
-  el('back').hidden=step===0||step===3;el('confirm').hidden=step!==2;el('done-step').hidden=el('restart').hidden=!done;
-  if(step===2&&!(is('review-not-refreshed')&&el('review-step').children.length)){
-    const count=is('review-count-before-room-change')&&frozen?frozen:state.count;
-    el('review-step').replaceChildren(...[['dt','Room'],['dd',`${state.room} (${rooms[state.room]} people)`],['dt','Time'],['dd',state.time],['dt','Participants'],['dd',count]]
+  el('next').hidden=step>1;el('next').disabled=step===0?!state.room:!(state.time&&countValid());
+  el('back').hidden=step===0||step===3;el('confirm').hidden=step!==2;el('restart').hidden=step!==3;
+  if(step===2&&!(window.fault==='review-not-refreshed'&&el('review-step').children.length)){
+    el('review-step').replaceChildren(...[['dt','Room'],['dd',state.room],['dt','Time'],['dd',state.time],['dt','Participants'],['dd',state.count]]
       .map(([tag,value])=>Object.assign(document.createElement(tag),{textContent:value})));
   }
 }
-function pick(key,value){
-  state[key]=value;
-  if(key==='room'){
-    if(is('review-count-before-room-change')&&state.count)frozen=state.count;
-    if(!(is('stale-capacity')&&capacity))capacity=rooms[state.room]||0;
-    if(is('count-clamped-on-room-change')&&Number(state.count)>capacity)state.count=String(capacity);
+function pick(input){
+  state[input.name]=input.value;
+  if(input.name==='room'){
+    if(!(window.fault==='stale-capacity'&&capacity))capacity=rooms[state.room];
+    if(window.fault==='count-clamped-on-room-change'&&Number(state.count)>capacity)state.count=String(capacity);
   }
   render();
 }
 function typed(){state.count=el('count').value;render();}
 function go(change){
   if(change<0&&state.step===1){
-    if(is('back-clears-count'))state.count='';
-    if(is('back-loses-time'))state.time='';
-    if(is('back-clears-room','plain-buttons-back-clears-room'))state.room='';
-  }
-  if(change<0&&state.step===2){
-    if(is('review-back-loses-time'))state.time='';
-    if(is('review-back-clears-count'))state.count='';
+    if(window.fault==='back-clears-count')state.count='';
+    if(window.fault==='back-loses-time')state.time='';
   }
   state.step+=change;render();el('step-title').focus();
 }
-function confirmed(){if(!is('confirm-does-nothing'))go(1);}
 function restart(){
-  const blank={step:0,room:'',time:'',count:''};
-  state=is('start-over-keeps-choices')?{...state,step:0}:is('start-over-keeps-time')?{...blank,time:state.time}
-    :is('start-over-keeps-count')?{...blank,count:state.count}:blank;
+  state=window.fault==='start-over-keeps-choices'?{...state,step:0}:{step:0,room:'',time:'',count:''};
   if(!state.room)capacity=0;
-  frozen='';render();el('step-title').focus();
+  render();el('step-title').focus();
 }
 render();
 </script></html>

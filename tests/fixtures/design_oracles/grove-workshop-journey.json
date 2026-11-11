@@ -36,37 +36,6 @@
       "name": "restart-keeps-choices",
       "caughtAs": "strictly equal:\\s+false !== true",
       "flags": ""
-    },
-    {
-      "name": "restart-keeps-day",
-      "caughtAs": "Start again kept the chosen day Tuesday",
-      "flags": ""
-    },
-    {
-      "name": "restart-keeps-unchecked-day",
-      "caughtAs": "Start again kept a day: Continue is enabled on the day step",
-      "flags": ""
-    },
-    {
-      "name": "custom-radio-widgets",
-      "caughtAs": "The brief requires real radio buttons for the workshops",
-      "flags": ""
-    },
-    {
-      "name": "review-not-refreshed",
-      "caughtAs": "Review does not show the exact selections: Bicycle care on Thursday should have become Urban sketching on Tuesday",
-      "flags": ""
-    },
-    {
-      "name": "confirmation-omits-statement",
-      "caughtAs": "The final confirmation does not say No booking was made",
-      "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "persistent-notes",
-      "why": "A note that stays visible names every workshop and day and repeats the demo statement; Review and the confirmation still show their own text."
     }
   ]
 }

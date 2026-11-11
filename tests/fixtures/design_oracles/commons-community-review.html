@@ -7,7 +7,7 @@
 body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff;max-width:44rem}
 button,textarea{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}
-button[aria-pressed=true],button[aria-selected=true]{border-width:3px;font-weight:700}
+button[aria-pressed=true]{border-width:3px;font-weight:700}
 nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap}nav p{margin:0}
 textarea{display:block;width:100%}ul{padding:0;list-style:none}li{margin:10px 0;overflow-wrap:anywhere}li span{display:block}
 section{margin:20px 0}#report{border:1px solid #8c96a2;padding:12px}#report button{margin:8px 8px 0 0}
@@ -16,8 +16,7 @@ dialog{width:min(32rem,90vw);color:inherit;background:inherit;overflow-wrap:anyw
 </style>
 <h1>COMMON GROUND</h1><p>Community review desk</p>
 <p>Local demo with Sample data. No real member or post is affected, and every resolution here can be undone.</p>
-<nav id="status" aria-label="Report status">
-  <button id="show-all" onclick="setFilter('All')" hidden>All</button>
+<nav aria-label="Report status">
   <button id="show-pending" onclick="setFilter('Pending')">Pending</button><p id="pending-count"></p>
   <button id="show-resolved" onclick="setFilter('Resolved')">Resolved</button><p id="resolved-count"></p>
 </nav>
@@ -25,102 +24,67 @@ dialog{width:min(32rem,90vw);color:inherit;background:inherit;overflow-wrap:anyw
 <section id="report" aria-labelledby="report-title" hidden>
   <h2 id="report-title"></h2><p id="report-state"></p>
   <h3>Original sample message</h3><p id="report-message"></p>
-  <div id="reason-form"><label id="reason-label" for="reason">Reason</label><textarea id="reason" rows="3" required oninput="updateDraft()"></textarea>
+  <div id="reason-form"><label for="reason">Reason</label><textarea id="reason" rows="3" required oninput="updateDraft()"></textarea>
     <button id="resolve-button" onclick="resolveReport()">Resolve</button></div>
   <p id="recorded" hidden></p>
   <button id="undo-button" onclick="undoResolution()" hidden>Undo resolution</button>
-  <button id="details-button" onclick="showDetails(this,selected)">Details</button>
+  <button onclick="showDetails(this)">Details</button>
 </section>
 <dialog aria-labelledby="details-title"><h2 id="details-title"></h2>
-  <h3>Original sample message</h3><p id="details-message"></p><h3 id="details-reason-title">Last reason</h3><p id="details-reason"></p>
+  <h3>Original sample message</h3><p id="details-message"></p><h3>Last reason</h3><p id="details-reason"></p>
   <button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';window.variant='';
+window.fault='';
 const reports=[['Missing event details','The picnic post gives no time or meeting place.'],
   ['Duplicate introduction','This welcome note was posted twice in one thread.'],
   ['Broken resource link','The reading-list link opens an empty page.']]
   .map(([title,message])=>({title,message,state:'Pending',draft:'',reason:''}));
-let selected=null,filter='Pending',lastReason='',started=false;
-const counted={Pending:reports.length,Resolved:0};
+let selected=null,filter='Pending';
 const el=id=>document.getElementById(id);
-// A fault named after an alternative rendering is that rendering with one
-// defect of the reference page, so that the more tolerant oracle path that
-// accepts the rendering is shown to refuse the defect as well.
-const implied={'button-counts-stale':'stale-counts','tabs-undo-does-nothing':'undo-does-nothing','row-details-shared-reason':'shared-reason','alternate-names-markup-reason':'markup-reason','labelled-reason-markup':'markup-reason'};
-const fault=name=>window.fault===name||implied[window.fault]===name;
-const shape=(variant,...faults)=>window.variant===variant||faults.includes(window.fault);
-const draftOwner=index=>reports[fault('shared-reason-draft')?0:index];
-// The reason a report shows. The two faults keep one reason for every report.
-const reasonOf=report=>fault('shared-reason')?lastReason
-  :fault('later-reason-replaces-earlier')?(report.state==='Resolved'?lastReason:''):report.reason;
-const recount=()=>{counted.Pending=reports.filter(report=>report.state==='Pending').length;counted.Resolved=reports.length-counted.Pending;};
+const draftOwner=index=>reports[window.fault==='shared-reason-draft'?0:index];
 const rows=reports.map((report,index)=>{
-  const row=document.createElement('li'),button=document.createElement('button'),state=document.createElement('span'),more=document.createElement('button');
-  const title=document.createElement('span');
-  title.textContent=report.title;button.onclick=()=>openReport(index);
-  more.textContent='Details';more.onclick=()=>showDetails(more,index);row.append(title,button,state,more);el('reports').append(row);
-  return {row,title,button,state,more};
+  const row=document.createElement('li'),button=document.createElement('button'),state=document.createElement('span');
+  button.textContent=report.title;button.onclick=()=>openReport(index);row.append(button,state);el('reports').append(row);
+  return {row,state};
 });
 function render(){
-  const tabs=shape('filter-tabs-with-counts','tabs-undo-does-nothing'),inControls=tabs||shape('counts-in-filter-buttons','button-counts-stale');
-  const inRows=shape('details-in-rows','row-details-shared-reason'),otherNames=shape('alternate-control-names','alternate-names-markup-reason');
-  const withAll=shape('starts-on-all-reports'),openButtons=shape('rows-with-open-button');
-  // In that variant the open report is a group that repeats its title, like a row.
-  if(openButtons)el('report').setAttribute('role','group');else el('report').removeAttribute('role');
-  if(withAll&&!started){started=true;filter='All';}
-  el('show-all').hidden=!withAll;el('show-all').setAttribute('aria-pressed',String(filter==='All'));
-  el('reason-label').textContent=otherNames?'Reason for resolving (required)':'Reason';el('details-button').textContent=otherNames?'View details':'Details';
-  if(tabs)el('status').setAttribute('role','tablist');else el('status').removeAttribute('role');
-  for(const name of ['Pending','Resolved']){
-    const control=el('show-'+name.toLowerCase()),summary=el(name.toLowerCase()+'-count');
-    control.textContent=inControls?`${name} (${counted[name]})`:name;summary.hidden=inControls;summary.textContent=`${name}: ${counted[name]}`;
-    for(const [attribute,used] of [['role',tabs],['aria-selected',tabs],['aria-pressed',!tabs]])
-      if(used)control.setAttribute(attribute,attribute==='role'?'tab':String(filter===name));else control.removeAttribute(attribute);
-  }
+  const pending=reports.filter(report=>report.state==='Pending').length;
+  el('pending-count').textContent='Pending: '+pending;el('resolved-count').textContent='Resolved: '+(reports.length-pending);
+  el('show-pending').setAttribute('aria-pressed',String(filter==='Pending'));el('show-resolved').setAttribute('aria-pressed',String(filter==='Resolved'));
   let any=false;
   reports.forEach((report,index)=>{
-    rows[index].title.hidden=!openButtons;rows[index].button.textContent=openButtons?'Open':report.title;
-    const show=filter==='All'||report.state===filter;rows[index].row.hidden=!show;rows[index].state.textContent=report.state;rows[index].more.hidden=!inRows;any=any||show;
+    const show=report.state===filter;rows[index].row.hidden=!show;rows[index].state.textContent=report.state;any=any||show;
   });
   el('no-reports').hidden=any;el('no-reports').textContent=`No ${filter.toLowerCase()} reports.`;
   el('report').hidden=selected===null;
   if(selected===null)return;
   const report=reports[selected],resolved=report.state==='Resolved';
-  el('details-button').hidden=inRows||shape('details-only-when-resolved')&&!resolved;
   el('report-title').textContent=report.title;el('report-state').textContent='Status: '+report.state;el('report-message').textContent=report.message;
-  el('reason-form').hidden=resolved;el('recorded').hidden=!resolved;
-  if(fault('reason-markup-in-panel'))el('recorded').innerHTML='Recorded reason: '+reasonOf(report);
-  else el('recorded').textContent='Recorded reason: '+reasonOf(report);
+  el('reason-form').hidden=resolved;el('recorded').hidden=!resolved;el('recorded').textContent='Recorded reason: '+report.reason;
   el('undo-button').hidden=!resolved;
-  el('resolve-button').disabled=!fault('resolve-enabled-when-empty')&&draftOwner(selected).draft.trim()==='';
+  el('resolve-button').disabled=window.fault!=='resolve-enabled-when-empty'&&draftOwner(selected).draft.trim()==='';
 }
 function setFilter(value){filter=value;render();}
 function openReport(index){selected=index;el('reason').value=draftOwner(index).draft;render();}
 function updateDraft(){draftOwner(selected).draft=el('reason').value;render();}
 function resolveReport(){
   const text=draftOwner(selected).draft;
-  if(text.trim()===''&&!fault('resolve-enabled-when-empty'))return;
-  const report=reports[fault('resolve-wrong-report')?(selected+1)%reports.length:selected];
-  report.reason=lastReason=text;if(!fault('resolve-keeps-pending'))report.state='Resolved';
-  if(!fault('stale-counts'))recount();
+  if(text.trim()===''&&window.fault!=='resolve-enabled-when-empty')return;
+  const report=reports[window.fault==='resolve-wrong-report'?(selected+1)%reports.length:selected];
+  report.reason=text;if(window.fault!=='resolve-keeps-pending')report.state='Resolved';
   render();
 }
 function undoResolution(){
-  if(fault('undo-does-nothing'))return;
-  if(fault('undo-toggles-all'))reports.forEach(report=>report.state=report.state==='Resolved'?'Pending':'Resolved');
-  else if(fault('undo-restores-all'))reports.forEach(report=>report.state='Pending');
+  if(window.fault==='undo-toggles-all')reports.forEach(report=>report.state=report.state==='Resolved'?'Pending':'Resolved');
   else reports[selected].state='Pending';
-  if(!fault('stale-counts')&&!fault('counts-stale-after-undo'))recount();
   render();
 }
-function showDetails(button,index){
-  button.focus();const report=reports[index],reason=reasonOf(report);
+function showDetails(button){
+  button.focus();const report=reports[selected];
   el('details-title').textContent=report.title;el('details-message').textContent=report.message;
-  const labelled=shape('reason-with-label','labelled-reason-markup'),line=labelled?'Last reason: '+reason:reason;
-  el('details-reason-title').hidden=labelled;
-  if(!reason)el('details-reason').textContent=labelled?'Last reason: none recorded yet.':'No reason recorded yet.';
-  else if(fault('markup-reason'))el('details-reason').innerHTML=line;
-  else el('details-reason').textContent=line;
+  if(!report.reason)el('details-reason').textContent='No reason recorded yet.';
+  else if(window.fault==='markup-reason')el('details-reason').innerHTML=report.reason;
+  else el('details-reason').textContent=report.reason;
   document.querySelector('dialog').showModal();
 }
 render();

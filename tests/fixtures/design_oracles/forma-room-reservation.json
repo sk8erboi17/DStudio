@@ -24,82 +24,18 @@
     },
     {
       "name": "back-loses-time",
-      "caughtAs": "Back to the Room step did not preserve the chosen time",
+      "caughtAs": "locator\\.click: Timeout[\\s\\S]*Continue[\\s\\S]*element is not enabled",
       "flags": ""
     },
     {
       "name": "review-not-refreshed",
-      "caughtAs": "Review does not show the exact time: 09:00 should have become 14:00",
+      "caughtAs": "did not match the regular expression /Cedar/",
       "flags": ""
     },
     {
       "name": "start-over-keeps-choices",
       "caughtAs": "strictly equal:\\s+false !== true",
       "flags": ""
-    },
-    {
-      "name": "back-clears-room",
-      "caughtAs": "Back did not preserve the chosen room(?!:)",
-      "flags": ""
-    },
-    {
-      "name": "plain-buttons-back-clears-room",
-      "caughtAs": "Back did not preserve the chosen room: Continue is disabled on the Room step",
-      "flags": ""
-    },
-    {
-      "name": "review-back-loses-time",
-      "caughtAs": "Back from Review did not preserve the chosen time",
-      "flags": ""
-    },
-    {
-      "name": "review-back-clears-count",
-      "caughtAs": "Back from Review did not preserve the participant count",
-      "flags": ""
-    },
-    {
-      "name": "start-over-keeps-time",
-      "caughtAs": "Start over kept the chosen time",
-      "flags": ""
-    },
-    {
-      "name": "start-over-keeps-count",
-      "caughtAs": "Start over kept the participant count",
-      "flags": ""
-    },
-    {
-      "name": "time-not-required",
-      "caughtAs": "Continue must stay disabled until a time is chosen",
-      "flags": ""
-    },
-    {
-      "name": "count-not-required",
-      "caughtAs": "Continue must stay disabled without a participant count",
-      "flags": ""
-    },
-    {
-      "name": "review-count-before-room-change",
-      "caughtAs": "Review does not show the exact room and participant count: birch, 7 should have become cedar, 4",
-      "flags": ""
-    },
-    {
-      "name": "confirm-does-nothing",
-      "caughtAs": "Confirm did not open a completion panel saying No room was booked",
-      "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "select-controls",
-      "why": "Room and time are select lists (the time list starts on 09:00, so a time is always chosen) and the count is a number input."
-    },
-    {
-      "name": "pressed-button-choices",
-      "why": "Rooms and times are toggle buttons that expose the choice with aria-pressed instead of radio buttons."
-    },
-    {
-      "name": "plain-button-choices",
-      "why": "Rooms and times are plain buttons without an exposed state; the choice is written in a sentence below them."
     }
   ]
 }

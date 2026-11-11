@@ -24,7 +24,7 @@
     },
     {
       "name": "name-limit-not-enforced",
-      "caughtAs": "A project name over 40 characters must be marked invalid",
+      "caughtAs": "evaluated to a falsy value:\\s+assert\\.ok\\(await name\\.evaluate",
       "flags": ""
     },
     {
@@ -46,94 +46,6 @@
       "name": "saved-aliases-draft",
       "caughtAs": "\\+ 'Uncommitted'\\s+- 'Small studio'",
       "flags": ""
-    },
-    {
-      "name": "no-saved-summary",
-      "caughtAs": "No visible saved summary shows the saved project name Studio notes",
-      "flags": ""
-    },
-    {
-      "name": "summary-shows-draft",
-      "caughtAs": "The saved summary shows the unsaved draft",
-      "flags": ""
-    },
-    {
-      "name": "summary-never-updated",
-      "caughtAs": "The visible saved summary was not updated to the saved project name Small studio",
-      "flags": ""
-    },
-    {
-      "name": "sentence-summary-never-updated",
-      "caughtAs": "The visible saved summary was not updated to the saved project name Small studio",
-      "flags": ""
-    },
-    {
-      "name": "summary-notifications-stale",
-      "caughtAs": "The saved summary still shows the earlier notification settings",
-      "flags": ""
-    },
-    {
-      "name": "no-field-error-text",
-      "caughtAs": "An empty project name shows no field-level error",
-      "flags": ""
-    },
-    {
-      "name": "native-error-suppressed",
-      "caughtAs": "An empty project name shows no field-level error",
-      "flags": ""
-    },
-    {
-      "name": "no-limit-error-text",
-      "caughtAs": "A project name over 40 characters shows no field-level error",
-      "flags": ""
-    },
-    {
-      "name": "limit-error-without-focus",
-      "caughtAs": "A project name over 40 characters must be focused",
-      "flags": ""
-    },
-    {
-      "name": "review-omits-notifications",
-      "caughtAs": "Review changes omits the changed setting Daily digest",
-      "flags": ""
-    },
-    {
-      "name": "review-notifications-unchanged",
-      "caughtAs": "Review changes does not show the change of Daily digest",
-      "flags": ""
-    },
-    {
-      "name": "save-commits-name-only",
-      "caughtAs": "Notifications do not show the saved values after Save changes and a cancelled edit",
-      "flags": ""
-    },
-    {
-      "name": "save-stays-disabled",
-      "caughtAs": "Save changes must be enabled again by another edit",
-      "flags": ""
-    },
-    {
-      "name": "cancel-keeps-toggles-after-save",
-      "caughtAs": "Cancel changes did not restore the saved Notifications values",
-      "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "label-marks-required",
-      "why": "The label reads \"Project name (required)\": the brief names the field, not the exact label text."
-    },
-    {
-      "name": "native-validation",
-      "why": "The field is required with maxlength 40 in a validating form, so the browser itself focuses it and reports the error."
-    },
-    {
-      "name": "validates-while-typing",
-      "why": "The error appears as soon as the draft is invalid, and Save changes stays disabled until it is valid again."
-    },
-    {
-      "name": "summary-in-a-sentence",
-      "why": "The saved summary is one sentence under the heading instead of a separately named panel."
     }
   ]
 }

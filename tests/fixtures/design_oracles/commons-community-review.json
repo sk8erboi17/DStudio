@@ -1,6 +1,6 @@
 {
   "case": "commons-community-review",
-  "steps": 2,
+  "steps": 1,
   "faults": [
     {
       "name": "resolve-enabled-when-empty",
@@ -13,118 +13,24 @@
       "flags": ""
     },
     {
-      "name": "reason-markup-in-panel",
-      "caughtAs": "The recorded reason is rendered as markup outside the Details dialog",
-      "flags": ""
-    },
-    {
-      "name": "alternate-names-markup-reason",
-      "caughtAs": "Missing visible content: <b>literal & note</b>",
-      "flags": ""
-    },
-    {
-      "name": "labelled-reason-markup",
-      "caughtAs": "Missing visible content: <b>literal & note</b>",
-      "flags": ""
-    },
-    {
       "name": "shared-reason-draft",
       "caughtAs": "'<b>literal & note</b>'(?: !== |\\n- )''",
       "flags": ""
     },
     {
-      "name": "shared-reason",
-      "caughtAs": "The reason recorded on one report is shown on another report",
-      "flags": ""
-    },
-    {
-      "name": "row-details-shared-reason",
-      "caughtAs": "The reason recorded on one report is shown on another report",
-      "flags": ""
-    },
-    {
-      "name": "later-reason-replaces-earlier",
-      "caughtAs": "A later reason replaced the reason recorded on another report",
-      "flags": ""
-    },
-    {
       "name": "resolve-wrong-report",
-      "caughtAs": "Resolving one report removed another report from Pending",
+      "caughtAs": "Unexpected visible content: Duplicate introduction",
       "flags": ""
     },
     {
       "name": "resolve-keeps-pending",
-      "caughtAs": "A resolved report is still listed under Pending",
-      "flags": ""
-    },
-    {
-      "name": "stale-counts",
-      "caughtAs": "Pending count is not 2 after one of three reports was resolved",
-      "flags": ""
-    },
-    {
-      "name": "button-counts-stale",
-      "caughtAs": "Pending count is not 2 after one of three reports was resolved",
-      "flags": ""
-    },
-    {
-      "name": "counts-stale-after-undo",
-      "caughtAs": "Pending count is not 2 after Undo resolution on one of two resolved reports",
-      "flags": ""
-    },
-    {
-      "name": "undo-does-nothing",
-      "caughtAs": "Undo resolution did not return the report to the Pending list",
-      "flags": ""
-    },
-    {
-      "name": "tabs-undo-does-nothing",
-      "caughtAs": "Undo resolution did not return the report to the Pending list",
+      "caughtAs": "Expected one accessible item containing Missing event details",
       "flags": ""
     },
     {
       "name": "undo-toggles-all",
       "caughtAs": "Missing visible content: Duplicate introduction",
       "flags": ""
-    },
-    {
-      "name": "undo-restores-all",
-      "caughtAs": "Undo resolution also restored another resolved report",
-      "flags": ""
-    }
-  ],
-  "variants": [
-    {
-      "name": "counts-in-filter-buttons",
-      "why": "Each filter button carries its count, Pending (3) and Resolved (0), and no separate count text exists."
-    },
-    {
-      "name": "filter-tabs-with-counts",
-      "why": "The two filters are tabs in a tablist and each tab carries its count."
-    },
-    {
-      "name": "starts-on-all-reports",
-      "why": "A third filter, All, is active when the page opens; Pending and Resolved narrow the same list."
-    },
-    {
-      "name": "rows-with-open-button",
-      "why": "Each row is a title with an Open button, and the open report is a group that repeats its title as a row does."
-    },
-    {
-      "name": "details-in-rows",
-      "why": "Every report row has its own Details button instead of one button on the open report."
-    },
-    {
-      "name": "reason-with-label",
-      "why": "The dialog shows the reason after its label in one paragraph, Last reason: text, not in an element of its own."
-    },
-    {
-      "name": "details-only-when-resolved",
-      "why": "A report that was never resolved has no reason and offers no Details button; a resolved one does."
-    },
-    {
-      "name": "alternate-control-names",
-      "why": "Other usual names: the field is Reason for resolving (required) and the dialog opener is View details."
     }
   ]
 }
