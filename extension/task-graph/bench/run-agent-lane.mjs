@@ -27,11 +27,8 @@ import {
 } from './agent-lane.mjs';
 import { selectCaseSet } from './case-sets.mjs';
 import { inspectUpstreamAgent } from './build-upstream-agent.mjs';
-import { executeLane, runCliAttempt, runUpstreamAttempt } from './lane-drivers.mjs';
-import {
-  cleanEnvironment, CODEX_PREFLIGHT_ARGS, codexPreflight, competitorCommand, rounded, runCli, startModelPinProxy,
-  writeCompetitorConfigs,
-} from './cli-competitor-harness.mjs';
+import { executeLane, prepareCliLane, runCliLaneAttempt, runUpstreamAttempt } from './lane-drivers.mjs';
+import { cleanEnvironment, rounded, startModelPinProxy } from './cli-competitor-harness.mjs';
 import { changeAllowed, changedFiles, workspaceSnapshot } from './reliability-fixture.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -44,7 +41,8 @@ export function parseLaneArguments(argv, env = process.env) {
     const arg = argv[index];
     if (flags.has(arg)) options[arg.slice(2)] = true;
     else if (values.has(arg)) {
-      if (index + 1 >= argv.length) throw new Error(`${arg} needs a value`);
+      // `--seed --output DIR` must not make "--output" the seed and DIR the host binary.
+      if (index + 1 >= argv.length || argv[index + 1].startsWith('--')) throw new Error(`${arg} needs a value`);
       options[arg.slice(2)] = argv[++index];
     } else if (arg.startsWith('--')) throw new Error(`unknown option ${arg}`);
     else options.positional.push(arg);
@@ -198,28 +196,9 @@ async function runLane(options) {
     if (mode !== 'server') await start('server', runDir);
     if (!proxy) proxy = await startModelPinProxy(host.enginePort, { responsesMaxOutputTokens: Math.min(settings.maxOutputTokens, Math.floor(settings.contextTokens / 2)) });
     if (cli) return;
-    const environments = writeCompetitorConfigs({
-      configRoot: path.join(runDir, 'isolated-cli-config'), workspace: runDir, baseUrl: proxy.baseUrl,
-      contextTokens: settings.contextTokens, maxOutputTokens: settings.maxOutputTokens,
-    });
-    const checks = {
-      pi: async () => { const run = await runCli('pi', ['--list-models', 'dstudio', '--offline'], { cwd: runDir, env: environments.pi.env, timeoutMs: 300_000 }); return run.code === 0 && /\bdstudio\b[\s\S]*\bds4\b/i.test(run.stdout); },
-      opencode: async () => { const run = await runCli('opencode', ['models', 'dstudio', '--pure'], { cwd: runDir, env: environments.opencode.env, timeoutMs: 300_000 }); return run.code === 0 && /dstudio\/ds4/i.test(run.stdout); },
-      codex: async () => {
-        proxy.begin('codex-preflight');
-        let run;
-        let probe = [];
-        try { run = await runCli('codex', [...CODEX_PREFLIGHT_ARGS], { cwd: runDir, env: environments.codex.env, timeoutMs: 300_000 }); } finally { probe = proxy.end('codex-preflight'); }
-        return run.code === 0 && codexPreflight(run.stdout).ok && probe.some((request) => request.method === 'GET' && request.path === '/v1/models') && !probe.some((request) => request.blocked);
-      },
-    };
-    const preflights = {};
-    for (const name of ['pi', 'opencode', 'codex'].filter((item) => plan.agents.includes(item))) {
-      versions[name] = commandOutput(name, ['--version'], runDir, environments[name].env) || 'unknown';
-      preflights[name] = await checks[name]();
-    }
-    cli = { environments, preflights };
-    writeArtifact(runDir, 'cli-preflight.json', { versions, preflights });
+    cli = await prepareCliLane({ agents: plan.agents, runDir, proxy, settings });
+    Object.assign(versions, cli.versions);
+    writeArtifact(runDir, 'cli-preflight.json', { versions: cli.versions, preflights: cli.preflights });
   }
 
   async function graphTurn(prompt, workspace) {
@@ -265,12 +244,7 @@ async function runLane(options) {
     const agent = LANE_AGENTS.find((item) => item.id === row.agent);
     if (agent.runtime === 'ds4-server') {
       await ensureServer();
-      if (!cli.preflights[row.agent]) throw new Error(`${row.agent} did not resolve the pinned DStudio model in its preflight`);
-      const commandFor = (prompt) => {
-        const command = competitorCommand({ harness: row.agent, prompt, workspace, title: `benchmark-${row.attemptId}`, environments: cli.environments });
-        return { ...command, env: { ...command.env, PWD: workspace } };
-      };
-      return await runCliAttempt({ proxy, harness: row.agent, row, task, workspace, commandFor, timeoutMs: turnTimeoutMs });
+      return await runCliLaneAttempt({ cli, proxy, row, task, workspace, timeoutMs: turnTimeoutMs });
     }
     if (agent.runtime === 'upstream-agent') {
       await ensureHost();

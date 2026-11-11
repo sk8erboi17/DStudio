@@ -70,8 +70,9 @@ follow the `responses_sse_*` emitters of the pinned
 `src/engines/ds4/ds4_server.c`, and it refuses the requests that engine
 refuses (a stored-response reference, or a tool result whose call is not
 replayed). It needs the Codex CLI and Node, plus `python3` and `curl` for two
-of its cases. It is part of `check-fast` and exits non-zero with `NOT RUN` when
-the CLI is missing.
+of its cases. It is explicit, not part of `check-fast` (the broad gate does not
+depend on a third-party CLI that updates on its own), and exits non-zero with
+`NOT RUN` when the CLI is missing.
 
 It proves, by file contents, exit status, the CLI's JSON events and the exact
 requests the server received:
@@ -135,12 +136,12 @@ It does **not** prove:
 
 ## Case sets: held-out and recovery
 
-Status on November 11, 2026: the cases, their oracles and their selection
+Status on November 12, 2026: the cases, their oracles and their selection
 exist and are tested without any agent (`make test-agent-lane-cases`, 203
-checks). **No agent has run a held-out or recovery case**, so there is no result
-to quote. The six-agent runner `run-agent-lane.mjs` and its `--plan` mode exist
-but are not yet tested, and the publication scripts below still read the two
-published Pi/OpenCode and Native/checked results only.
+checks). **No agent has run a held-out case, and no real model has run any
+lane case**, so there is no result to quote. The six-agent runner, its
+`--plan` mode and its publication are tested without a model; see
+[the six-agent lane](#six-agent-lane-run-agent-lanemjs).
 
 | Set | Cases | Selected by |
 | --- | --- | --- |
@@ -165,6 +166,136 @@ later results into development replays.
 The reference and wrong results that prove the oracles are in
 `case-references.mjs`, which no runner imports and no agent is shown.
 
+## Six-agent lane (`run-agent-lane.mjs`)
+
+The six agents of PLAN.MD P9 are the clean upstream `ds4-agent`, the DStudio
+Agent (direct), the same Agent through Task Graph, Pi, OpenCode and Codex. A
+lane (`equivalent` or `product`) gives every agent every case of a set, in a
+workspace of its own, in a seeded counterbalanced order, three times by
+default. Rows an agent cannot run stay in the plan and in every result as
+BLOCKED (missing on this machine, or no proven driver) or NOT_COMPARABLE (the
+agent's interface cannot represent the mechanic or lane), with the reason.
+
+**Status on November 12, 2026.** The runner, its `--plan` mode and its
+publication are tested without a model (below). **No lane has run with a real
+model**: there is no six-agent result to quote. The `product` lane is BLOCKED
+for every agent until its configuration is frozen in `agent-lane.mjs`.
+
+### What is tested without a model
+
+`make test-agent-lane-mechanics` (explicit; needs pi, OpenCode, Codex,
+python3 and git) drives the installed CLIs through the lane runner's own code
+against scripted loopback servers behind the lane's pin proxy: a Chat
+Completions stand-in for Pi and OpenCode and the Responses stand-in of
+`make test-codex-protocol` for Codex, both following the pinned `ds4_server.c`
+emitters. For each CLI: the plan row, a workspace checked against the plan's
+digest, the isolated configuration and preflight (`pi --list-models`,
+`opencode models`, `codex doctor`), the CLI's real tool calls changing the
+workspace, the case's own oracle grading it, and the result row with its
+evidence files. Cases: `dirty-workspace-01` (one prompt), `two-sessions-01`
+(two invocations; the second must not see the first conversation) and, for
+Codex, `stop-resume-01` (SIGINT once `journal.log` holds step 2, then
+`codex exec resume` of the same session). Controls: a scripted wrong solution
+(the uncommitted file "tidied") must be failed by the oracle with a false
+completion claim, and a Stop whose point the turn never reaches must be
+`inconclusive` and must not be resumed. A CLI that is not installed is
+BLOCKED by the runner's probe and the test fails.
+
+November 12, 2026, macOS on Apple Silicon, pi 1.4.0, OpenCode 1.18.18,
+codex-cli 0.167.1: 16/16 checks; the same attempts also passed in three
+earlier runs of the test with 15 checks. The three agents that
+run the model in their own process (upstream `ds4-agent`, DStudio Agent and
+DStudio checked) are BLOCKED in this test: no scripted server can stand in
+for in-process inference, so their drivers have never run.
+
+`make test-agent-lane-plan` (part of `check-fast`) executes `--plan` as a
+program on a stated machine (stand-in engine files, a one-byte stand-in GGUF,
+and pi/OpenCode/Codex shims that only record their calls): `--set all` prints
+and writes 70 cases x 6 agents x 3 repetitions = 1,260 attempts, each
+(repetition, case, agent) once with its frozen workspace digest, every agent
+in each position 35 times and directly after every other agent 35 times; the
+same options give the same bytes; the CLIs are only asked `--version` and no
+workspace or run directory is created; unavailable agents, mechanics and the
+product lane are BLOCKED or NOT_COMPARABLE with their reasons; invalid options
+exit 2 before writing anything.
+
+`make test-agent-lane-publication` (part of `check-fast`; needs Matplotlib)
+publishes and plots SYNTHETIC receipts written by the test, shaped by the
+runner's own plan and result-row functions; every receipt and figure says
+SYNTHETIC, and the figures stay in `tests/.artifacts`.
+
+It does **not** prove anything about a model or an agent, the behaviour of the
+engine, the in-process drivers (upstream `ds4-agent` single, two sessions and
+steering; the DStudio Agent's host driver), Linux or other CLI versions.
+
+### Defects found by these tests and fixed
+
+- OpenCode received every prompt wrapped in double quotes, with the quotes
+  inside it escaped (`opencode run` quotes each message argument that contains
+  a space; `packages/opencode/src/cli/cmd/run.ts`, observed with 1.18.18). The
+  benchmark now passes the prompt as its space-separated pieces after `--`,
+  which the CLI joins back byte for byte; the test asserts the exact bytes the
+  model receives. The September 4 OpenCode publication was produced with the
+  quoted prompt.
+- `--seed --output DIR` took `--output` as the seed and `DIR` as the host
+  binary; an option value that starts with `--` is now refused.
+- The CLI setup of the real runner was inline in it; it is now
+  `prepareCliLane` and `runCliLaneAttempt` in `lane-drivers.mjs`, the code the
+  mechanics test runs, and the preflight keeps each CLI's output.
+
+### Observed
+
+- Codex 0.167.1 replays the command that was running when it was stopped as
+  `aborted by user`, even when that command's effect (here: step 2 written to
+  the journal) is already in the workspace; the stop point is a workspace
+  state, reached before the CLI records the command's end. It is a race: in
+  four of five runs the stopped call was replayed this way, in one with its
+  completed output; the test accepts either and records which. The case's
+  resume instruction asks the agent to read the journal, which shows the
+  truth.
+
+### Clean upstream `ds4-agent`
+
+`node extension/task-graph/bench/build-upstream-agent.mjs` copies the pinned
+sources of `src/engines/ds4` (verified against the manifest, no network) into
+`tests/.artifacts/upstream-agent-clean/<commit>` and runs upstream's own
+`make ds4-agent`; no DStudio patch is applied and no model is opened (only
+`ds4-agent --help` runs). November 12, 2026: ds4 `890898cfb437ed256be58ebcf7c58a6dfa8f2f53`,
+498 source files, no patches, 22 s on darwin arm64 with Apple clang 21.0.0,
+binary sha256 `26fa03305fae5a7ac63f533fedc0244a70492b5dfe7a09cfe98f81e93058a48b`
+(3,126,776 bytes); its help has no `--jsonl` or `--remote-base-url`, the
+DStudio patch's options. `--check` verifies an existing build.
+
+### Running the real lanes
+
+Real model, sequential, many hours; `RUN_HEAVY=1` is set by the target. The
+runner selects the GGUF the other runners select (DeepSeek V4 Flash IQ2XXS
+imatrix unless `DSTUDIO_TASK_GRAPH_GGUF` names another).
+
+```sh
+node extension/task-graph/bench/build-upstream-agent.mjs        # once per checkout
+node extension/task-graph/bench/run-agent-lane.mjs --plan --set all tests/.build/dstudio-server-test
+# First run of the three in-process drivers, on development cases only:
+make test-agent-lane-real AGENT_LANE_ARGS='--set development --repetitions 1 --agents upstream-agent,native-agent,task-graph'
+# The complete equivalent lane (70 cases) and the long/recovery cases:
+make test-agent-lane-real AGENT_LANE_ARGS='--lane equivalent --set all'
+make test-agent-lane-real AGENT_LANE_ARGS='--lane equivalent --set recovery'
+# A stopped lane continues where it was: --resume tests/.artifacts/agent-lane-real/<run>
+node extension/task-graph/bench/publish-cli-comparison.mjs --lanes OUT.json RESULT.json...
+python3 extension/task-graph/bench/plot-cli-comparison.py OUT.json FIGURE_DIR
+```
+
+The complete equivalent lane is 1,260 attempts; in the planned order it needs
+999 model loads (every attempt of the three in-process agents starts its own,
+and the shared server comes back after each). From the September 4 runs
+(mean task 28 to 38 s, Agent-mode start about 31 s) that is very roughly 18
+to 21 hours; an extrapolation, not a measurement (Codex and the upstream agent
+were never timed, and each turn may run up to the runner's 20-minute turn
+limit, `DSTUDIO_LANE_TURN_TIMEOUT_MS`). The recovery set is 216 rows, 150 of
+them planned, with 116 loads (a few hours). The development run of the three
+in-process agents is 150 attempts and 150 loads (about 2.5 hours). The product
+lane is BLOCKED for every row and runs nothing.
+
 ## Open before a Codex comparison
 
 - **Context size.** The first request of a one-line task is about 25.5 KB of
@@ -175,5 +306,11 @@ The reference and wrong results that prove the oracles are in
 - **Equivalence.** Codex uses another endpoint, another system prompt and
   another tool set than Pi and OpenCode. Which settings count as equivalent is
   not decided here.
-- **Publication.** `publish-cli-comparison.mjs` and the plots read Pi and
-  OpenCode only.
+- **Publication.** The September 4 publication (`publish-cli-comparison.mjs`
+  with two inputs, and its plots) reads Pi and OpenCode only. The six-agent
+  lanes are published with `--lanes` (all six agents, both lanes, each cell
+  completed / planned attempts with failed, inconclusive, harness-error and
+  not-run attempts in the denominator; BLOCKED and NOT_COMPARABLE cells drawn
+  as such; time compared only on the cases every measured agent completed,
+  with the number of those cases). Tested on synthetic receipts only; nothing
+  has been published.

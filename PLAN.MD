@@ -29,7 +29,9 @@ evening.** The resume follows this order:
    simulated scenarios, text-only isolation, and replacing the live vision UI
    check.
 6. Agent comparisons (P9): the scripted mechanics test, `--plan`, six-agent
-   publication, then the real lanes.
+   publication and the clean upstream build are done model-free (November 12,
+   see P9); next the real lanes, starting with the first run of the three
+   in-process drivers on development cases.
 7. P12 inputs: the 54 uncovered usage cases (not started). The opt-in,
    bounded copy of the resident server's output is in place; the 27B MLX
    diagnostic rerun that uses it is queued.
@@ -875,24 +877,40 @@ projects across the nine distinct systems. No manual benchmark-output repair.
 Status: TO_DO for the new complete campaign; fifty fixtures and historical
 comparisons already exist.
 
-Progress, November 11, 2026 (model-free; paused by the owner mid-slice). Done
-and verified: twenty held-out cases (ten kinds the fifty lack, two each) and
-twelve long/recovery cases (dirty workspace, a tool failing once, a partial
-patch, steering, Stop/resume, two sessions), each with a workspace-only oracle,
-a reference result used only by its self-test and at least two wrong results it
-rejects (`make test-agent-lane-cases`: 203 checks, 102 wrong results rejected).
+Progress, November 11–12, 2026 (model-free). Done and verified: twenty
+held-out cases (ten kinds the fifty lack, two each) and twelve long/recovery
+cases (dirty workspace, a tool failing once, a partial patch, steering,
+Stop/resume, two sessions), each with a workspace-only oracle, a reference
+result used only by its self-test and at least two wrong results it rejects
+(`make test-agent-lane-cases`: 203 checks, 102 wrong results rejected).
 Held-out and recovery cases are selected only by name and only by
 `run-agent-lane.mjs`; the existing runners still run the fifty only. A
 differential check against the fifty as they were before this work (5
 variants × 50 cases, 875 graded comparisons of a reference and wrong results)
-found no difference; the published charts re-render byte-identical. Written
-but **not yet tested**: the six-agent `run-agent-lane.mjs` (with `--plan`), its
-drivers and the clean upstream ds4-agent build (`build-upstream-agent.mjs`, not
-run). Steering and Stop/resume rows are BLOCKED or not comparable for every
-agent until a scripted test exercises a driver. Still open: items 1–7 below as
-written, a scripted mechanics test, six-agent publication and plots, and every
-real-model attempt (none ran). See
-[the bench README](extension/task-graph/bench/README.md#case-sets-held-out-and-recovery).
+found no difference; the published charts re-render byte-identical.
+November 12: the six-agent runner is tested without a model.
+`make test-agent-lane-mechanics` drives the installed pi 1.4.0, OpenCode
+1.18.18 and codex-cli 0.167.1 through the runner's own drivers against
+scripted model servers (16/16): one prompt and two sessions for each CLI and
+Codex Stop/resume (stopped at its point, resumed in the same session), graded
+by the cases' own oracles, with a wrong solution failed and an unreached stop
+inconclusive. `make test-agent-lane-plan` executes `--plan` (70 × 6 × 3 =
+1,260 attempts for `--set all`, balanced order, nothing run; 11 checks) and
+`make test-agent-lane-publication` publishes and plots all six agents and
+both lanes from synthetic receipts (failure denominators, BLOCKED and
+not-comparable cells, matched-only time; 10 checks; nothing published). The
+clean upstream `ds4-agent` builds from the bundled pin without patches
+(`890898cf`, binary sha256 `26fa0330…`, no model opened). Fixed on the way:
+OpenCode received every prompt wrapped in quotes with its inner quotes
+escaped (the September 4 OpenCode results were produced that way), and a
+value option followed by another option was misparsed. The upstream agent,
+the DStudio Agent and DStudio checked run the model in their own process, so
+no scripted server can drive them: their drivers have never run. Still
+BLOCKED or not comparable, with the reason in every plan and result:
+steering for every agent (no proven driver, or no input channel),
+Stop/resume for all but Codex, and the whole product lane (configuration not
+frozen). Still open: items 1–7 below as written, and every real-model attempt
+(none ran). See [the bench README](extension/task-graph/bench/README.md#six-agent-lane-run-agent-lanemjs).
 
 Compare clean upstream ds4-agent, direct patched DStudio Agent, the same Agent
 with Task Graph/check, Pi, OpenCode and Codex CLI. The historical Native
@@ -906,8 +924,8 @@ baseline uses DStudio patches; it is not clean upstream.
    26 cases against a scripted Responses server
    ([what it proves](extension/task-graph/bench/README.md)). Still open: no
    real-model Codex run exists; whether the CLI's 25 KB base request fits the
-   benchmark context is unmeasured; the publication scripts still read Pi and
-   OpenCode only.
+   benchmark context is unmeasured. The six-agent publication (`--lanes`,
+   Codex included) is tested on synthetic receipts only; nothing is published.
    Inspect the installed CLI/API at implementation time; exercise tool-call →
    file/command effect → tool-result → answer, reasoning/events, partial and
    Unicode frames, IDs, stop, cache/continuation and resume. Verify native

@@ -116,11 +116,15 @@ export const LANES = Object.freeze({
 const yes = (how, proof) => ({ status: 'supported', how, proof });
 const no = (reason) => ({ status: 'not-comparable', reason });
 const blocked = (reason) => ({ status: 'blocked', reason });
-// `proof` says what has exercised the driver. No scripted test of the lane's
-// recovery drivers exists yet; a driver that depends on an interface
-// behaviour nobody has observed is `blocked` until one does.
+// `proof` says what has exercised the driver. A driver that depends on an
+// interface behaviour nobody has observed is `blocked` until one does. The
+// scripted lane test runs the installed CLIs through the lane runner against
+// scripted model servers; the three agents that run the model in their own
+// process cannot be driven by a scripted server, so their drivers wait for a
+// real model run.
 const CODEX_ONE_SHOT = 'this command line and grading run the installed CLI on three fixture tasks in make test-codex-protocol (scripted engine)';
-const NOT_EXERCISED = 'not exercised: no model run and no scripted lane test yet';
+const SCRIPTED_LANE = 'make test-agent-lane-mechanics: the installed CLI through the lane runner against a scripted model server (no model)';
+const NEEDS_WEIGHTS = 'not exercised: the agent runs the model in its own process, so only a real model run can exercise this driver, and none has run';
 const ONE_SHOT = 'one prompt in one non-interactive invocation';
 const FRESH_PAIR = 'two non-interactive invocations that share only the workspace';
 
@@ -129,40 +133,41 @@ const FRESH_PAIR = 'two non-interactive invocations that share only the workspac
 // interface the benchmark drives; `blocked` is missing or unproven runner work.
 export const MECHANIC_SUPPORT = Object.freeze({
   'upstream-agent': {
-    single: yes('ds4-agent --non-interactive -p PROMPT', NOT_EXERCISED),
-    'two-sessions': yes('two ds4-agent processes', NOT_EXERCISED),
-    steering: blocked('a driver exists (ds4-agent --non-interactive reading prompts from stdin, input sent during a turn acknowledged by +DWARFSTAR_QUEUED and appended after the current tool round, as read in the pinned ds4_agent.c), but neither a scripted stand-in nor the real binary has exercised it'),
+    single: yes('ds4-agent --non-interactive -p PROMPT', NEEDS_WEIGHTS),
+    'two-sessions': yes('two ds4-agent processes', NEEDS_WEIGHTS),
+    steering: blocked('a driver exists (ds4-agent --non-interactive reading prompts from stdin, input sent during a turn acknowledged by +DWARFSTAR_QUEUED and appended after the current tool round, as read in the pinned ds4_agent.c), but it has not run: the agent runs the model in its own process, so only the real binary with weights can exercise it'),
     'stop-resume': no('the pinned ds4_agent.c saves and reopens a session only from its interactive loop (/save, /switch); a stopped non-interactive process leaves nothing to resume'),
   },
   'native-agent': {
-    single: yes('POST /api/agent/send with orchestration native', NOT_EXERCISED),
-    'two-sessions': yes('a new Agent session between the two prompts', NOT_EXERCISED),
+    single: yes('POST /api/agent/send with orchestration native', NEEDS_WEIGHTS),
+    'two-sessions': yes('a new Agent session between the two prompts', NEEDS_WEIGHTS),
     steering: blocked('the lane runner has no driver for POST /api/agent/steer (the host and runtime sides are covered by make test-steering and test-steering-runtime)'),
     'stop-resume': blocked('the lane runner has no driver for POST /api/agent/interrupt followed by a prompt in the same session'),
   },
   'task-graph': {
-    single: yes('POST /api/agent/send with orchestration task-graph, then the graph\'s terminal state', NOT_EXERCISED),
-    'two-sessions': yes('one automatic graph per prompt', NOT_EXERCISED),
+    single: yes('POST /api/agent/send with orchestration task-graph, then the graph\'s terminal state', NEEDS_WEIGHTS),
+    'two-sessions': yes('one automatic graph per prompt', NEEDS_WEIGHTS),
     steering: blocked('whether POST /api/agent/steer reaches an Agent turn owned by an automatic graph is not established, and the lane runner has no driver for it'),
     'stop-resume': no('a graph-owned turn can be cancelled and its node retried, which starts a new attempt with the original prompt instead of resuming the stopped session; pause lets the running turn finish'),
   },
   pi: {
-    single: yes(ONE_SHOT, NOT_EXERCISED),
-    'two-sessions': yes(FRESH_PAIR, NOT_EXERCISED),
+    single: yes(ONE_SHOT, SCRIPTED_LANE),
+    'two-sessions': yes(FRESH_PAIR, SCRIPTED_LANE),
     steering: blocked('pi accepts input during a turn only in --mode rpc; the lane runner drives --print and has no rpc driver'),
-    'stop-resume': blocked('resuming a stored session of pi --print (--session-id, --continue) was not exercised against a scripted engine'),
+    'stop-resume': blocked('the lane runner has no Stop/resume driver for pi: continuing a stored pi --print session (--session, --continue) after a stop is neither written nor exercised'),
   },
   opencode: {
-    single: yes(ONE_SHOT, NOT_EXERCISED),
-    'two-sessions': yes(FRESH_PAIR, NOT_EXERCISED),
+    single: yes(ONE_SHOT, SCRIPTED_LANE),
+    'two-sessions': yes(FRESH_PAIR, SCRIPTED_LANE),
     steering: no('opencode run takes its message as arguments before the turn starts and has no input channel during it'),
-    'stop-resume': blocked('resuming a stored session of opencode run (--session) was not exercised against a scripted engine'),
+    'stop-resume': blocked('the lane runner has no Stop/resume driver for OpenCode: continuing a stored opencode run session (--session, --continue) after a stop is neither written nor exercised'),
   },
   codex: {
-    single: yes(ONE_SHOT, CODEX_ONE_SHOT),
-    'two-sessions': yes(FRESH_PAIR, NOT_EXERCISED),
+    single: yes(ONE_SHOT, `${CODEX_ONE_SHOT}; ${SCRIPTED_LANE}`),
+    'two-sessions': yes(FRESH_PAIR, SCRIPTED_LANE),
     steering: no('codex exec reads its prompt before the turn starts and has no input channel during it; turn/steer exists only in the app-server protocol, which the benchmark does not drive'),
-    'stop-resume': blocked('a driver exists (codex exec with a stored session, SIGINT at the stop point, then codex exec resume SESSION), but it has not been exercised against a scripted engine'),
+    'stop-resume': yes('codex exec with a stored session, SIGINT once the stop point holds in the workspace, then codex exec resume SESSION with the resume instruction',
+      `${SCRIPTED_LANE}: stopped at its point, resumed in the same session with the stopped turn replayed, and a turn that ends before the point is inconclusive`),
   },
 });
 
@@ -441,22 +446,35 @@ export function probeLaneAvailability({
     const reasons = engineReason ? [engineReason] : [];
     const requirement = (state) => (state.reason ? reasons.push(state.reason) : evidence.push(state.evidence));
     const runtime = LANE_AGENTS.find((item) => item.id === agent).runtime;
-    if (runtime === 'upstream-agent') {
-      const build = upstream();
-      requirement(build.ok ? { evidence: `clean build ${build.binary} (ds4 ${String(build.receipt.commit).slice(0, 12)}, no patch, sha256 ${String(build.receipt.binarySHA256).slice(0, 12)})` } : { reason: build.reason });
-    } else {
+    if (runtime !== 'upstream-agent') {
       requirement(need(hostBinary, 'DStudio host test binary'));
       if (engine) requirement(need(path.join(engine.dir, runtime === 'dstudio-agent' ? 'ds4-agent-jsonl' : 'ds4-server'), runtime === 'dstudio-agent' ? 'patched Agent runtime' : 'engine server'));
     }
-    if (runtime === 'ds4-server') {
-      const binary = locate(agent);
-      if (!binary) reasons.push(`${agent} is not on PATH`);
-      else {
-        const reported = version(binary);
-        requirement(reported ? { evidence: `${agent} ${reported} at ${binary}` } : { reason: `${binary} --version did not answer` });
-      }
-    }
+    if (runtime !== 'dstudio-agent') requirement(probeAgentProgram(agent, { upstream, locate, version }));
     result[agent] = { available: reasons.length === 0, reason: reasons.join('; ') || null, evidence };
   }
   return result;
+}
+
+// The agent's own program, apart from the engine, model and host it runs
+// with: the clean upstream build, or a CLI on PATH that answers --version.
+// Returns { evidence } or { reason }. The DStudio Agent's program is the
+// patched runtime of the engine checkout, checked by probeLaneAvailability.
+export function probeAgentProgram(agent, {
+  upstream = () => inspectUpstreamAgent(),
+  locate = (name) => onPath(name, process.env.PATH),
+  version = cliVersion,
+} = {}) {
+  const runtime = LANE_AGENTS.find((item) => item.id === agent)?.runtime;
+  if (runtime === 'upstream-agent') {
+    const build = upstream();
+    return build.ok
+      ? { evidence: `clean build ${build.binary} (ds4 ${String(build.receipt.commit).slice(0, 12)}, no patch, sha256 ${String(build.receipt.binarySHA256).slice(0, 12)})` }
+      : { reason: build.reason };
+  }
+  if (runtime !== 'ds4-server') throw new Error(`${agent} has no program of its own outside the engine checkout`);
+  const binary = locate(agent);
+  if (!binary) return { reason: `${agent} is not on PATH` };
+  const reported = version(binary);
+  return reported ? { evidence: `${agent} ${reported} at ${binary}` } : { reason: `${binary} --version did not answer` };
 }

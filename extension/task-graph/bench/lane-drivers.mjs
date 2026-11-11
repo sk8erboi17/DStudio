@@ -1,10 +1,12 @@
 // How one attempt of the six-agent lane is carried out and graded: the fresh
 // workspace, the mechanics of the recovery cases (two sessions, Stop/resume,
 // steering) for the agents whose interface has them, and the reading of the
-// clean upstream agent's trace. Nothing here starts an engine; the caller is
-// run-agent-lane.mjs (real model). No test exercises these drivers yet: the
-// steering and Stop/resume drivers are written but unproven, which is why
-// agent-lane.mjs marks those rows BLOCKED.
+// clean upstream agent's trace. Nothing here starts an engine; the callers are
+// run-agent-lane.mjs (real model) and tests/integration/agent_lane_mechanics_test.mjs,
+// which runs the three CLI drivers (one prompt, two sessions, Codex
+// Stop/resume) with the installed CLIs against scripted model servers. The
+// clean upstream agent's drivers, including steering, need real weights: no
+// test has exercised them, which is why agent-lane.mjs marks steering BLOCKED.
 //
 // Outcome of an attempt:
 //   completed      graded as a success
@@ -21,7 +23,8 @@ import { createCase, workspaceDigest } from './case-sets.mjs';
 import { gitBaseline } from './fixture-support.mjs';
 import { changeAllowed, changedFiles, workspaceSnapshot } from './reliability-fixture.mjs';
 import {
-  analyzeEvents, CODEX_STOP_SIGNAL, codexExecArgs, parseEvents, rounded, runCompetitor, startCli,
+  analyzeEvents, CODEX_PREFLIGHT_ARGS, CODEX_STOP_SIGNAL, codexExecArgs, codexPreflight, competitorCommand, parseEvents, rounded,
+  runCli, runCompetitor, startCli, writeCompetitorConfigs,
 } from './cli-competitor-harness.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -200,6 +203,61 @@ export async function runCliAttempt({ proxy, harness, row, task, workspace, comm
   throw new Error(`${harness} has no ${task.mechanic} driver`);
 }
 
+export const CLI_LANE_AGENTS = Object.freeze(['pi', 'opencode', 'codex']);
+const bounded = (text, limit = 4096) => (text.length > limit ? `${text.slice(0, limit)}...` : text);
+
+// The CLIs of one lane run, set up once behind `proxy`: an isolated home and
+// configuration each (nothing of the user's own setup is read), the version
+// each reports, and a preflight in which each CLI says which model it resolved
+// (pi and OpenCode list their provider's models; Codex runs its doctor, whose
+// provider probe must pass through the proxy). No model request is sent.
+export async function prepareCliLane({ agents, runDir, proxy, settings, timeoutMs = 300_000 }) {
+  const environments = writeCompetitorConfigs({
+    configRoot: path.join(runDir, 'isolated-cli-config'), workspace: runDir, baseUrl: proxy.baseUrl,
+    contextTokens: settings.contextTokens, maxOutputTokens: settings.maxOutputTokens,
+  });
+  const run = (name, args) => runCli(name, args, { cwd: runDir, env: environments[name].env, timeoutMs });
+  const checks = {
+    pi: async () => {
+      const result = await run('pi', ['--list-models', 'dstudio', '--offline']);
+      return { ok: result.code === 0 && /\bdstudio\b[\s\S]*\bds4\b/i.test(result.stdout), result };
+    },
+    opencode: async () => {
+      const result = await run('opencode', ['models', 'dstudio', '--pure']);
+      return { ok: result.code === 0 && /dstudio\/ds4/i.test(result.stdout), result };
+    },
+    codex: async () => {
+      proxy.begin('codex-preflight');
+      let result;
+      let probe = [];
+      try { result = await run('codex', [...CODEX_PREFLIGHT_ARGS]); } finally { probe = proxy.end('codex-preflight'); }
+      const ok = result.code === 0 && codexPreflight(result.stdout).ok &&
+        probe.some((request) => request.method === 'GET' && request.path === '/v1/models') && !probe.some((request) => request.blocked);
+      return { ok, result };
+    },
+  };
+  const versions = {};
+  const preflights = {};
+  for (const name of CLI_LANE_AGENTS.filter((item) => agents.includes(item))) {
+    const reported = await runCli(name, ['--version'], { cwd: runDir, env: environments[name].env, timeoutMs: 30_000 });
+    versions[name] = (reported.code === 0 && reported.stdout.trim().split('\n').pop()) || 'unknown';
+    const { ok, result } = await checks[name]();
+    preflights[name] = { ok, exitCode: result.code, stdout: bounded(result.stdout), stderr: bounded(result.stderr) };
+  }
+  return { environments, versions, preflights };
+}
+
+// One planned attempt of a CLI agent, with the configuration `prepareCliLane`
+// wrote. The CLI is started in the attempt's own workspace.
+export async function runCliLaneAttempt({ cli, proxy, row, task, workspace, timeoutMs }) {
+  if (!cli.preflights[row.agent]?.ok) throw new Error(`${row.agent} did not resolve the pinned DStudio model in its preflight`);
+  const commandFor = (prompt) => {
+    const command = competitorCommand({ harness: row.agent, prompt, workspace, title: `benchmark-${row.attemptId}`, environments: cli.environments });
+    return { ...command, env: { ...command.env, PWD: workspace } };
+  };
+  return await runCliAttempt({ proxy, harness: row.agent, row, task, workspace, commandFor, timeoutMs });
+}
+
 export { CODEX_STOP_SIGNAL, codexExecArgs };
 
 // ---------------------------------------------------------------- clean upstream ds4-agent
@@ -370,6 +428,19 @@ export async function runUpstreamAttempt({ agent, row, task, workspace, attemptD
 }
 
 // ---------------------------------------------------------------- the lane
+// The fields every result row of a plan row carries, whatever its outcome.
+export function attemptIdentity(row) {
+  return {
+    attemptId: row.attemptId, lane: row.lane, repetition: row.repetition, position: row.position,
+    scenario: row.caseId, caseSet: row.caseSet, heldOut: row.heldOut, taskType: row.kind, mechanic: row.mechanic, variant: row.agent,
+  };
+}
+
+// The result row of a BLOCKED or NOT_COMPARABLE plan row: carried, never run.
+export function notAttempted(row) {
+  return { ...attemptIdentity(row), outcome: row.status === 'BLOCKED' ? 'blocked' : 'not-comparable', taskSuccess: false, reason: row.reason };
+}
+
 // Runs the PLANNED rows of `plan` in plan order and returns one result per
 // row of the plan, in plan order. BLOCKED and NOT_COMPARABLE rows are carried
 // over with their reason and are never executed. A row whose result file
@@ -380,12 +451,9 @@ export async function executeLane({ plan, runDir, execute, onAttempt = () => {},
   const results = [];
   let stopped = false;
   for (const row of plan.rows) {
-    const identity = {
-      attemptId: row.attemptId, lane: row.lane, repetition: row.repetition, position: row.position,
-      scenario: row.caseId, caseSet: row.caseSet, heldOut: row.heldOut, taskType: row.kind, mechanic: row.mechanic, variant: row.agent,
-    };
+    const identity = attemptIdentity(row);
     if (row.status !== 'PLANNED') {
-      results.push({ ...identity, outcome: row.status === 'BLOCKED' ? 'blocked' : 'not-comparable', taskSuccess: false, reason: row.reason });
+      results.push(notAttempted(row));
       continue;
     }
     const resultFile = path.join(runDir, 'attempts', row.attemptId, 'result.json');

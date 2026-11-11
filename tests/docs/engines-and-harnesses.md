@@ -646,4 +646,54 @@ variant receives them included) still match `frozen-cases.json`.
 November 11, 2026: 203 checks passed (32 oracles, 102 wrong results rejected).
 
 It proves the oracles and the selection, not any agent: the reference results
-are written for the test, and no agent has run a held-out or recovery case.
+are written for the test, no agent has run a held-out case, and no model has
+run a recovery case (the lane mechanics test below runs three recovery cases
+with the real CLIs and scripted replies).
+
+
+### Six-agent lane runner with scripted model servers
+
+`make test-agent-lane-mechanics` (explicit, not part of `check-fast`: it
+drives third-party CLIs that update on their own; needs pi, OpenCode, Codex,
+python3 and git) runs `tests/integration/agent_lane_mechanics_test.mjs`. The
+installed CLIs are driven through the six-agent lane runner's own code
+(`extension/task-graph/bench/lane-drivers.mjs`: plan rows, a fresh workspace
+checked against the plan's digest, isolated configuration and preflight, the
+one-prompt, two-sessions and Codex Stop/resume drivers, result rows) against
+scripted loopback servers behind the lane's model pin proxy (Chat Completions
+for Pi and OpenCode, Responses for Codex). Each attempt's real tool calls
+change the workspace and the case's own oracle grades it; a scripted wrong
+solution must be failed with a false completion claim, and a Stop whose point
+is never reached must be inconclusive. It also asserts that OpenCode receives
+the prompt byte for byte. A CLI that is not installed is BLOCKED by the
+runner's probe and the test fails; the clean upstream `ds4-agent` and the
+DStudio Agent (direct and checked) run the model in their own process and are
+BLOCKED here, with that reason in the receipt. November 12, 2026: 16/16 with
+pi 1.4.0, OpenCode 1.18.18 and codex-cli 0.167.1 on macOS. Every reply is
+scripted: nothing about a model or an agent is proved. Details:
+[the bench README](../../extension/task-graph/bench/README.md#six-agent-lane-run-agent-lanemjs).
+
+
+### Six-agent lane plan and publication (no agent)
+
+`make test-agent-lane-plan` (part of `check-fast`; needs node, python3 and
+git) executes `run-agent-lane.mjs --plan` as a program on a stated machine
+(stand-in engine files, a one-byte stand-in GGUF, CLI shims that record their
+calls) and checks the printed and written attempt list (70 x 6 x 3 = 1,260
+for `--set all`, counterbalanced positions and successions, frozen workspace
+digests, BLOCKED and NOT_COMPARABLE rows with reasons, the product lane
+BLOCKED), byte-identical repeats, invalid options, and that nothing ran: the
+CLIs were only asked `--version` and no workspace or run directory exists.
+
+`make test-agent-lane-publication` (part of `check-fast`; needs Matplotlib)
+runs `publish-cli-comparison.mjs --lanes` and `plot-cli-comparison.py` on
+SYNTHETIC lane receipts written by the test with the runner's own plan and
+result-row functions: every cell's denominator against an independent count,
+BLOCKED and NOT_COMPARABLE cells with reasons and no rate, development,
+held-out and recovery kept apart, time only on cases every measured agent
+completed, refusals (a dropped row, an unknown outcome, a reason missing, a
+synthetic receipt beside a measured one, another machine, the same cases
+twice), and the PNGs. The plotter must refuse to write a synthetic figure into
+the published images directory, and nothing under `docs/` or `assets/` may
+change. The figures stay in `tests/.artifacts/agent-lane-publication`; they
+are synthetic and are not evidence of anything.

@@ -728,8 +728,19 @@ export function competitorCommand({ harness, prompt, workspace, title, environme
     args: [
       'run', '--pure', '--auto', '--format', 'json', '--print-logs', '--log-level', 'INFO',
       '--model', 'dstudio/ds4', '--agent', 'build', '--dir', workspace,
-      '--title', title, prompt,
+      '--title', title, '--', ...openCodeMessageArgs(prompt),
     ],
     env: environments.opencode.env,
   };
+}
+
+// `opencode run` joins its message arguments with spaces, but first wraps each
+// argument that contains a space in double quotes and escapes the quotes
+// inside it (packages/opencode/src/cli/cmd/run.ts; observed with 1.18.18), so
+// a prompt given as one argument reaches the model as `"...\"...\"..."`.
+// Given as its space-separated pieces after `--`, no piece contains a space
+// and the join rebuilds the prompt byte for byte. Runs of spaces give empty
+// pieces, which the join restores too.
+export function openCodeMessageArgs(prompt) {
+  return String(prompt).split(' ');
 }

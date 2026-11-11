@@ -1114,6 +1114,43 @@ test-agent-lane-cases:
 
 check-fast: test-agent-lane-cases
 
+# The six-agent lane runner without a model. test-agent-lane-plan executes
+# `run-agent-lane.mjs --plan` on a stated machine (stand-in engine files and
+# pi/OpenCode/Codex shims that only record their calls): the printed and
+# written attempt list, availability and BLOCKED reasons, and that nothing ran.
+# test-agent-lane-publication publishes and plots (Matplotlib) the six agents
+# and both lanes from SYNTHETIC receipts written by the test; its figures stay
+# in tests/.artifacts. Need node, python3 and git; the second also Matplotlib.
+.PHONY: test-agent-lane-plan test-agent-lane-publication test-agent-lane-mechanics
+test-agent-lane-plan:
+	@node tests/unit/agent_lane_plan_test.mjs
+test-agent-lane-publication:
+	@python3 -c 'import matplotlib, numpy' 2>/dev/null || (echo "matplotlib missing: NOT RUN agent lane publication test (python3 with matplotlib and numpy)" && exit 1)
+	@node tests/unit/agent_lane_publication_test.mjs
+
+check-fast: test-agent-lane-plan test-agent-lane-publication
+
+# The installed pi, OpenCode and Codex CLIs through the six-agent lane runner
+# (plan rows, fresh workspaces, isolated configuration and preflight, the
+# one-prompt, two-sessions and Codex Stop/resume drivers, the cases' own
+# oracles, result rows) against scripted model servers behind the lane's pin
+# proxy. No model and nothing outside 127.0.0.1. A CLI that is not installed
+# is BLOCKED and the test fails. Explicit, like test-codex-protocol: the broad
+# gate does not depend on third-party CLIs that update on their own.
+test-agent-lane-mechanics:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: NOT RUN agent lane mechanics test" && exit 1)
+	@node tests/integration/agent_lane_mechanics_test.mjs
+
+# REAL six-agent lane (real model, many hours, sequential): the runner's
+# options in AGENT_LANE_ARGS, for example
+#   make test-agent-lane-real AGENT_LANE_ARGS='--lane equivalent --set all'
+# Build the clean upstream agent first (node extension/task-graph/bench/build-upstream-agent.mjs);
+# without it, and for any CLI not installed, the rows stay BLOCKED. Check the
+# attempt list with `node extension/task-graph/bench/run-agent-lane.mjs --plan ...`.
+.PHONY: test-agent-lane-real
+test-agent-lane-real: $(TEST_SERVER)
+	@RUN_HEAVY=1 node extension/task-graph/bench/run-agent-lane.mjs $(AGENT_LANE_ARGS) $(TEST_SERVER)
+
 test-task-graph-real: $(TEST_SERVER)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-heavy.mjs $(TEST_SERVER)
 
