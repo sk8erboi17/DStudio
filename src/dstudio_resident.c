@@ -82,6 +82,55 @@ typedef struct {
 } resident_runtime;
 static resident_runtime g_resident = {.pid = -1, .owner = -1, .output = -1, .errors = -1, .probe = -1};
 
+/* Opt-in diagnostic copy of the resident server's output (llama-server or the
+ * MLX server), for live tests: DSTUDIO_RESIDENT_LOG names a file that is
+ * appended to, at most RESIDENT_LOG_CAP bytes per host process (or the
+ * smaller DSTUDIO_RESIDENT_LOG_MAX_BYTES); then one truncation line and
+ * nothing more. Without the variable nothing is opened or written, and the
+ * host keeps only the last bytes (g_resident.last_log). Each write is one
+ * bounded chunk the owner already read from the pipe; the file is opened
+ * with O_APPEND and never through a symlink. */
+#define RESIDENT_LOG_CAP (64u * 1024u * 1024u)
+static int g_resident_log = -1;
+static size_t g_resident_log_bytes, g_resident_log_cap = RESIDENT_LOG_CAP;
+static int g_resident_log_truncated;
+static void resident_log_open(unsigned long long task) {
+#ifndef _WIN32
+    const char *path = getenv("DSTUDIO_RESIDENT_LOG");
+    if (!path || !path[0]) return;
+    if (g_resident_log < 0) {
+        const char *max = getenv("DSTUDIO_RESIDENT_LOG_MAX_BYTES");
+        char *end = NULL;
+        unsigned long long cap = max && max[0] ? strtoull(max, &end, 10) : 0;
+        if (cap && end && !*end && cap < RESIDENT_LOG_CAP) g_resident_log_cap = (size_t)cap;
+        g_resident_log = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0600);
+    }
+    if (g_resident_log < 0 || g_resident_log_truncated) return;
+    char head[128];
+    int n = snprintf(head, sizeof head, "--- resident launch task %llu at %lld ms ---\n", task, (long long)dstudio_now_ms());
+    if (n > 0 && g_resident_log_bytes + (size_t)n <= g_resident_log_cap) {
+        if (write(g_resident_log, head, (size_t)n) == n) g_resident_log_bytes += (size_t)n;
+    }
+#else
+    (void)task;
+#endif
+}
+static void resident_log_copy(const char *chunk, size_t n) {
+#ifndef _WIN32
+    if (g_resident_log < 0 || g_resident_log_truncated || !n) return;
+    if (g_resident_log_bytes + n > g_resident_log_cap) {
+        static const char note[] = "\n--- resident log truncated at its byte limit ---\n";
+        (void)!write(g_resident_log, note, sizeof note - 1);
+        g_resident_log_truncated = 1;
+        return;
+    }
+    ssize_t w = write(g_resident_log, chunk, n);
+    if (w > 0) g_resident_log_bytes += (size_t)w;
+#else
+    (void)chunk; (void)n;
+#endif
+}
+
 static int resident_path_absolute(const char *path) {
 #ifdef _WIN32
     if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
@@ -426,6 +475,7 @@ static void resident_tick(void) {
         if (!n) { close(*streams[s]); *streams[s] = -1; }
         if (n <= 0) break;
         used += (size_t)n;
+        resident_log_copy(chunk, (size_t)n);
         size_t keep = (size_t)n < sizeof g_resident.last_log - 1 ? (size_t)n : sizeof g_resident.last_log - 1;
         memcpy(g_resident.last_log, chunk + n - keep, keep); g_resident.last_log[keep] = '\0';
     }
@@ -686,6 +736,7 @@ static void resident_publish(const resident_launch_spec *spec, unsigned long lon
     g_resident.pid = pid; g_resident.owner = owner; g_resident.output = output; g_resident.errors = errors;
     g_resident.probe = -1; g_resident.launch_task = task;
     g_resident.probe_at = dstudio_now_ms() + 250;
+    resident_log_open(task);
     char stage[96]; snprintf(stage, sizeof stage, "Loading %s with %s…", resident_model_label(spec->model), resident_engine_label(spec->kind));
     reset_progress(stage);
 }

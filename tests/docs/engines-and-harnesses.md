@@ -42,7 +42,13 @@ slot count, context and vision modality (a 27B server without its projector
 loaded is not ready). A `/props` reply from another model or build is not
 ready. It has no retired-checkout or missing-projector-file case: the
 refusal of a checkout whose receipt names another engine, and of a 27B launch
-without its projector, is asserted by `make test-launch-preflight`.
+without its projector, is asserted by `make test-launch-preflight`. It also
+writes the opt-in copy of a resident server's output to a temporary file:
+nothing without `DSTUDIO_RESIDENT_LOG`; with it, one header per launch and
+the copied bytes up to the limit (`DSTUDIO_RESIDENT_LOG_MAX_BYTES`, at most
+64 MiB), then one truncation line and nothing after it; a symlinked path is
+not opened. Live runners started through `startDStudio` set the variable and
+keep the file as `resident-server.log`.
 
 `make test-resident-guard` (`tests/integration/resident_guard_test.mjs`) runs
 the real `--resident-guard` process with a stand-in server script. Closing the

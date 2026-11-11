@@ -341,6 +341,7 @@ for (const key of receipt.blocked ? [] : wanted) {
     if (server?.logPath) row.hostLogTail = safeReadTail(server.logPath);
   } finally {
     if (server?.logPath) writeArtifact(dir, 'host.log', safeReadTail(server.logPath, 200000));
+    if (server?.residentLogPath && fs.existsSync(server.residentLogPath)) writeArtifact(dir, 'resident-server.log', safeReadTail(server.residentLogPath, 4 * 1024 * 1024));
     try { await server?.stop?.(); } catch { /* task-owned host */ }
     // Never leave a model resident between sequential runs.
     for (const pid of llamaServersFor(path.join(server?.ds4Dir || '', spec.file), spec?.mlx)) { try { process.kill(pid, 'SIGTERM'); } catch {} }
