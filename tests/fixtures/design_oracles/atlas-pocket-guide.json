@@ -1,10 +1,15 @@
 {
   "case": "atlas-pocket-guide",
-  "steps": 1,
+  "steps": 2,
   "faults": [
     {
       "name": "map-off-by-one",
-      "caughtAs": "Missing visible content: Paper house",
+      "caughtAs": "Missing visible content: /Paper house/",
+      "flags": ""
+    },
+    {
+      "name": "numbered-name-wrong-place",
+      "caughtAs": "Missing visible content: /Paper house/",
       "flags": ""
     },
     {
@@ -13,8 +18,23 @@
       "flags": ""
     },
     {
+      "name": "numbered-title-stale-details",
+      "caughtAs": "Unexpected visible content: North garden",
+      "flags": ""
+    },
+    {
+      "name": "stale-details-after-search",
+      "caughtAs": "Details still show a place that the search hides",
+      "flags": ""
+    },
+    {
       "name": "map-not-filtered",
       "caughtAs": "Unexpected visible content: /North garden/",
+      "flags": ""
+    },
+    {
+      "name": "map-buttons-not-filtered",
+      "caughtAs": "The map still offers a button for a place the filter hides",
       "flags": ""
     },
     {
@@ -23,14 +43,70 @@
       "flags": ""
     },
     {
+      "name": "category-ignores-search",
+      "caughtAs": "Search text that is still shown is ignored after choosing a category",
+      "flags": ""
+    },
+    {
       "name": "clear-keeps-category",
       "caughtAs": "Missing visible content: North garden",
+      "flags": ""
+    },
+    {
+      "name": "outdoors-filter-ignored",
+      "caughtAs": "The Outdoors filter lists an indoor place",
+      "flags": ""
+    },
+    {
+      "name": "all-filter-ignored",
+      "caughtAs": "Missing visible content: Paper house",
       "flags": ""
     },
     {
       "name": "notes-previous-place",
       "caughtAs": "Missing visible content: /Paper house/",
       "flags": ""
+    },
+    {
+      "name": "alternate-names-notes-previous-place",
+      "caughtAs": "Missing visible content: /Paper house/",
+      "flags": ""
+    },
+    {
+      "name": "notes-after-cleared-selection",
+      "caughtAs": "Place notes still name a place whose selection was cleared",
+      "flags": ""
+    },
+    {
+      "name": "list-not-keyboard-reachable",
+      "caughtAs": "Keyboard users cannot reach North garden through the list",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "select-buttons-in-rows",
+      "why": "Each list row is a title in a span followed by a Select button that belongs to the row."
+    },
+    {
+      "name": "radio-list",
+      "why": "Each list row is a labelled radio button, reached with the keyboard and chosen with Space."
+    },
+    {
+      "name": "numbered-map-names",
+      "why": "Map buttons are named by number and place alone, such as 2: Paper house, without a verb."
+    },
+    {
+      "name": "map-groups",
+      "why": "Each map button is named Select and belongs to a group that shows the place name."
+    },
+    {
+      "name": "numbered-detail-title",
+      "why": "The detail area shows the place name inside a longer heading, such as 2 · Paper house."
+    },
+    {
+      "name": "alternate-names",
+      "why": "Other usual names: the regions are Map of small places, Place list and Detail area, and the dialog opener is Open place notes."
     }
   ]
 }

@@ -6,9 +6,10 @@
 *{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
 button,input,textarea{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
-:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
+a{color:inherit}:focus-visible{outline:3px solid #3874e6;outline-offset:2px}
 button[aria-pressed=true]{border-width:3px;font-weight:700}
 input,textarea{display:block;width:100%}ul{padding:0;list-style:none}li{margin:10px 0;overflow-wrap:anywhere}li span{display:block}
+#filter-box label{display:grid;grid-template-columns:20px 1fr;gap:8px;align-items:start}#filter-box input{width:18px;height:18px;margin:3px 0 0;padding:0}
 main{max-width:40rem}aside{max-width:40rem;margin-top:24px;border-top:1px solid #8c96a2}
 dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 @media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
@@ -18,15 +19,17 @@ dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 <main>
 <section id="feed" aria-labelledby="feed-title"><h2 id="feed-title">Threads</h2>
   <label for="query">Search threads</label><input id="query" type="search" oninput="render()">
-  <p><button id="show-all" onclick="setFilter(false)">All</button> <button id="show-followed" onclick="setFilter(true)">Following</button></p>
+  <p id="filter-buttons"><button id="show-all" onclick="setFilter(false)">All</button> <button id="show-followed" onclick="setFilter(true)">Following</button></p>
+  <p id="filter-box" hidden><label><input id="only-followed" type="checkbox" onchange="setFilter(this.checked)"><span>Following only</span></label></p>
   <ul id="threads"></ul><p id="no-threads" role="status" hidden>No threads match.</p>
 </section>
 <section id="thread" aria-labelledby="thread-title" hidden>
-  <button onclick="openThread(null)">Back to threads</button>
-  <h2 id="thread-title"></h2><p>Started by <button id="author" onclick="showProfile(this)"></button></p><p id="message"></p>
+  <button id="back-button" onclick="openThread(null)">Back to threads</button>
+  <a id="back-link" href="#feed" onclick="openThread(null);return false" hidden>← Back to feed</a>
+  <h2 id="thread-title"></h2><p>Started by <button id="author" onclick="showProfile(this,current)"></button></p><p id="message"></p>
   <p><button id="follow" onclick="toggleFollow()"></button> <span id="follow-state"></span></p>
   <h3>Replies</h3><ul id="replies"></ul><p id="no-replies">No replies yet.</p>
-  <label for="reply">Reply</label><textarea id="reply" rows="3" maxlength="200" required oninput="updateDraft()"></textarea>
+  <label id="reply-label" for="reply">Reply</label><textarea id="reply" rows="3" maxlength="200" required oninput="updateDraft()"></textarea>
   <p id="used"></p><button id="post" onclick="postReply()">Post reply</button>
 </section>
 </main>
@@ -35,40 +38,63 @@ dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 <dialog aria-labelledby="profile-title"><h2 id="profile-title">Member profile</h2><p id="member"></p>
   <p>Sample member of this local community demo.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+window.fault='';window.variant='';
 const threads=[['What are you reading?','Mira Okafor','Name the book on your table this week.'],
   ['Weekend swap','Ivo Lind','Bring one paperback to trade on Saturday.'],
   ['Quiet recommendations','Tess Arden','Suggest a calm book for a slow weekend.']]
-  .map(([title,author,message])=>({title,author,message,replies:[],following:false}));
-let current=null,firstOpened=null,onlyFollowing=false;
+  .map(([title,author,message])=>({title,author,message,replies:[],following:false,everFollowed:false}));
+// Sample replies of the variant in which threads do not start empty.
+const samples=[['The Summer Book, a chapter each evening.','A field guide to moss, mostly for the drawings.'],['I can bring two crime paperbacks.'],[]];
+let current=null,firstOpened=null,onlyFollowing=false,seeded=false;
 const el=id=>document.getElementById(id);
-const repliesOf=index=>threads[window.fault==='shared-replies'?0:index].replies;
-const valid=value=>value.length<=200&&(window.fault==='empty-reply-accepted'||value.trim()!=='');
+// A fault named after an alternative rendering is that rendering with one
+// defect of the reference page, so that the more tolerant oracle path that
+// accepts the rendering is shown to refuse the defect as well.
+const implied={'byline-markup-reply':'markup-reply','alternate-wording-unfollow-stays':'unfollow-stays-in-following','checkbox-filter-ignored':'following-filter-ignored'};
+const fault=name=>window.fault===name||implied[window.fault]===name;
+const shape=(variant,...faults)=>window.variant===variant||faults.includes(window.fault);
+const repliesOf=index=>threads[fault('shared-replies')?0:index].replies;
+const valid=value=>(value.length<=200||fault('over-limit-reply-accepted'))&&(fault('empty-reply-accepted')||value.trim()!=='');
+const listedAsFollowed=thread=>fault('following-filter-ignored')||(fault('unfollow-stays-in-following')?thread.everFollowed:thread.following);
+const followShown=thread=>fault('follow-control-shared')?threads.some(other=>other.following):thread.following;
 const rows=threads.map((thread,index)=>{
   const row=document.createElement('li'),button=document.createElement('button'),summary=document.createElement('span');
-  button.textContent=thread.title;button.onclick=()=>openThread(index);row.append(button,summary);el('threads').append(row);
-  return {row,summary};
+  const credit=document.createElement('span'),starter=document.createElement('button');
+  button.textContent=thread.title;button.onclick=()=>openThread(index);
+  starter.textContent=thread.author;starter.onclick=()=>showProfile(starter,index);credit.append('Started by ',starter);
+  row.append(button,credit,summary);el('threads').append(row);
+  return {row,summary,credit};
 });
 function render(){
+  const withSamples=shape('sample-replies','sample-replies-count-stale');
+  if(withSamples&&!seeded){seeded=true;threads.forEach((thread,index)=>thread.replies.push(...samples[index]));}
+  const boxFilter=shape('following-checkbox','checkbox-filter-ignored'),otherWords=shape('alternate-wording','alternate-wording-unfollow-stays');
   const query=el('query').value.trim().toLowerCase();let any=false;
   threads.forEach((thread,index)=>{
-    const searched=window.fault==='search-matches-message'?thread.title+' '+thread.message:thread.title;
-    const show=searched.toLowerCase().includes(query)&&(!onlyFollowing||thread.following);
-    const count=window.fault==='stale-reply-count'?0:repliesOf(index).length;
-    rows[index].row.hidden=!show;any=any||show;
-    rows[index].summary.textContent=`${count} ${count===1?'reply':'replies'} · ${thread.following?'Following':'Not following'}`;
+    const searched=fault('search-matches-message')?thread.title+' '+thread.message:thread.title;
+    const show=searched.toLowerCase().includes(query)&&(!onlyFollowing||listedAsFollowed(thread));
+    const count=fault('stale-reply-count')?0:fault('sample-replies-count-stale')?samples[index].length:repliesOf(index).length;
+    rows[index].row.hidden=!show;rows[index].credit.hidden=!shape('authors-in-feed');any=any||show;
+    const replies=otherWords?(count?'Replies: '+count:'No replies yet'):`${count} ${count===1?'reply':'replies'}`;
+    rows[index].summary.textContent=`${replies} · ${thread.following?'Following':'Not following'}`;
   });
   el('no-threads').hidden=any;
+  el('filter-buttons').hidden=boxFilter;el('filter-box').hidden=!boxFilter;el('only-followed').checked=onlyFollowing;
   el('show-all').setAttribute('aria-pressed',String(!onlyFollowing));el('show-followed').setAttribute('aria-pressed',String(onlyFollowing));
+  el('back-button').hidden=otherWords;el('back-link').hidden=!otherWords;
+  el('reply-label').textContent=otherWords?'Your reply (required)':'Reply';el('post').textContent=otherWords?'Post':'Post reply';
+  if(fault('over-limit-reply-accepted'))el('reply').removeAttribute('maxlength');else el('reply').setAttribute('maxlength','200');
   el('feed').hidden=current!==null;el('thread').hidden=current===null;
   if(current===null)return;
-  const thread=threads[current];
+  const thread=threads[current],followed=followShown(thread);
   el('thread-title').textContent=thread.title;el('message').textContent=thread.message;
-  el('author').textContent=thread.author;el('author').setAttribute('aria-label',thread.author+', author profile');
-  el('follow').textContent=thread.following?'Unfollow':'Follow';el('follow-state').textContent=thread.following?'Following':'Not following';
+  el('author').textContent=thread.author;
+  if(shape('author-name-only','plain-author-no-dialog')||shape('authors-in-feed'))el('author').removeAttribute('aria-label');
+  else el('author').setAttribute('aria-label',thread.author+', author profile');
+  el('follow').textContent=(followed?'Unfollow':'Follow')+(otherWords?' thread':'');el('follow-state').textContent=followed?'Following':'Not following';
   el('replies').replaceChildren(...repliesOf(current).map(text=>{
-    const reply=document.createElement('li');
-    if(window.fault==='markup-reply')reply.innerHTML=text;else reply.textContent=text;
+    const reply=document.createElement('li'),shownText=shape('byline-replies','byline-markup-reply')?'You: '+text:text;
+    if(fault('markup-reply'))reply.innerHTML=shownText;else reply.textContent=shownText;
     return reply;
   }));
   el('no-replies').hidden=repliesOf(current).length>0;updateDraft();
@@ -77,7 +103,7 @@ function setFilter(value){onlyFollowing=value;render();}
 function openThread(index){
   if(index!==null){
     if(firstOpened===null)firstOpened=index;
-    if(window.fault==='replies-lost-on-switch')threads.forEach((thread,other)=>{if(other!==index)thread.replies.length=0;});
+    if(fault('replies-lost-on-switch'))threads.forEach((thread,other)=>{if(other!==index)thread.replies.length=0;});
     el('reply').value='';
   }
   current=index;render();
@@ -85,13 +111,16 @@ function openThread(index){
 function updateDraft(){const value=el('reply').value;el('used').textContent=`${value.length} of 200 characters`;el('post').disabled=!valid(value);}
 function postReply(){
   const value=el('reply').value;if(!valid(value))return;
-  repliesOf(window.fault==='reply-to-first-opened'?firstOpened:current).push(value);el('reply').value='';render();
+  repliesOf(fault('reply-to-first-opened')?firstOpened:current).push(value);el('reply').value='';render();
 }
 function toggleFollow(){
   const value=!threads[current].following;
-  if(window.fault==='shared-follow')threads.forEach(thread=>thread.following=value);else threads[current].following=value;
+  for(const thread of fault('shared-follow')?threads:[threads[current]]){thread.following=value;thread.everFollowed=thread.everFollowed||value;}
   render();
 }
-function showProfile(button){button.focus();el('member').textContent=threads[current].author;document.querySelector('dialog').showModal();}
+function showProfile(button,index){
+  if(fault('plain-author-no-dialog'))return;
+  button.focus();el('member').textContent=threads[index].author;document.querySelector('dialog').showModal();
+}
 render();
 </script></html>
