@@ -36,7 +36,10 @@ const tools=[['Hand drill','Repair','Makes small holes for shelves and hooks.'],
 const statement='No borrowing request was sent. This is a local demo.';
 let shortlist=[],pool=tools,refused='';
 const el=id=>document.getElementById(id);
-const is=(...names)=>names.includes(window.fault)||names.includes(window.variant);
+// A fault named after an alternative rendering is that rendering with one defect of the
+// reference page, so that the oracle path that accepts the rendering is shown to refuse the defect.
+const implied={'panel-rows-list-remove-does-nothing':['shortlist-panel-lists-tools','list-remove-does-nothing']};
+const is=(...names)=>[window.fault,window.variant,...(implied[window.fault]||[])].some(name=>names.includes(name));
 const make=(tag,text='')=>Object.assign(document.createElement(tag),{textContent:text});
 const items=tools.map(([title,group,about])=>{
   const item=make('li'),button=make('button');button.onclick=()=>toggle(title);

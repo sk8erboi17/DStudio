@@ -5,19 +5,69 @@ import assert from 'node:assert/strict';
 
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const exact = value => new RegExp('^' + escape(value) + '$', 'i');
+// The name of a control that may carry a count after its label: "Resolved (1)",
+// "Open: 3", "Open · 3".
+const starting = label => new RegExp('^' + escape(label) + '(?:$|\\s|[(:]|[·—-]\\s*\\d)', 'i');
+// A letter or a digit beside a name makes another word of it: "Note 1" is not
+// part of "Note 10", nor "Review my day" of "Review my days".
+const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const NOT_CONTINUED = '(?![0-9A-Za-z])';
+const ROWS = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
 const visible = locator => locator.filter({visible: true});
+// The elements whose whole text is the string, or the smallest ones that match the pattern.
 const text = (scope, value) => visible(scope.getByText(value, {exact: typeof value === 'string'}));
 const button = (scope, value) => visible(scope.getByRole('button', {name: typeof value === 'string' ? exact(value) : value}));
+// The elements with a text of their own that holds `value` between other
+// characters: "1. Old kiosk", "10:00 — Sound walks", "Last reason: text". Each
+// text is read alone, so a neighbouring button does not run into the name; only
+// the first occurrence in a text is examined.
+function holding(value) {
+  const wanted = value.replace(/\s+/g, ' ').trim(), own = 'normalize-space(.)';
+  const quoted = !wanted.includes('"') ? `"${wanted}"` : !wanted.includes("'") ? `'${wanted}'`
+    : 'concat(' + wanted.split('"').map(part => `"${part}"`).join(`,'"',`) + ')';
+  const before = `substring-before(${own},${quoted})`, after = `substring-after(${own},${quoted})`;
+  const tests = [`contains(${own},${quoted})`];
+  if (ALNUM.includes(wanted[0])) tests.push(`(${before}="" or not(contains("${ALNUM}",substring(${before},string-length(${before})))))`);
+  if (ALNUM.includes(wanted.at(-1))) tests.push(`(${after}="" or not(contains("${ALNUM}",substring(${after},1,1))))`);
+  return `xpath=.//text()[${tests.join(' and ')}]/parent::*`;
+}
+// Every element that renders `value`: as its whole text or inside a longer text of its own.
+const mentions = (scope, value) => typeof value === 'string' ? text(scope, value).or(visible(scope.locator(holding(value)))) : text(scope, value);
 
 async function one(locator, description) {
   assert.equal(await locator.count(), 1, `Expected one accessible ${description}`);
   return locator;
 }
+// The innermost semantic rows of `scope` that show `title`: the rows in which an
+// element is the title or, when no row has such an element, the rows that hold
+// it in a longer text ("1. Old kiosk"). A row that only mentions the title of
+// another row beside its own is therefore not a row of that title.
+async function rows(scope, title) {
+  // `has` and `hasNot` are evaluated relative to each row. A text locator built
+  // from a region or dialog scope carries that scope, so a row would have to
+  // contain the region that contains it and no page could ever match
+  // (qualification on November 11, 2026: the queue and basket oracles rejected
+  // every implementation). Build the inner locators from the page or frame.
+  const root = typeof scope.page === 'function' ? scope.page() : scope, all = visible(scope.locator(ROWS));
+  let held = text(root, title);
+  if (typeof title === 'string' && !await all.filter({has: held}).count()) held = mentions(root, title);
+  // Prefer the innermost semantic item, never a containing list with other rows.
+  return all.filter({has: held}).filter({hasNot: visible(root.locator(ROWS)).filter({has: held})});
+}
+// Whether the scope lists `value`: an element is it, or a semantic row holds it
+// in a longer text. A sentence outside the rows that mentions a name ("Current:
+// Paper satellites", a status line) does not list it; unmentioned() excludes that too.
+async function listed(scope, value) {
+  return await text(scope, value).count() > 0 || typeof value === 'string' && await (await rows(scope, value)).count() > 0;
+}
 async function shown(scope, value) {
-  assert.ok(await text(scope, value).count(), `Missing visible content: ${value}`);
+  assert.ok(await listed(scope, value), `Missing visible content: ${value}`);
 }
 async function absent(scope, value) {
-  assert.equal(await text(scope, value).count(), 0, `Unexpected visible content: ${value}`);
+  assert.ok(!await listed(scope, value), `Unexpected visible content: ${value}`);
+}
+async function unmentioned(scope, value) {
+  assert.equal(await mentions(scope, value).count(), 0, `Unexpected visible content: ${value}`);
 }
 async function click(scope, value) { await (await one(button(scope, value), `button ${value}`)).click(); }
 const FORM_CONTROLS = 'input,select,textarea,[contenteditable="true"],[role="textbox"],[role="searchbox"],[role="combobox"],[role="spinbutton"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"]';
@@ -35,24 +85,29 @@ async function field(scope, name) {
   return one(visible(controls), `field ${name}`);
 }
 async function item(scope, title) {
-  const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
-  // `has` and `hasNot` are evaluated relative to each row. A text locator built
-  // from a region or dialog scope carries that scope, so a row would have to
-  // contain the region that contains it and no page could ever match
-  // (qualification on November 11, 2026: the queue and basket oracles rejected
-  // every implementation). Build the inner locators from the page or frame.
-  const root = typeof scope.page === 'function' ? scope.page() : scope;
-  const containing = visible(root.locator(rowSelector)).filter({has: text(root, title)});
-  // Prefer the innermost semantic item, never a containing list with other rows.
-  const leaves = visible(scope.locator(rowSelector)).filter({has: text(root, title)}).filter({hasNot: containing});
-  return one(leaves, `item containing ${title}`);
+  return one(await rows(scope, title), `item containing ${title}`);
 }
 async function region(scope, name) {
   return one(visible(scope.getByRole('region', {name})), `region ${name}`);
 }
+// A row action may carry the title after, before or inside its name: "Move up
+// Paper satellites", "Paper satellites: move up", "Move Paper satellites up",
+// "Add Night lines to queue". The title is not part of a longer one.
+function naming(name, title) {
+  const parts = name.split(' ').map(escape), own = escape(title) + NOT_CONTINUED, quoted = '["“‘\']?' + escape(title) + '["”’\']?';
+  return new RegExp(['^' + escape(name) + '\\b.*[^0-9A-Za-z]' + own, '^' + own + '.*\\b' + escape(name) + '\\b',
+    ...parts.slice(1).map((_, i) => '^' + [...parts.slice(0, i + 1), quoted, ...parts.slice(i + 1)].join('\\s+') + '\\b')].join('|'), 'i');
+}
+// Every button that does `name` to `title`: the buttons named after both or,
+// when there is none, the buttons named `name` in the innermost rows that show
+// the title. A title may be shown in two rows, of which one or both offer the action.
+async function itemActions(scope, name, title) {
+  const named = button(scope, naming(name, title));
+  return await named.count() ? named : button(await rows(scope, title), new RegExp('^' + escape(name) + '\\b', 'i'));
+}
 async function itemAction(scope, name, title) {
-  const named = button(scope, new RegExp('^(?:' + escape(name) + ')\\b.*' + escape(title) + '|^' + escape(title) + '.*\\b' + escape(name) + '\\b', 'i'));
-  if (await named.count() === 1) return named;
+  const found = await itemActions(scope, name, title);
+  if (await found.count() === 1) return found;
   return one(button(await item(scope, title), new RegExp('^' + escape(name) + '\\b', 'i')), `${name} on ${title}`);
 }
 async function action(scope, name, title) { await (await itemAction(scope, name, title)).click(); }
@@ -63,30 +118,69 @@ async function selectEntry(scope, title) {
   const row = await item(scope, title);
   const inner = button(row, /^(open|select|read|view|details)\b/i);
   if (await inner.count() === 1) return inner.click();
-  await (await one(text(row, title), title)).click();
+  // The title itself, or the text that holds it when the row reads "1. Old kiosk".
+  const own = text(row, title);
+  await (await one(await own.count() ? own : mentions(row, title), title)).click();
 }
 async function choose(scope, label, group) {
   if (group) {
     const select = visible(scope.getByRole('combobox', {name: group}));
     if (await select.count() === 1) {
-      const option = await one(select.locator('option').filter({hasText: new RegExp('^' + escape(label) + '(?:$|\\s|[(:])', 'i')}), `option ${label}`);
+      const option = await one(select.locator('option').filter({hasText: starting(label)}), `option ${label}`);
       return select.selectOption(await option.getAttribute('value') ?? await option.innerText());
     }
   }
-  const radio = visible(scope.getByRole('radio', {name: new RegExp('^' + escape(label) + '(?:$|\\s|[(:])', 'i')}));
+  const radio = visible(scope.getByRole('radio', {name: starting(label)}));
   if (await radio.count() === 1) return radio.check();
-  const tab = visible(scope.getByRole('tab', {name: exact(label)}));
-  if (await tab.count() === 1) return tab.click();
-  if (typeof label !== 'string' || await button(scope, label).count() === 1) return click(scope, label);
-  // A filter button may carry its count ("Resolved (1)"), as options and radios may.
-  return (await one(button(scope, new RegExp('^' + escape(label) + '(?:$|\\s|[(:])', 'i')), `button ${label}`)).click();
+  // A tab or a filter button may carry its count ("Resolved (1)"), as options
+  // and radios may. The control named by the label alone comes first.
+  for (const name of [exact(label), starting(label)]) for (const role of ['tab', 'button']) {
+    const control = visible(scope.getByRole(role, {name}));
+    if (await control.count() === 1) return control.click();
+  }
+  return click(scope, label);
 }
 async function search(scope, query) { await (await field(scope, /^Search\b/i)).fill(query); }
 async function readText(scope) { return (await scope.locator('body').innerText()).replace(/\s+/g, ' ').trim(); }
 async function assertText(scope, pattern) { assert.match(await readText(scope), pattern); }
-async function withinText(scope, pattern) { assert.match((await scope.innerText()).replace(/\s+/g, ' '), pattern); }
+// The text a region, row or dialog renders as the page wrote it, read from its
+// rendered text nodes; `fields` adds what the rendered controls of that kind show.
+const written = (scope, fields = '') => scope.evaluate((node, fields) => {
+  const parts = [], walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    const range = document.createRange(); range.selectNodeContents(text);
+    if (text.nodeValue.trim() && range.getClientRects().length && getComputedStyle(text.parentElement).visibility === 'visible') parts.push(text.nodeValue);
+  }
+  if (fields) for (const control of node.querySelectorAll(fields)) if (control.getClientRects().length) parts.push(control.value || '');
+  return parts.join(' ').replace(/\s+/g, ' ');
+}, fields);
+// innerText follows text-transform: a mark that the style sheet sets in capitals
+// reads "CURRENT". The pattern may match the text as rendered or as written.
+async function withinText(scope, pattern) {
+  if (!pattern.test((await scope.innerText()).replace(/\s+/g, ' '))) assert.match(await written(scope), pattern);
+}
+// Rendered lines of a scope. Two lines that differ only in their numbers are
+// the same line, so an updated counter or total is never read as a new message.
+const lines = async scope => (await scope.innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+const fold = line => line.replace(/\d+/g, '#');
+const appeared = (before, after) => { const known = new Set(before.map(fold)); return after.filter(line => !known.has(fold(line))); };
+// The words of the page and what one list of words or lines has that another
+// has not, each occurrence counted. Two states of one step are compared with
+// each other, so that only the text a change brought or took away is read.
+const words = async scope => (await readText(scope)).toLowerCase().match(/\d{1,2}:\d{2}|\p{L}+|\d+(?:\.\d+)?/gu) || [];
+const only = (a, b) => { const rest = [...b]; return a.filter(entry => { const at = rest.indexOf(entry); if (at >= 0) rest.splice(at, 1); return at < 0; }); };
+// Whether `act` makes the scope say `pattern` in an element that did not already
+// say it: a statement the page showed all along is not an answer to the action.
+async function answers(scope, pattern, act) {
+  const saying = () => text(scope, pattern), earlier = await saying().elementHandles();
+  await act(); await shown(scope, pattern);
+  return saying().evaluateAll((nodes, old) => nodes.some(node => !old.includes(node)), earlier);
+}
 async function dialog(scope, page, opener, verify, closeWithButton = false) {
-  const control = await one(button(scope, opener), `dialog opener ${opener}`);
+  // An opener named by a string may carry a count: "Review my day (2)".
+  let named = button(scope, opener);
+  if (typeof opener === 'string' && await named.count() !== 1) named = button(scope, new RegExp('^' + escape(opener) + NOT_CONTINUED, 'i'));
+  const control = await one(named, `dialog opener ${opener}`);
   await control.focus(); await page.keyboard.press('Enter');
   // A dialog usually lives outside the article containing its opener. Resolve
   // the opener's own document, also inside an opaque iframe; not the host page.
@@ -106,12 +200,42 @@ async function dialog(scope, page, opener, verify, closeWithButton = false) {
   assert.equal(await visible(owner.getByRole('dialog')).count(), 0, 'dialog did not close');
   assert.equal(await control.evaluate(node => node === node.ownerDocument.activeElement), true, 'dialog did not restore focus');
 }
+// The entries of a name in a scope: the element whose whole text it is; or, when
+// the page repeats the bare name (in a "Current:" line, in the labels of a row's
+// buttons) or writes it inside a longer text ("1. Paper satellites — Current"),
+// the innermost rows that show it; or, without such rows, every element that
+// renders it ("Glass hall → Old kiosk" on one line).
+async function entries(scope, name) {
+  const bare = text(scope, name), found = await bare.count();
+  if (found === 1) return bare;
+  const held = await rows(scope, name);
+  return await held.count() ? held : found ? bare : mentions(scope, name);
+}
+// Each name listed once, in this rendered order. A name is located where its
+// own characters are rendered inside its entry, not by the box of the entry: an
+// element and a row are then compared like with like, and names that share one
+// text have positions of their own.
 async function ordered(scope, names) {
   const positions = [];
   for (const name of names) {
-    const node = await one(text(scope, name), `ordered entry ${name}`);
-    const box = await node.boundingBox(); assert.ok(box, `No rendered entry ${name}`);
-    positions.push({name, top: box.y, left: box.x});
+    const entry = await one(await entries(scope, name), `ordered entry ${name}`);
+    const at = await entry.evaluate((node, {name, alnum}) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT), free = letter => !letter || !alnum.includes(letter);
+      for (let part = walker.nextNode(); part; part = walker.nextNode()) {
+        const value = part.nodeValue;
+        if (getComputedStyle(part.parentElement).visibility !== 'visible') continue;
+        for (let from = value.indexOf(name); from >= 0; from = value.indexOf(name, from + 1)) {
+          if (!free(value[from - 1]) && alnum.includes(name[0]) || !free(value[from + name.length]) && alnum.includes(name.at(-1))) continue;
+          const range = document.createRange(); range.setStart(part, from); range.setEnd(part, from + name.length);
+          const box = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0);
+          if (box) return {top: box.top, left: box.left};
+        }
+      }
+      const box = node.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 ? {top: box.top, left: box.left} : null;
+    }, {name, alnum: ALNUM});
+    assert.ok(at, `No rendered entry ${name}`);
+    positions.push({name, ...at});
   }
   for (let i = 1; i < positions.length; i++) {
     const a = positions[i - 1], b = positions[i];
@@ -119,8 +243,10 @@ async function ordered(scope, names) {
   }
   return positions;
 }
+// The characters may share their element with a label or a byline ("Last
+// reason: text", "You: text"); none of them may have become markup.
 async function literal(scope, value) {
-  await shown(scope, value);
+  assert.ok(await mentions(scope, value).count(), `Missing visible content: ${value}`);
   assert.equal(await scope.locator('img[src="x"],b').filter({hasText: 'literal'}).count(), 0, 'saved text became markup');
 }
 const noteText = '<b>literal & note</b>';
@@ -261,12 +387,6 @@ export const designProjectScenarios = {
         assert.match(body, new RegExp('(?:\\b' + label + '\\s*(?:incidents?\\s*)?[:(·—-]?\\s*' + n + '(?!\\d)|\\b' + n + '\\s+' + label + '\\b)', 'i'),
           `Incorrect incident count: ${label} must be ${n}`);
     };
-    const filter = async label => {
-      const name = new RegExp('^' + label + '(?:\\s*[:(·—-]?\\s*\\d+\\s*\\)?)?$', 'i');
-      const radio = visible(s.getByRole('radio', {name}));
-      if (await radio.count() === 1) return radio.check();
-      await (await one(visible(s.getByRole('tab', {name}).or(s.getByRole('button', {name}))), `incident filter ${label}`)).click();
-    };
     const history = [
       [titles[0], /assign(?:ed|ment)?\b/i, /Mira/],
       [titles[1], /assign(?:ed|ment)?\b/i, /Unassigned/],
@@ -298,9 +418,9 @@ export const designProjectScenarios = {
       await (await field(s, 'Assignee')).selectOption({label: 'Unassigned'}); await click(s, 'Apply assignment');
       await selectEntry(s, 'Display cable'); await assigned('Ivo');
       await selectEntry(s, 'Sensor offline'); await click(s, 'Resolve'); await counts(2, 1);
-      await filter('Resolved'); await shown(s, 'Sensor offline'); await absent(s, 'Door reader'); await absent(s, 'Display cable');
+      await choose(s, 'Resolved'); await shown(s, 'Sensor offline'); await absent(s, 'Door reader'); await absent(s, 'Display cable');
       await selectEntry(s, 'Sensor offline'); await assigned('Mira');
-      await click(s, 'Reopen'); await counts(3, 0); await filter('Open'); await shown(s, 'Sensor offline');
+      await click(s, 'Reopen'); await counts(3, 0); await choose(s, 'Open'); await shown(s, 'Sensor offline');
       await selectEntry(s, 'Door reader'); await assigned('Unassigned');
     });
     await step('resolving every record yields a recoverable empty state and ordered history', async () => {
@@ -308,10 +428,10 @@ export const designProjectScenarios = {
         await selectEntry(s, title); await click(s, 'Resolve'); await counts(2 - i, i + 1);
       }
       await assertText(s, /no open|no incidents|all (?:incidents )?resolved/i);
-      await filter('Resolved'); for (const title of titles) await shown(s, title);
+      await choose(s, 'Resolved'); for (const title of titles) await shown(s, title);
       await dialog(s, p, 'History', checkHistory);
       await selectEntry(s, 'Door reader'); await assigned('Unassigned'); await click(s, 'Reopen');
-      await filter('Open'); await counts(1, 2); await shown(s, 'Door reader');
+      await choose(s, 'Open'); await counts(1, 2); await shown(s, 'Door reader');
       await absent(s, 'Sensor offline'); await absent(s, 'Display cable');
       history.push(['Door reader', /\breopen(?:ed)?\b|Resolved.*(?:→|->|to).*Open/i]);
       await dialog(s, p, 'History', checkHistory);
@@ -333,8 +453,7 @@ export const designProjectScenarios = {
     };
     // Rendered lines outside the form controls. Digits are ignored, so that a
     // character counter that follows the name is not read as an error message.
-    const lines = async () => (await s.locator('body').innerText()).split('\n')
-      .map(line => line.replace(/\s+/g, ' ').replace(/\d+/g, '#').trim()).filter(Boolean);
+    const pageLines = async () => (await lines(s.locator('body'))).map(fold);
     // The browser's own message is the field's error when the page lets the browser
     // report it: an `invalid` event on the field that the page did not cancel.
     const watch = control => control.evaluateHandle(node => {
@@ -343,11 +462,8 @@ export const designProjectScenarios = {
       return seen;
     });
     // A field-level error: a line the page did not show while the same draft was valid.
-    const fieldError = async (valid, seen) => {
-      const rest = [...valid];
-      const added = (await lines()).filter(line => { const at = rest.indexOf(line); if (at >= 0) rest.splice(at, 1); return at < 0; });
-      return added.length > 0 || await seen.evaluate(log => new Promise(done => setTimeout(() => done(log.reported))));
-    };
+    const fieldError = async (valid, seen) => only(await pageLines(), valid).length > 0
+      || await seen.evaluate(log => new Promise(done => setTimeout(() => done(log.reported))));
     await step('draft edits across tabs can be cancelled without changing saved values', async () => {
       await choose(s, 'Basics'); assert.equal(await (await field(s, 'Project name')).inputValue(), 'Studio notes');
       await (await field(s, 'Project name')).fill('Draft only');
@@ -363,7 +479,7 @@ export const designProjectScenarios = {
     });
     await step('invalid name is focused, review gives before/after and save commits once', async () => {
       const name = await field(s, 'Project name');
-      await name.fill('Draft name'); const valid = await lines();
+      await name.fill('Draft name'); const valid = await pageLines();
       await name.fill(''); let seen = await watch(name);
       if (await button(s, 'Save changes').isEnabled()) await click(s, 'Save changes');
       assert.equal(await focused(name), true);
@@ -419,7 +535,6 @@ export const designProjectScenarios = {
     // choose() operates: a select named `group`, radios, or tabs and buttons that
     // expose a state. null when the controls expose none.
     const chosen = async (labels, group) => {
-      const starting = name => new RegExp('^' + escape(name) + '(?:$|\\s|[(:])', 'i');
       const select = visible(s.getByRole('combobox', {name: group}));
       if (await select.count() === 1) {
         const label = await select.evaluate(node => (node.selectedOptions?.[0]?.label ?? '').trim());
@@ -440,8 +555,6 @@ export const designProjectScenarios = {
     // Review is compared with itself. The words that differ between two Review steps
     // are what Review shows for the changed choice, whatever else on the page
     // mentions a room, a time, a capacity or a step number.
-    const words = async () => (await readText(s)).toLowerCase().match(/\d{1,2}:\d{2}|\p{L}+|\d+(?:\.\d+)?/gu) || [];
-    const only = (a, b) => { const rest = [...b]; return a.filter(word => { const at = rest.indexOf(word); if (at >= 0) rest.splice(at, 1); return at < 0; }); };
     const reviewChanged = (before, after, was, now, what) => {
       const gone = only(before, after), came = only(after, before);
       assert.ok(was.every(word => gone.includes(word)) && now.every(word => came.includes(word)),
@@ -459,15 +572,15 @@ export const designProjectScenarios = {
       await choose(s, '09:00', /Time/i); await (await count()).fill('');
       assert.equal(await next().isDisabled(), true, 'Continue must stay disabled without a participant count');
       await (await count()).fill('6'); await click(s, /^Continue\b/i);
-      const morning = await words();
+      const morning = await words(s);
       await click(s, /^Back\b/i);
       const kept = await timeStep();
       if (kept.time) assert.deepEqual(kept.time, ['09:00'], 'Back from Review did not preserve the chosen time');
       assert.equal(kept.count, '6', 'Back from Review did not preserve the participant count');
       await choose(s, '14:00', /Time/i); await click(s, /^Continue\b/i);
-      const afternoon = await words(); reviewChanged(morning, afternoon, ['09:00'], ['14:00'], 'time');
+      const afternoon = await words(s); reviewChanged(morning, afternoon, ['09:00'], ['14:00'], 'time');
       await click(s, /^Back\b/i); await (await field(s, /participant/i)).fill('7'); await click(s, /^Continue\b/i);
-      const seven = await words(); reviewChanged(afternoon, seven, ['6'], ['7'], 'participant count');
+      const seven = await words(s); reviewChanged(afternoon, seven, ['6'], ['7'], 'participant count');
       await assertText(s, /Birch/); await assertText(s, /14:00/); await assertText(s, /\b7\b/);
       await click(s, /^Back\b/i); await click(s, /^Back\b/i);
       const room = await chosen(rooms, /Room/i);
@@ -480,12 +593,10 @@ export const designProjectScenarios = {
       for (const value of ['0', '1.5']) { await (await field(s, /participant/i)).fill(value); assert.equal(await button(s, /^Continue\b/i).isDisabled(), true); }
       await (await field(s, /participant/i)).fill('4'); await click(s, /^Continue\b/i); await assertText(s, /Cedar/); await assertText(s, /\b4\b/);
       // "4" alone is also Cedar's capacity; the count Review shows must have changed from 7.
-      reviewChanged(seven, await words(), ['birch', '7'], ['cedar', '4'], 'room and participant count');
+      reviewChanged(seven, await words(s), ['birch', '7'], ['cedar', '4'], 'room and participant count');
     });
     await step('confirmation is a local demo and Start over resets choices', async () => {
-      const saying = () => text(s, /No room was booked/), earlier = await saying().elementHandles();
-      await click(s, /^Confirm\b/i); await shown(s, /No room was booked/);
-      assert.ok(await saying().evaluateAll((nodes, old) => nodes.some(node => !old.includes(node)), earlier),
+      assert.ok(await answers(s, /No room was booked/, () => click(s, /^Confirm\b/i)),
         'Confirm did not open a completion panel saying No room was booked');
       await click(s, 'Start over');
       assert.equal(await button(s, /^Continue\b/i).isDisabled(), true);
@@ -498,10 +609,6 @@ export const designProjectScenarios = {
   },
   async 'workshop-journey'(s, p, step) {
     const radio = name => s.getByRole('radio', {name: new RegExp('^' + escape(name) + '\\b', 'i')});
-    // Review is compared with itself: the words that differ between two Review steps
-    // are what Review shows, whatever else on the page names a workshop or a day.
-    const words = async () => (await readText(s)).toLowerCase().match(/\p{L}+|\d+/gu) || [];
-    const only = (a, b) => { const rest = [...b]; return a.filter(word => { const at = rest.indexOf(word); if (at >= 0) rest.splice(at, 1); return at < 0; }); };
     await step('radio keyboard selection admits the day step only after a choice', async () => {
       assert.equal(await button(s, /^Continue\b/i).isDisabled(), true);
       const choices = visible(s.getByRole('radio')); assert.equal(await choices.count(), 3);
@@ -512,7 +619,9 @@ export const designProjectScenarios = {
     });
     await step('day selection, Back and review preserve exact choices', async () => {
       await s.getByRole('radio', {name: /^Thursday\b/i}).check(); await click(s, /^Continue\b/i);
-      await shown(s, /Bicycle care/); await shown(s, /Thursday/); const first = await words();
+      // Review is compared with itself: the words that differ between two Review steps
+      // are what Review shows, whatever else on the page names a workshop or a day.
+      await shown(s, /Bicycle care/); await shown(s, /Thursday/); const first = await words(s);
       await click(s, /^Back\b/i); assert.equal(await s.getByRole('radio', {name: /^Thursday\b/i}).isChecked(), true);
       await click(s, /^Back\b/i); assert.equal(await s.getByRole('radio', {name: /^Bicycle care\b/i}).isChecked(), true);
       await click(s, /^Continue\b/i); await click(s, /^Continue\b/i);
@@ -520,16 +629,14 @@ export const designProjectScenarios = {
       await click(s, /^Back\b/i); await click(s, /^Back\b/i);
       await radio('Urban sketching').check(); await click(s, /^Continue\b/i);
       await radio('Tuesday').check(); await click(s, /^Continue\b/i);
-      const second = await words(), gone = only(first, second), came = only(second, first);
+      const second = await words(s), gone = only(first, second), came = only(second, first);
       assert.ok(['bicycle', 'care', 'thursday'].every(word => gone.includes(word)) && ['urban', 'sketching', 'tuesday'].every(word => came.includes(word)),
         'Review does not show the exact selections: Bicycle care on Thursday should have become Urban sketching on Tuesday');
     });
     await step('confirmation and restart are real state transitions', async () => {
-      const saying = () => text(s, /No booking was made/), earlier = await saying().elementHandles();
-      const before = await readText(s); await click(s, /^(Confirm|Complete|Finish)\b/i);
-      await shown(s, /No booking was made/); assert.notEqual(await readText(s), before, 'confirmation did not change the interface');
-      assert.ok(await saying().evaluateAll((nodes, old) => nodes.some(node => !old.includes(node)), earlier),
-        'The final confirmation does not say No booking was made');
+      const before = await readText(s), answered = await answers(s, /No booking was made/, () => click(s, /^(Confirm|Complete|Finish)\b/i));
+      assert.notEqual(await readText(s), before, 'confirmation did not change the interface');
+      assert.ok(answered, 'The final confirmation does not say No booking was made');
       await click(s, /^Start again\b/i); assert.equal(await button(s, /^Continue\b/i).isDisabled(), true);
       assert.equal(await visible(s.getByRole('radio', {checked: true})).count(), 0);
       // The day step is hidden here: enter it again to see whether its choice was reset too.
@@ -539,39 +646,34 @@ export const designProjectScenarios = {
     });
   },
   async 'tool-shortlist-limits'(s, p, step) {
-    // Rendered lines of the page. Two states are compared line by line, so that a
+    // Two states of the page are compared line by line with their numbers, so that a
     // check reads the text that came with a change and not any text on the page.
-    const lines = async () => (await s.locator('body').innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const body = s.locator('body');
     const fresh = (before, after) => after.filter(line => !before.includes(line));
-    const mentions = (line, n) => (line.toLowerCase().match(/\p{L}+|\d+/gu) || []).some(word => word === String(n) || word === ['zero', 'one', 'two'][n]);
+    const states = (line, n) => (line.toLowerCase().match(/\p{L}+|\d+/gu) || []).some(word => word === String(n) || word === ['zero', 'one', 'two'][n]);
     const counted = (before, after, n, when) =>
-      assert.ok(fresh(before, after).some(line => mentions(line, n)), `The visible shortlist count does not show ${n} ${when}`);
-    // Whether the demo request `act` makes the page say so in an element that did not
-    // already say it. The page may answer in the dialog or, closing it, beside the list.
-    const answers = async act => {
-      const saying = () => text(s, /No borrowing request was sent/), earlier = await saying().elementHandles();
-      await act(); await shown(s, /No borrowing request was sent/);
-      return saying().evaluateAll((nodes, old) => nodes.some(node => !old.includes(node)), earlier);
-    };
+      assert.ok(fresh(before, after).some(line => states(line, n)), `The visible shortlist count does not show ${n} ${when}`);
+    // Whether the demo request `act` is answered: in the dialog or, closing it, beside the list.
+    const requests = act => answers(s, /No borrowing request was sent/, act);
     await step('category and search combine and recover', async () => {
       await choose(s, 'Garden', /category/i); await search(s, 'drill'); await absent(s, 'Hand drill'); await absent(s, 'Garden fork');
-      const unmatched = await lines();
+      const unmatched = await lines(body);
       await search(s, ''); await shown(s, 'Garden fork');
       // The empty state is text shown only while nothing matches, not any "no tools" on the page.
       const emptyState = /\b(?:no|0|zero)\b[^.]*\b(?:tools?|results?|match(?:es|ing)?|items?)\b|\bnothing\b|\b(?:could ?n.t|could not|can.t|cannot) find\b|\bnot found\b|\bempty\b/i;
-      assert.ok(fresh(await lines(), unmatched).some(line => emptyState.test(line)), 'No empty state is shown while no tool matches the category and search');
+      assert.ok(fresh(await lines(body), unmatched).some(line => emptyState.test(line)), 'No empty state is shown while no tool matches the category and search');
       await choose(s, 'All', /category/i);
     });
     await step('two-item bound, dialog removal and visible count remain synchronized', async () => {
-      const none = await lines();
+      const none = await lines(body);
       await action(s, 'Add to shortlist', 'Hand drill');
-      const single = await lines(); counted(none, single, 1, 'after the first tool was added');
+      const single = await lines(body); counted(none, single, 1, 'after the first tool was added');
       await action(s, 'Add to shortlist', 'Sewing kit');
       const third = button(await item(s, 'Garden fork'), /^Add to shortlist\b/i);
       // A full shortlist may also replace this action, for example by a disabled "Shortlist full".
       if (await third.count() === 1 && await third.isEnabled()) await third.click();
-      const full = await lines(); counted(single, full, 2, 'after the second tool was added');
-      assert.ok(fresh(none, single).filter(line => mentions(line, 1)).some(line => !full.includes(line)), 'The visible shortlist count still shows 1 after the second tool was added');
+      const full = await lines(body); counted(single, full, 2, 'after the second tool was added');
+      assert.ok(fresh(none, single).filter(line => states(line, 1)).some(line => !full.includes(line)), 'The visible shortlist count still shows 1 after the second tool was added');
       // The reason is a line that states the limit. The count is not a reason ("2 of 2
       // tools" matches the same words): a line that only repeats the earlier count line
       // with another number is left out, unless it names the limit in words.
@@ -586,95 +688,43 @@ export const designProjectScenarios = {
       });
       const offered = await itemAction(s, 'Add to shortlist', 'Hand drill').catch(() => null);
       assert.ok(offered && await offered.isEnabled(), 'The list does not offer Hand drill again after its removal in the dialog');
-      counted(full, await lines(), 1, 'after a removal in the dialog');
+      counted(full, await lines(body), 1, 'after a removal in the dialog');
       await action(s, 'Add to shortlist', 'Garden fork');
       let requested = false;
       await dialog(s, p, 'Review shortlist', async popup => {
         await shown(popup, 'Sewing kit'); await shown(popup, 'Garden fork'); await absent(popup, 'Hand drill');
         if (await button(popup, /request/i).count() !== 1) return;
         requested = true;
-        assert.ok(await answers(() => click(popup, /request/i)), 'The demo request action does not say No borrowing request was sent');
+        assert.ok(await requests(() => click(popup, /request/i)), 'The demo request action does not say No borrowing request was sent');
       });
       // The brief does not place the demo request action inside the dialog.
-      if (!requested) assert.ok(await answers(() => click(s, /request/i)), 'The demo request action does not say No borrowing request was sent');
+      if (!requested) assert.ok(await requests(() => click(s, /request/i)), 'The demo request action does not say No borrowing request was sent');
     });
     await step('Remove outside the dialog frees a place; dialog, list and count follow', async () => {
-      const full = await lines();
-      // Any Remove for this tool outside the dialog. A page may show a chosen tool twice, in
-      // the tool list and in a shortlist panel: a button named after the tool, or the
-      // Remove button of an innermost row that shows it.
-      const rows = visible(s.locator('article,li,tr,[role="row"],[role="listitem"],[role="group"]')).filter({has: text(s, 'Garden fork')});
-      const removal = button(s, /^Remove\b.*Garden fork|^Garden fork.*\bRemove\b/i).or(button(rows.filter({hasNot: rows}), /^Remove\b/i));
+      const full = await lines(body);
+      // Any Remove for this tool outside the dialog. A page may show a chosen tool twice,
+      // in the tool list and in a shortlist panel, and offer Remove in both rows.
+      const removal = await itemActions(s, 'Remove', 'Garden fork');
       assert.ok(await removal.count(), 'No Remove action for Garden fork outside the dialog');
       await removal.first().click();
       await dialog(s, p, 'Review shortlist', async popup => {
         await shown(popup, 'Sewing kit');
-        assert.equal(await text(popup, 'Garden fork').count(), 0, 'Remove outside the dialog left Garden fork on the shortlist');
+        assert.ok(!await listed(popup, 'Garden fork'), 'Remove outside the dialog left Garden fork on the shortlist');
       });
-      counted(full, await lines(), 1, 'after Remove outside the dialog');
+      counted(full, await lines(body), 1, 'after Remove outside the dialog');
       await action(s, 'Add to shortlist', 'Hand drill');
       await dialog(s, p, 'Review shortlist', async popup => { await shown(popup, 'Hand drill'); await shown(popup, 'Sewing kit'); await absent(popup, 'Garden fork'); });
     });
   },
   async 'queue-order-and-active-item'(s, p, step) {
     const titles = ['Night lines', 'Paper satellites', 'Second sunrise'];
-    const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
-    const queueName = /^(?:(?:your|my) )?(?:listening )?queue(?:\s*\(.*\))?$/i, details = /^Queue details\b/i;
+    const queueName = /^(?:(?:your|my) )?(?:listening )?queue(?:\s*\(.*\))?$/i, details = 'Queue details';
     const emptyState = /empty|no (?:queued )?tracks|nothing/i, body = s.locator('body');
-    // Rendered lines of a scope. Two lines that differ only in their numbers are
-    // the same line, so an updated counter is never read as a new message.
-    const lines = async scope => (await scope.innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const appeared = (before, after) => {
-      const known = new Set(before.map(line => line.replace(/\d+/g, '#')));
-      return after.filter(line => !known.has(line.replace(/\d+/g, '#')));
-    };
-    // Innermost semantic rows of `scope` that hold the exact title: item()
-    // without its requirement that there is exactly one.
-    const rows = (scope, title) => visible(scope.locator(rowSelector)).filter({has: text(p, title)})
-      .filter({hasNot: visible(p.locator(rowSelector)).filter({has: text(p, title)})});
-    // The entries of a title: its own element; or, when the page repeats the title
-    // outside the list ("Current: <strong>Paper satellites</strong>"), the rows
-    // that hold it; or, when no element is the bare title, the smallest elements
-    // whose text contains it ("1. Paper satellites — Current").
-    const entries = async (scope, title) => {
-      const bare = text(scope, title), found = await bare.count();
-      if (found === 1) return bare;
-      if (!found) return visible(scope.getByText(title));
-      return await rows(scope, title).count() ? rows(scope, title) : bare;
-    };
+    // How often a title is listed, and the listed titles in their order, each once.
     const count = async (scope, title) => (await entries(scope, title)).count();
-    const entry = async (scope, title, where) => {
-      const found = await entries(scope, title), times = await found.count();
-      assert.equal(times, 1, `Expected ${title} once in ${where}, found ${times}`);
-      return found;
-    };
-    // A row action may carry the title after, before or inside its name: "Move
-    // up Paper satellites", "Paper satellites: move up", "Move Paper satellites up".
-    const naming = (name, title) => {
-      const words = name.split(' '), quoted = '["“‘\']?' + escape(title) + '["”’\']?';
-      return new RegExp(['^' + name + '\\b.*' + escape(title), '^' + escape(title) + '.*\\b' + name + '\\b',
-        ...words.slice(1).map((_, i) => '^' + [...words.slice(0, i + 1), quoted, ...words.slice(i + 1)].join('\\s+') + '\\b')].join('|'), 'i');
-    };
-    const act = async (scope, name, title) => {
-      const direct = button(scope, naming(name, title));
-      await (await direct.count() === 1 ? direct : await itemAction(scope, name, title)).click();
-    };
-    // The geometric rule of ordered(), applied to those entries. Like is compared
-    // with like: when one title has to be located by its row, all of them are.
     const order = async (scope, names, where) => {
-      let found = [];
-      for (const name of names) found.push(await entry(scope, name, where));
-      const bare = [], held = [];
-      for (const name of names) { bare.push(await text(scope, name).count()); held.push(await rows(scope, name).count()); }
-      if (bare.some(times => times !== 1) && held.every(times => times === 1)) found = names.map(name => rows(scope, name));
-      const boxes = [];
-      for (const [index, name] of names.entries()) {
-        const box = await found[index].boundingBox(); assert.ok(box, `No rendered entry ${name}`); boxes.push(box);
-      }
-      for (let i = 1; i < boxes.length; i++) {
-        const a = boxes[i - 1], b = boxes[i];
-        assert.ok(b.y > a.y + 1 || Math.abs(b.y - a.y) <= 1 && b.x > a.x, `Rendered order mismatch: ${names.join(' → ')}`);
-      }
+      for (const name of names) { const times = await count(scope, name); assert.equal(times, 1, `Expected ${name} once in ${where}, found ${times}`); }
+      await ordered(scope, names);
     };
     let listedDetails = [];
     await step('unique queue, actual order and current identity survive reordering', async () => {
@@ -682,15 +732,14 @@ export const designProjectScenarios = {
       // A queued track stays single whether its Add to queue control refuses the
       // second request, is disabled or is withdrawn.
       const addAgain = async title => {
-        let control = button(library, naming('Add to queue', title));
-        if (await control.count() !== 1) control = button(rows(library, title), /^Add to queue\b/i);
+        const control = await itemActions(library, 'Add to queue', title);
         if (await control.count() === 1 && await control.isEnabled()) await control.click();
       };
-      await act(library, 'Add to queue', 'Night lines');
+      await action(library, 'Add to queue', 'Night lines');
       const queue = await region(s, queueName);
       await addAgain('Night lines');
       assert.equal(await count(queue, 'Night lines'), 1, 'Add to queue put Night lines in the queue more than once');
-      for (const title of titles.slice(1)) await act(library, 'Add to queue', title);
+      for (const title of titles.slice(1)) await action(library, 'Add to queue', title);
       // Each repeated request is for the last queued track, so a page that moves a
       // repeated track to the end keeps the same order as one that ignores it.
       await addAgain('Second sunrise');
@@ -724,19 +773,18 @@ export const designProjectScenarios = {
         }
         return found.sort().join('|');
       }, title);
-      // innerText follows text-transform, so an upper-case badge reads "CURRENT".
-      await select('Paper satellites'); await withinText(await item(queue, 'Paper satellites'), /Current/i);
+      await select('Paper satellites'); await withinText(await item(queue, 'Paper satellites'), /Current/);
       const marked = await marks('Paper satellites');
       for (const other of ['Night lines', 'Second sunrise'])
         assert.notEqual(await marks(other), marked, `${other} is marked Current exactly like the selected Paper satellites`);
-      await act(queue, 'Move up', 'Paper satellites'); await order(queue, ['Paper satellites', 'Night lines', 'Second sunrise'], 'the queue');
-      await withinText(await item(queue, 'Paper satellites'), /Current/i);
+      await action(queue, 'Move up', 'Paper satellites'); await order(queue, ['Paper satellites', 'Night lines', 'Second sunrise'], 'the queue');
+      await withinText(await item(queue, 'Paper satellites'), /Current/);
       await dialog(s, p, details, async popup => {
         await order(popup, ['Paper satellites', 'Night lines', 'Second sunrise'], 'Queue details'); listedDetails = await lines(popup);
       });
-      await act(queue, 'Move down', 'Paper satellites'); await order(queue, titles, 'the queue');
+      await action(queue, 'Move down', 'Paper satellites'); await order(queue, titles, 'the queue');
       assert.equal(await marks('Paper satellites'), marked, 'Move down changed how Paper satellites is marked Current');
-      await act(queue, 'Remove', 'Paper satellites'); await absent(queue, 'Paper satellites');
+      await action(queue, 'Remove', 'Paper satellites'); await absent(queue, 'Paper satellites');
       const current = await queue.innerText(); assert.doesNotMatch(current, /Current\s*:?\s*Paper satellites|Paper satellites\s*Current/i);
       for (const other of ['Night lines', 'Second sunrise'])
         assert.notEqual(await marks(other), marked, `Removing the current track made ${other} Current instead of clearing Current`);
@@ -748,7 +796,7 @@ export const designProjectScenarios = {
       // The empty state is text that Clear queue made appear, wherever the page puts it.
       assert.ok(appeared(before, await lines(body)).some(line => emptyState.test(line)), 'Clear queue left no explicit empty state on the page');
       await dialog(s, p, details, async popup => {
-        for (const title of titles) assert.equal(await visible(popup.getByText(title)).count(), 0, `Unexpected visible content: ${title}`);
+        for (const title of titles) await unmentioned(popup, title);
         assert.ok(appeared(listedDetails, await lines(popup)).some(line => emptyState.test(line)), 'Queue details shows no empty message for a cleared queue');
       });
       await shown(s, /No audio playback in this demo/);
@@ -756,56 +804,15 @@ export const designProjectScenarios = {
   },
   async 'schedule-conflicts'(s, p, step) {
     const sessions = ['Sound walks', 'Poster room', 'Light studies'];
-    const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
-    const review = /^Review my day\b/i, body = s.locator('body');
+    const review = 'Review my day', body = s.locator('body');
     const emptyDay = /empty|no sessions?\b|nothing|\bnone\b|not (?:chosen|selected|added|picked)/i;
     // Why the 10:00 slot is refused: a conflict word, or the time or slot said to
     // be taken. A programme row that only starts with its time ("10:00 Sound
     // walks Already added") is not an explanation.
     const reason = /conflict|clash|overlap|same (?:time|slot|hour)|already\b.*\b10:00|(?:10:00|slot) (?:slot )?(?:is )?(?:already )?(?:taken|occupied|full)|(?:taken|occupied) by|one session (?:per|at)/i;
-    // Rendered lines of a scope. Two lines that differ only in their numbers are
-    // the same line, so an updated counter is never read as a new message.
-    const lines = async scope => (await scope.innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const appeared = (before, after) => {
-      const known = new Set(before.map(line => line.replace(/\d+/g, '#')));
-      return after.filter(line => !known.has(line.replace(/\d+/g, '#')));
-    };
-    // Innermost semantic rows that hold the exact title. A chosen session may
-    // have two: its programme row and its entry in a "My day" list.
-    const rows = (title, scope = s) => visible(scope.locator(rowSelector)).filter({has: text(p, title)})
-      .filter({hasNot: visible(p.locator(rowSelector)).filter({has: text(p, title)})});
-    const listed = title => text(s, title).count();
-    // A row action may carry the title after, before or inside its name: "Add to
-    // my day: Sound walks", "Sound walks: add to my day", "Add Sound walks to my day".
-    const naming = (name, title) => {
-      const words = name.split(' '), quoted = '["“‘\']?' + escape(title) + '["”’\']?';
-      return new RegExp(['^' + name + '\\b.*' + escape(title), '^' + escape(title) + '.*\\b' + name + '\\b',
-        ...words.slice(1).map((_, i) => '^' + [...words.slice(0, i + 1), quoted, ...words.slice(i + 1)].join('\\s+') + '\\b')].join('|'), 'i');
-    };
-    // The dialog entries of a session: the element that is its bare title; or its
-    // rows, when the labels of a row's buttons repeat the title; or, when no element
-    // is the bare title, the smallest elements whose text contains it ("10:00 —
-    // Sound walks").
-    const entries = async (popup, title) => {
-      const bare = text(popup, title), found = await bare.count();
-      if (found === 1) return bare;
-      if (!found) return visible(popup.getByText(title));
-      return await rows(title, popup).count() ? rows(title, popup) : bare;
-    };
-    // The geometric rule of ordered(), applied to those entries.
-    const order = async (popup, names) => {
-      const boxes = [];
-      for (const name of names) {
-        const found = await entries(popup, name);
-        assert.equal(await found.count(), 1, `Expected one accessible ordered entry ${name}`);
-        const box = await found.boundingBox(); assert.ok(box, `No rendered entry ${name}`); boxes.push(box);
-      }
-      for (let i = 1; i < boxes.length; i++) {
-        const a = boxes[i - 1], b = boxes[i];
-        assert.ok(b.y > a.y + 1 || Math.abs(b.y - a.y) <= 1 && b.x > a.x, `Rendered order mismatch: ${names.join(' → ')}`);
-      }
-    };
-    const unlisted = async (popup, title) => assert.equal(await (await entries(popup, title)).count(), 0, `Unexpected visible content: ${title}`);
+    // Every rendering of a bare title on the page. A chosen session may have two:
+    // its programme row and its entry in a "My day" list.
+    const renderings = title => text(s, title).count();
     // The parts of the day may be buttons, tabs, radios or the options of one select.
     const filter = async label => {
       const offers = new RegExp('^\\s*' + label + '(?:$|\\s|[(:])', 'i');
@@ -816,8 +823,7 @@ export const designProjectScenarios = {
     };
     // The Add to my day control of a session, or null when the page withdrew it.
     const offer = async title => {
-      let control = button(s, naming('Add to my day', title));
-      if (await control.count() !== 1) control = button(rows(title), /^Add to my day\b/i);
+      const control = await itemActions(s, 'Add to my day', title);
       return await control.count() === 1 ? control : null;
     };
     const add = async title => {
@@ -828,8 +834,7 @@ export const designProjectScenarios = {
     // The programme row and a "My day" list may each offer Remove for one
     // session; either frees the slot.
     const remove = async title => {
-      let control = button(s, naming('Remove', title));
-      if (!await control.count()) control = button(rows(title), /^Remove\b/i);
+      const control = await itemActions(s, 'Remove', title);
       assert.ok(await control.count(), `Expected one accessible Remove on ${title}`);
       await control.first().click();
     };
@@ -837,11 +842,11 @@ export const designProjectScenarios = {
     await step('All, Morning and Afternoon list the sessions of that part of the day', async () => {
       // Nothing is chosen yet, so every rendering of a title belongs to the programme.
       const full = {};
-      for (const title of sessions) { full[title] = await listed(title); assert.ok(full[title], `Missing visible content: ${title}`); }
+      for (const title of sessions) { full[title] = await renderings(title); assert.ok(full[title], `Missing visible content: ${title}`); }
       for (const [label, kept] of [['Morning', ['Sound walks', 'Poster room']], ['Afternoon', ['Light studies']], ['All', sessions]]) {
         await filter(label);
         for (const title of sessions) {
-          const now = await listed(title);
+          const now = await renderings(title);
           if (kept.includes(title)) assert.equal(now, full[title], `${label} filter hides ${title}`);
           else assert.ok(now < full[title], `${label} filter still lists ${title}`);
         }
@@ -859,28 +864,28 @@ export const designProjectScenarios = {
         attempted ? 'Adding Poster room to the taken 10:00 slot produced no explanation of the conflict'
           : 'Poster room cannot be added, but no visible text explains the 10:00 conflict');
       await add('Light studies');
-      await dialog(s, p, review, async popup => { await order(popup, ['Sound walks', 'Light studies']); await unlisted(popup, 'Poster room'); });
+      await dialog(s, p, review, async popup => { await ordered(popup, ['Sound walks', 'Light studies']); await unmentioned(popup, 'Poster room'); });
       // A chosen session may stay visible in a "My day" list; its programme row must go.
-      const morning = await listed('Sound walks'), afternoon = await listed('Light studies');
+      const morning = await renderings('Sound walks'), afternoon = await renderings('Light studies');
       await filter('Afternoon');
-      assert.ok(await listed('Sound walks') < morning, 'Afternoon filter still lists the chosen 10:00 session Sound walks in the programme');
+      assert.ok(await renderings('Sound walks') < morning, 'Afternoon filter still lists the chosen 10:00 session Sound walks in the programme');
       await shown(s, 'Light studies');
-      assert.equal(await listed('Light studies'), afternoon, 'Afternoon filter hides the chosen 14:00 session Light studies');
+      assert.equal(await renderings('Light studies'), afternoon, 'Afternoon filter hides the chosen 14:00 session Light studies');
       await dialog(s, p, review, async popup => {
         for (const title of ['Sound walks', 'Light studies'])
           assert.ok(await (await entries(popup, title)).count(), `The Afternoon filter dropped the saved choice ${title}`);
-        await order(popup, ['Sound walks', 'Light studies']);
+        await ordered(popup, ['Sound walks', 'Light studies']);
       });
       await filter('All');
       await remove('Sound walks'); await add('Poster room');
       await dialog(s, p, review, async popup => {
-        await order(popup, ['Poster room', 'Light studies']); await unlisted(popup, 'Sound walks'); listedDay = await lines(popup);
+        await ordered(popup, ['Poster room', 'Light studies']); await unmentioned(popup, 'Sound walks'); listedDay = await lines(popup);
       });
     });
     await step('removal empties the day and finish does not claim real reservations', async () => {
       await remove('Poster room'); await remove('Light studies');
       await dialog(s, p, review, async popup => {
-        for (const title of sessions) await unlisted(popup, title);
+        for (const title of sessions) await unmentioned(popup, title);
         // The message belongs to the empty day: it was not shown while sessions were listed.
         assert.ok(appeared(listedDay, await lines(popup)).some(line => emptyDay.test(line)), 'Review my day shows no empty message that appears when no session is selected');
       });
@@ -891,37 +896,10 @@ export const designProjectScenarios = {
   },
   async 'catalog-compare-price-order'(s, p, step) {
     const names = ['Pocket strap', 'Canvas wrap', 'Lens pouch'];
-    const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
-    const opener = /^Compare selected\b/i, body = s.locator('body');
-    // Rendered lines of a scope. Two lines that differ only in their numbers are
-    // the same line, so an updated counter is never read as a new message.
-    const fold = line => line.replace(/\d+/g, '#');
-    const lines = async scope => (await scope.innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const appeared = (before, after) => { const known = new Set(before.map(fold)); return after.filter(line => !known.has(fold(line))); };
-    // Innermost semantic rows that hold the exact name. A selected product may
-    // have two: its shelf row and its entry in a list of the selection.
-    const rows = name => visible(s.locator(rowSelector)).filter({has: text(p, name)})
-      .filter({hasNot: visible(p.locator(rowSelector)).filter({has: text(p, name)})});
+    const opener = 'Compare selected', body = s.locator('body');
     const listing = async (expected, when) => {
-      for (const name of names) assert.equal(await text(s, name).count() > 0, expected.includes(name),
+      for (const name of names) assert.equal(await listed(s, name), expected.includes(name),
         `${when}: ${name} is ${expected.includes(name) ? 'missing' : 'still listed'}`);
-    };
-    // The geometric rule of ordered(). A product's entry is the element that is
-    // its name, or its row when the row's controls repeat the name in their
-    // labels ("Compare <span>Pocket strap</span>").
-    const order = async expected => {
-      const boxes = [], bare = [];
-      for (const name of expected) bare.push(await text(s, name).count());
-      for (const name of expected) {
-        // Like is compared with like: all names by their element, or all by their row.
-        const found = bare.every(times => times === 1) ? text(s, name) : rows(name);
-        assert.equal(await found.count(), 1, `Expected one accessible ordered entry ${name}`);
-        const box = await found.boundingBox(); assert.ok(box, `No rendered entry ${name}`); boxes.push(box);
-      }
-      for (let i = 1; i < boxes.length; i++) {
-        const a = boxes[i - 1], b = boxes[i];
-        assert.ok(b.y > a.y + 1 || Math.abs(b.y - a.y) <= 1 && b.x > a.x, `Rendered order mismatch: ${expected.join(' → ')}`);
-      }
     };
     await step('size/search combine; price sort changes rendered product order', async () => {
       await choose(s, 'Small', /Size/i); await search(s, 'wrap'); await listing([], 'Small with the search "wrap"');
@@ -929,15 +907,16 @@ export const designProjectScenarios = {
       await search(s, ''); await listing(['Pocket strap', 'Lens pouch'], 'Small');
       await choose(s, 'Large', /Size/i); await listing(['Canvas wrap'], 'Large');
       await choose(s, 'All', /Size/i); await listing(names, 'All sizes');
-      await choose(s, 'Low to high', /Sort by price/i); await order(['Pocket strap', 'Lens pouch', 'Canvas wrap']);
-      await choose(s, 'High to low', /Sort by price/i); await order(['Canvas wrap', 'Lens pouch', 'Pocket strap']);
+      await choose(s, 'Low to high', /Sort by price/i); await ordered(s, ['Pocket strap', 'Lens pouch', 'Canvas wrap']);
+      await choose(s, 'High to low', /Sort by price/i); await ordered(s, ['Canvas wrap', 'Lens pouch', 'Pocket strap']);
     });
     await step('compare keeps two exact products and dialog removal updates selection', async () => {
       // The shelf toggle of a product: a checkbox or a button in the product's row,
-      // named Compare or with other words for it ("Add to comparison").
+      // named Compare or with other words for it ("Add to comparison"). A selected
+      // product may have two rows: on the shelf and in a list of the selection.
       const toggleOf = async name => {
-        const choice = visible(rows(name).getByRole('checkbox', {name: /compar/i}));
-        return await choice.count() ? choice : button(rows(name), /compar/i);
+        const held = await rows(s, name), choice = visible(held.getByRole('checkbox', {name: /compar/i}));
+        return await choice.count() ? choice : button(held, /compar/i);
       };
       // Returns whether the toggle accepted a click; a page may disable it instead.
       const toggle = async name => {
@@ -968,10 +947,9 @@ export const designProjectScenarios = {
         for (const line of await lines(body)) seen.set(fold(line), seen.has(fold(line)) ? null : line);
         return seen;
       };
-      // A compared product is named by its own element, or leads a column header
+      // A compared product is named by its own element, or in a column header
       // that also holds its Remove control.
-      const compared = async (popup, name) => await text(popup, name).count() > 0
-        || await visible(popup.getByRole('columnheader', {name: new RegExp('^' + escape(name) + '\\b', 'i')})).count() > 0;
+      const compared = async (popup, name) => await mentions(popup, name).count() > 0;
       const start = await lines(body), none = await counters();
       await toggle('Pocket strap'); const single = await counters();
       await toggle('Canvas wrap'); const pair = await counters();
@@ -1020,16 +998,8 @@ export const designProjectScenarios = {
     });
   },
   async 'variant-basket-totals'(s, p, step) {
-    const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
-    const basketName = /^(?:(?:your|my) )?basket(?:\s*\(.*\))?$/i, reviewOrder = /^Review order\b/i, body = s.locator('body');
+    const basketName = /^(?:(?:your|my) )?basket(?:\s*\(.*\))?$/i, reviewOrder = 'Review order', body = s.locator('body');
     const chalk = /\bChalk\b/i, ink = /\bInk\b/i, more = /^\+$|increase|add one/i, fewer = /^[-−]$|decrease|remove one/i;
-    // Rendered lines of a scope. Two lines that differ only in their numbers are
-    // the same line, so an updated total is never read as a new message.
-    const lines = async scope => (await scope.innerText()).split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    const appeared = (before, after) => {
-      const known = new Set(before.map(line => line.replace(/\d+/g, '#')));
-      return after.filter(line => !known.has(line.replace(/\d+/g, '#')));
-    };
     const flat = async scope => (await scope.innerText()).replace(/\s+/g, ' ');
     // €68, €68.00 or 68,00 €; never the beginning or the end of another amount.
     const money = amount => new RegExp('(?:€\\s*' + amount + '(?!\\d|[.,]\\d*[1-9])|(?<![\\d.,])' + amount + '(?:[.,]0+)?\\s*€)');
@@ -1079,7 +1049,7 @@ export const designProjectScenarios = {
     const quantity = async value => assert.ok(await setQuantity(value), `The quantity control does not offer ${value}`);
     // Basket rows are found by what the brief requires them to show: the colour
     // and the exact subtotal. The innermost semantic rows that name the colour.
-    const named = (basket, name) => visible(basket.locator(rowSelector)).filter({hasText: name}).filter({hasNot: p.locator(rowSelector).filter({hasText: name})});
+    const named = (basket, name) => visible(basket.locator(ROWS)).filter({hasText: name}).filter({hasNot: p.locator(ROWS).filter({hasText: name})});
     const basketRows = async (basket, name, amount) => {
       const candidates = named(basket, name), found = [], all = await candidates.count();
       assert.ok(all <= 24, `The basket holds ${all} rows that name one colour; at most four variants exist`);
@@ -1187,14 +1157,6 @@ export const designProjectScenarios = {
     // a link called Back, Back to feed or All threads, possibly after an arrow.
     const feedName = /^\W*(?:(?:Back|Return)(?: to (?:the )?(?:all )?(?:threads?|feed|discussions?|list))?|All (?:threads|feed|discussions))$/i;
     const back = async () => (await one(visible(s.getByRole('button', {name: feedName}).or(s.getByRole('link', {name: feedName}))), 'control returning to the feed')).click();
-    // A reply may share its element with a byline ("You: text"). Its literal
-    // characters must be rendered either way and none of them as markup; in
-    // another thread no element may contain them at all.
-    const literalReply = async value => {
-      assert.ok(await visible(s.getByText(value)).count(), `Missing visible content: ${value}`);
-      assert.equal(await s.locator('img[src="x"],b').filter({hasText: 'literal'}).count(), 0, 'saved text became markup');
-    };
-    const noReply = async value => assert.equal(await visible(s.getByText(value)).count(), 0, `Unexpected visible content: ${value}`);
     // A thread may start with sample replies: read the number ("2 replies",
     // "Replies: 2", "Replies (2)"), never assume zero. Only a thread without
     // replies may show no number at all ("No replies yet"), so only the first
@@ -1211,12 +1173,14 @@ export const designProjectScenarios = {
       const before = await replyCount(first, 0);
       await selectEntry(s, first); const reply = await replyField(), send = await one(await post(), 'button posting the reply');
       await reply.fill(''); if (await send.isEnabled()) await send.click();
-      await reply.fill(noteText); await send.click(); await literalReply(noteText);
+      // A reply may share its element with a byline ("You: text"); in another
+      // thread no element may render it at all.
+      await reply.fill(noteText); await send.click(); await literal(s, noteText);
       await back(); const after = await replyCount(first);
       assert.equal(after, before + 1, `The feed counted ${before} replies before one reply was posted and ${after} after it`);
-      await selectEntry(s, 'Weekend swap'); await noReply(noteText);
+      await selectEntry(s, 'Weekend swap'); await unmentioned(s, noteText);
       await (await replyField()).fill('Different thread reply'); await press(post(), 'button posting the reply');
-      await back(); await selectEntry(s, first); await literalReply(noteText); await noReply('Different thread reply');
+      await back(); await selectEntry(s, first); await literal(s, noteText); await unmentioned(s, 'Different thread reply');
     });
     await step('a reply over 200 characters is never posted in full', async () => {
       // Words, not one unbroken token: the layout check after this step must
@@ -1258,24 +1222,17 @@ export const designProjectScenarios = {
       await dialog(s, p, exact(name), popup => shown(popup, /profile|member|joined/i));
       await press(unfollow(), 'button Unfollow'); await back();
       // A feed that reset its filter lists the thread never followed: apply the filter again.
-      if (await text(s, 'Weekend swap').count()) await onlyFollowing();
-      assert.equal(await text(s, first).count(), 0, 'An unfollowed thread is still listed under the Following filter');
+      if (await listed(s, 'Weekend swap')) await onlyFollowing();
+      assert.ok(!await listed(s, first), 'An unfollowed thread is still listed under the Following filter');
     });
   },
   async 'review-reason-and-undo'(s, p, step) {
     const [first, second, third] = ['Missing event details', 'Duplicate introduction', 'Broken resource link'];
-    // A filter may be a tab that carries its count ("Resolved (1)"), as the
-    // buttons, radios and options that `choose` accepts may.
-    const filterName = status => new RegExp('^' + status + '(?:$|\\s|[(:])', 'i');
-    const filter = async status => {
-      const tab = visible(s.getByRole('tab', {name: filterName(status)}));
-      return await tab.count() === 1 ? tab.click() : choose(s, status);
-    };
     // A filter control that carries its count ("Resolved (1)") is read alone.
     // Otherwise the count is a number beside its status word in the rendered
     // text: a summary ("Resolved: 1", "1 resolved") or a small table.
     const count = async (status, expected, when) => {
-      const control = visible(s.getByRole('tab', {name: filterName(status)}).or(s.getByRole('button', {name: filterName(status)})));
+      const control = visible(s.getByRole('tab', {name: starting(status)}).or(s.getByRole('button', {name: starting(status)})));
       const own = await control.count() === 1 ? /\d+/.exec(await control.evaluate(node => node.getAttribute('aria-label') || node.innerText)) : null;
       const body = await readText(s), beside = own ? [own[0]] : [];
       if (!own) for (const found of body.matchAll(new RegExp('\\b' + status + '\\b', 'gi')))
@@ -1299,12 +1256,6 @@ export const designProjectScenarios = {
     };
     // "A required Reason textarea": the label may say more ("Reason for resolving (required)").
     const reason = () => field(s, /^(?:Resolution )?reason\b/i);
-    // The dialog may show the reason after a label in the same element ("Last
-    // reason: text"). Its characters must be rendered and none as markup.
-    const literalReason = async popup => {
-      assert.ok(await visible(popup.getByText(noteText)).count(), `Missing visible content: ${noteText}`);
-      assert.equal(await popup.locator('img[src="x"],b').filter({hasText: 'literal'}).count(), 0, 'saved text became markup');
-    };
     await step('required reason, resolved filtering and literal reason belong to one report', async () => {
       await selectEntry(s, first); await (await reason()).fill(''); assert.equal(await button(s, 'Resolve').isDisabled(), true);
       await (await reason()).fill(noteText); await click(s, 'Resolve');
@@ -1312,17 +1263,18 @@ export const designProjectScenarios = {
       // switch a toggle off: a filter is chosen only while the other one is active.
       // The open report repeats its own title. Open another report before
       // reading a list, so that only a list entry can show or hide a title.
-      await filter('Resolved'); await filter('Pending'); await selectEntry(s, third);
-      assert.ok(await text(s, second).count(), 'Resolving one report removed another report from Pending');
-      assert.equal(await text(s, first).count(), 0, 'A resolved report is still listed under Pending');
+      await choose(s, 'Resolved'); await choose(s, 'Pending'); await selectEntry(s, third);
+      assert.ok(await listed(s, second), 'Resolving one report removed another report from Pending');
+      assert.ok(!await listed(s, first), 'A resolved report is still listed under Pending');
       await count('Pending', 2, 'after one of three reports was resolved');
-      await filter('Resolved'); await count('Resolved', 1, 'after one report was resolved');
+      await choose(s, 'Resolved'); await count('Resolved', 1, 'after one report was resolved');
       await shown(s, first); await absent(s, second); await selectEntry(s, first);
-      await details(first, async popup => { await shown(popup, /Missing event details/); await literalReason(popup); });
+      // The dialog may show the reason after a label in the same element ("Last reason: text").
+      await details(first, async popup => { await shown(popup, /Missing event details/); await literal(popup, noteText); });
       // Wherever else the page shows the reason, every character stays literal.
-      const mentions = await visible(s.getByText('literal & note')).evaluateAll(nodes => nodes.map(node => node.textContent));
-      assert.ok(mentions.every(value => value.includes(noteText)), 'The recorded reason is rendered as markup outside the Details dialog');
-      await filter('Pending'); await selectEntry(s, second); assert.equal(await (await reason()).inputValue(), '');
+      const recorded = await visible(s.getByText('literal & note')).evaluateAll(nodes => nodes.map(node => node.textContent));
+      assert.ok(recorded.every(value => value.includes(noteText)), 'The recorded reason is rendered as markup outside the Details dialog');
+      await choose(s, 'Pending'); await selectEntry(s, second); assert.equal(await (await reason()).inputValue(), '');
       // A report that was never resolved may offer no Details; one that does must not show that reason.
       if (await detailsOpener(second)) await details(second, async popup => {
         await shown(popup, /Duplicate introduction/);
@@ -1332,16 +1284,16 @@ export const designProjectScenarios = {
     await step('Undo resolution restores only its own report', async () => {
       // A second resolved report makes "without changing others" observable.
       await selectEntry(s, third); await (await reason()).fill('Second reason'); await click(s, 'Resolve');
-      await filter('Resolved'); await selectEntry(s, first);
+      await choose(s, 'Resolved'); await selectEntry(s, first);
       await details(first, async popup => assert.ok(await visible(popup.getByText(noteText)).count(), 'A later reason replaced the reason recorded on another report'));
-      await click(s, 'Undo resolution'); await filter('Pending');
+      await click(s, 'Undo resolution'); await choose(s, 'Pending');
       await shown(s, second); await selectEntry(s, second);
-      assert.ok(await text(s, first).count(), 'Undo resolution did not return the report to the Pending list');
-      assert.equal(await text(s, third).count(), 0, 'Undo resolution also restored another resolved report');
+      assert.ok(await listed(s, first), 'Undo resolution did not return the report to the Pending list');
+      assert.ok(!await listed(s, third), 'Undo resolution also restored another resolved report');
       await count('Pending', 2, 'after Undo resolution on one of two resolved reports');
       assert.equal(await (await reason()).inputValue(), '');
-      await filter('Resolved'); await count('Resolved', 1, 'after Undo resolution on one of two resolved reports');
-      assert.equal(await text(s, first).count(), 0, 'A report restored by Undo resolution is still listed under Resolved');
+      await choose(s, 'Resolved'); await count('Resolved', 1, 'after Undo resolution on one of two resolved reports');
+      assert.ok(!await listed(s, first), 'A report restored by Undo resolution is still listed under Resolved');
       await shown(s, third);
     });
   },
@@ -1411,10 +1363,10 @@ export const designProjectScenarios = {
       // A page may empty the search when the category changes. Text that the
       // field still shows must still narrow the chosen category.
       if (await (await field(s, /^Search\b/i)).inputValue() === 'River')
-        assert.equal(await text(list, 'North garden').count(), 0, 'Search text that is still shown is ignored after choosing a category');
+        assert.ok(!await listed(list, 'North garden'), 'Search text that is still shown is ignored after choosing a category');
       await search(s, '');
       for (const name of ['North garden', 'River steps']) { await shown(list, name); assert.ok(await onMap(name), `The Outdoors filter removed ${name} from the map`); }
-      assert.equal(await text(list, 'Paper house').count(), 0, 'The Outdoors filter lists an indoor place');
+      assert.ok(!await listed(list, 'Paper house'), 'The Outdoors filter lists an indoor place');
       assert.equal(await onMap('Paper house'), 0, 'The Outdoors filter leaves an indoor place on the map');
       await choose(s, 'All');
       for (const name of places) { await shown(list, name); assert.ok(await onMap(name), `The All filter did not restore ${name} on the map`); }
@@ -1422,7 +1374,6 @@ export const designProjectScenarios = {
   },
   async 'itinerary-order-map-path'(s, p, step) {
     const names = ['Old kiosk', 'Glass hall', 'Willow court', 'East steps'];
-    const rowSelector = 'article,li,tr,[role="row"],[role="listitem"],[role="group"]';
     let places, route, map;
     // The connecting path and the stop numbers are told apart from the map's own drawing by what
     // the map shows while the itinerary is empty: `decor` holds those strokes, `plain` those numbers.
@@ -1431,49 +1382,13 @@ export const designProjectScenarios = {
     const strokes = () => map.locator('svg path,svg polyline,svg line').evaluateAll(nodes => nodes.filter(e => {
       const r = e.getBoundingClientRect(); return r.width > 1 || r.height > 1;
     }).map(e => ({tag: e.tagName, d: e.getAttribute('d'), points: e.getAttribute('points'), x1: e.getAttribute('x1'), y1: e.getAttribute('y1'), x2: e.getAttribute('x2'), y2: e.getAttribute('y2')})));
-    // Where each place is listed inside a region or dialog. An entry is the element whose whole
-    // text is the name, as the shared `ordered` requires; failing that, a visible mention outside
-    // a control, so that "1. Glass hall" and "Glass hall → Old kiosk" are entries too. The position
-    // is that of the rendered name itself, never of a container assumed around it.
-    const listings = scope => scope.evaluate((root, wanted) => {
-      const out = {}, nodes = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
-      for (const name of wanted) {
-        const found = [], needle = name.toLowerCase();
-        for (const node of nodes) {
-          const parent = node.parentElement, value = node.nodeValue.toLowerCase();
-          if (!parent || getComputedStyle(parent).visibility !== 'visible') continue;
-          for (let at = value.indexOf(needle); at >= 0; at = value.indexOf(needle, at + needle.length)) {
-            const range = document.createRange(); range.setStart(node, at); range.setEnd(node, at + needle.length);
-            const box = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0);
-            const whole = parent.textContent.replace(/\s+/g, ' ').trim() === name;
-            if (box && (whole || !parent.closest('button,a,select,label,[role="button"],[role="link"]'))) found.push({top: box.top, left: box.left, whole});
-          }
-        }
-        out[name] = found.some(entry => entry.whole) ? found.filter(entry => entry.whole) : found;
-      }
-      return out;
-    }, names);
+    // How often a place is listed inside a region or dialog: as an element, in a row that reads
+    // "1. Glass hall", or on one line with the other stops ("Glass hall → Old kiosk").
+    const count = async (scope, name) => (await entries(scope, name)).count();
     // Exactly these stops, each once, in this rendered order.
     const stops = async (scope, order, where) => {
-      const found = await listings(scope);
-      for (const name of order) assert.equal(found[name].length, 1, `Expected one accessible ordered entry ${name}`);
-      for (const name of names) if (!order.includes(name)) assert.equal(found[name].length, 0, `${where} lists ${name}, which is not in the itinerary`);
-      for (let i = 1; i < order.length; i++) {
-        const a = found[order[i - 1]][0], b = found[order[i]][0];
-        assert.ok(b.top > a.top + 1 || Math.abs(b.top - a.top) <= 1 && b.left > a.left, `Rendered order mismatch: ${order.join(' → ')}`);
-      }
-    };
-    // The semantic row of a stop, also when its number and name share one text ("1. Old kiosk").
-    const row = async title => {
-      const mention = visible(p.getByText(new RegExp(escape(title), 'i')));
-      const containing = visible(p.locator(rowSelector)).filter({has: mention});
-      return one(visible(route.locator(rowSelector)).filter({has: mention}).filter({hasNot: containing}), `item containing ${title}`);
-    };
-    const act = async (label, title) => {
-      const named = button(route, new RegExp('^(?:' + escape(label) + ')\\b.*' + escape(title) + '|^' + escape(title) + '.*\\b' + escape(label) + '\\b', 'i'));
-      if (await named.count() === 1) return named.click();
-      await (await one(button(await row(title), new RegExp('^' + escape(label) + '\\b', 'i')), `${label} on ${title}`)).click();
+      await ordered(scope, order);
+      for (const name of names) if (!order.includes(name)) assert.equal(await count(scope, name), 0, `${where} lists ${name}, which is not in the itinerary`);
     };
     // "route rows have ... numbered order": the number a row shows outside its controls, or the
     // ordinal of its native list marker. The row is the innermost row, list item or article around
@@ -1626,29 +1541,30 @@ export const designProjectScenarios = {
         let control = null;
         try { control = await itemAction(places, 'Add stop', name); } catch { /* the place left the available list */ }
         if (control && await control.isEnabled()) await control.click();
-        const found = await listings(route);
-        assert.ok(names.reduce((sum, each) => sum + found[each].length, 0) <= 4, 'itinerary accepted a fifth stop; the maximum is four');
-        assert.equal(found[name].length, 1, `Add stop added ${name} to the itinerary twice`);
+        let total = 0;
+        for (const each of names) total += await count(route, each);
+        assert.ok(total <= 4, 'itinerary accepted a fifth stop; the maximum is four');
+        assert.equal(await count(route, name), 1, `Add stop added ${name} to the itinerary twice`);
       }
       await stops(route, order, 'route');
     };
     await step('route order survives filtering; map path changes on reorder/removal', async () => {
       await regions();
       // The brief fixes no opening itinerary; a page may start with sample stops. Begin from an empty one.
-      const listed = async () => { const found = await listings(route); return names.filter(name => found[name].length); };
-      if ((await listed()).length) { await click(s, 'Reset route'); assert.deepEqual(await listed(), [], 'Reset route left stops in the opening itinerary'); }
+      const inRoute = async () => { const found = []; for (const name of names) if (await count(route, name)) found.push(name); return found; };
+      if ((await inRoute()).length) { await click(s, 'Reset route'); assert.deepEqual(await inRoute(), [], 'Reset route left stops in the opening itinerary'); }
       decor = (await strokes()).map(stroke => JSON.stringify(stroke)); plain = (await mapMarks([])).numbers || [];
       for (const name of names) await action(places, 'Add stop', name);
       await stops(route, names, 'route');
       const before = await strokes(); assert.ok(before.length, 'no visible schematic route');
       await mapFollows(names); // any stroke of the map satisfies the line above; this one reads the route's own path
       await search(s, 'Old'); await stops(route, names, 'route'); await search(s, '');
-      await act('Move up', 'Glass hall'); await stops(route, ['Glass hall', 'Old kiosk', 'Willow court', 'East steps'], 'route');
+      await action(route, 'Move up', 'Glass hall'); await stops(route, ['Glass hall', 'Old kiosk', 'Willow court', 'East steps'], 'route');
       assert.notDeepEqual(await strokes(), before, 'map connecting path did not change with the route');
       await dialog(s, p, 'Review route', popup => stops(popup, ['Glass hall', 'Old kiosk', 'Willow court', 'East steps'], 'Review route'));
-      const reordered = await strokes(); await act('Remove', 'Old kiosk'); assert.notDeepEqual(await strokes(), reordered, 'removed stop remains in connecting path');
-      const kept = await listings(route); assert.equal(kept['Old kiosk'].length, 0, 'Remove Old kiosk left it in the route');
-      for (const name of ['Glass hall', 'Willow court', 'East steps']) assert.equal(kept[name].length, 1, `Remove Old kiosk also removed ${name}`);
+      const reordered = await strokes(); await action(route, 'Remove', 'Old kiosk'); assert.notDeepEqual(await strokes(), reordered, 'removed stop remains in connecting path');
+      assert.equal(await count(route, 'Old kiosk'), 0, 'Remove Old kiosk left it in the route');
+      for (const name of ['Glass hall', 'Willow court', 'East steps']) assert.equal(await count(route, name), 1, `Remove Old kiosk also removed ${name}`);
       // "Reset route clears only the itinerary": no stop is listed any more. The brief asks for no
       // empty-state sentence, so none is required.
       await click(s, 'Reset route'); for (const name of names) await absent(route, name);
@@ -1659,19 +1575,19 @@ export const designProjectScenarios = {
       let order = ['Willow court', 'Old kiosk', 'East steps'];
       for (const name of order) await action(places, 'Add stop', name);
       await follows(order); await unique(order);
-      const before = await strokes(); await act('Move down', 'Willow court'); order = ['Old kiosk', 'Willow court', 'East steps'];
+      const before = await strokes(); await action(route, 'Move down', 'Willow court'); order = ['Old kiosk', 'Willow court', 'East steps'];
       await follows(order); assert.notDeepEqual(await strokes(), before, 'map connecting path did not change after Move down');
       await action(places, 'Add stop', 'Glass hall'); order = [...order, 'Glass hall']; await follows(order); await unique(order);
-      await act('Remove', 'Willow court'); order = order.filter(name => name !== 'Willow court');
-      const kept = await listings(route); assert.equal(kept['Willow court'].length, 0, 'Remove Willow court left it in the route');
-      for (const name of order) assert.equal(kept[name].length, 1, `Remove Willow court also removed ${name}`);
+      await action(route, 'Remove', 'Willow court'); order = order.filter(name => name !== 'Willow court');
+      assert.equal(await count(route, 'Willow court'), 0, 'Remove Willow court left it in the route');
+      for (const name of order) assert.equal(await count(route, name), 1, `Remove Willow court also removed ${name}`);
       await follows(order);
       await dialog(s, p, 'Review route', popup => stops(popup, order, 'Review route'));
       const again = await itemAction(places, 'Add stop', 'Willow court');
       assert.ok(await again.isEnabled(), 'a removed stop cannot be added again'); await again.click();
       order = [...order, 'Willow court']; await follows(order);
       await click(s, 'Reset route'); await stops(route, [], 'route'); await mapEmpty();
-      for (const name of names) assert.ok(await text(places, name).count(), `Reset route removed ${name} from Available places`);
+      for (const name of names) assert.ok(await listed(places, name), `Reset route removed ${name} from Available places`);
     });
   },
   async 'object-selection-edit-history'(s, p, step) {
@@ -1704,22 +1620,7 @@ export const designProjectScenarios = {
     const commit = async control => { const apply = button(s, /^(Apply|Save)(?: changes| text)?$/i); if (await apply.count()) await apply.click(); else await control.blur(); };
     // The text a region or dialog renders, as written (a text-transform does not change it), with
     // what it shows inside a rendered read-only field.
-    const said = scope => scope.evaluate(node => {
-      const parts = [], walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-        const range = document.createRange(); range.selectNodeContents(text);
-        if (text.nodeValue.trim() && range.getClientRects().length && getComputedStyle(text.parentElement).visibility === 'visible') parts.push(text.nodeValue);
-      }
-      for (const control of node.querySelectorAll('textarea,input,output')) if (control.getClientRects().length) parts.push(control.value || '');
-      return parts.join(' ').replace(/\s+/g, ' ');
-    });
-    // The literal note text on the board: in an element of its own, as the shared `literal` requires,
-    // or inside a longer text such as "#2 <b>literal & note</b>"; never as markup.
-    const written = async () => {
-      assert.ok(await text(board, noteText).count() || (await said(board)).includes(noteText), `Missing visible content: ${noteText}`);
-      assert.equal(await board.locator('img[src="x"],b').filter({hasText: 'literal'}).count(), 0, 'saved text became markup');
-    };
-    const erased = async () => assert.ok(!await text(board, noteText).count() && !(await said(board)).includes(noteText), `Unexpected visible content: ${noteText}`);
+    const said = scope => written(scope, 'textarea,input,output');
     await step('notes are independently selected and literal edits undo/redo', async () => {
       await regions();
       const count = await notes.count(); await click(s, 'Add note'); assert.equal(await notes.count(), count + 1);
@@ -1734,8 +1635,9 @@ export const designProjectScenarios = {
       // "Selecting or focusing a note updates Inspector".
       await notes.nth(count).focus(); assert.equal(await (await input()).inputValue(), first, 'focusing a note did not show its text in the Inspector');
       await notes.nth(count + 1).focus(); assert.equal(await (await input()).inputValue(), second, 'focusing a note did not show its text in the Inspector');
+      // The literal note text on the board, alone or inside a longer text such as "#2 <b>literal & note</b>".
       await (await input()).fill(noteText); await commit(await input());
-      await written();
+      await literal(board, noteText);
       // "a labelled Text field edits only that note".
       assert.equal((await identities())[count], named[count], 'editing the Text field changed a note that was not selected');
       // "An Export preview native dialog lists each note's text": literally, as the board does.
@@ -1744,11 +1646,11 @@ export const designProjectScenarios = {
         assert.equal(await popup.locator('b').filter({hasText: 'literal'}).count(), 0, 'Export preview turned the note text into markup');
       });
       await click(s, 'Undo'); assert.equal(await (await input()).inputValue(), second); await click(s, 'Redo'); assert.equal(await (await input()).inputValue(), noteText);
-      const had = await notes.count(); await click(s, 'Delete selected'); await erased();
+      const had = await notes.count(); await click(s, 'Delete selected'); await unmentioned(board, noteText);
       // "Delete selected removes only the selection".
       assert.ok((await identities()).includes(named[count]), 'Delete selected removed a note that was not selected');
       assert.equal(await notes.count(), had - 1, 'Delete selected did not remove exactly one note');
-      await click(s, 'Undo'); await written();
+      await click(s, 'Undo'); await literal(board, noteText);
       assert.equal(await notes.count(), had, 'Undo did not bring back exactly the deleted note');
       // "Undo/Redo restores add, edit, move and delete operations, including selection".
       assert.equal(await (await input()).inputValue(), noteText, 'Undo of Delete selected did not restore the selection');

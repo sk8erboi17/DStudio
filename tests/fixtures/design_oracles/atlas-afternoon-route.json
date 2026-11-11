@@ -86,6 +86,16 @@
       "name": "removed-stop-stays-unavailable",
       "caughtAs": "^a removed stop cannot be added again",
       "flags": ""
+    },
+    {
+      "name": "numbered-rows-reset-keeps-itinerary",
+      "caughtAs": "^Unexpected visible content: Glass hall",
+      "flags": ""
+    },
+    {
+      "name": "numbered-rows-move-wrong-row",
+      "caughtAs": "^Rendered order mismatch: Glass hall → Old kiosk → Willow court → East steps",
+      "flags": ""
     }
   ],
   "variants": [

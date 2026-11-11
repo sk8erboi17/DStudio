@@ -642,7 +642,7 @@ permission/tool is BLOCKED with a ready procedure, never replaced by mock PASS.
 
 Status: IN_PROGRESS. Twenty-five offline systems now exist; the 18 frozen briefs
 and generation/resource harnesses cover the original nine systems only.
-The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the limits found are open (item 1).
+The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the five shared-helper limits found are corrected and narrower ones remain open (item 1).
 
 1. Qualify the remaining **14 domain interaction oracles** with independent
    positive/negative behavioral fixtures. Preserve current shared pipeline and
@@ -653,12 +653,13 @@ The sixteen added systems require separate future generated-output qualification
    that made two oracles reject every page is corrected. A second pass the
    same day made the oracles detect the defects the first pass had found
    undetected, where the brief requires the behaviour, and accept the correct
-   pages they rejected (262 faults and 85 accepted variants in all). Still
-   open: the shared-helper limits, the correct pages still rejected and the
-   behaviours still unverified, listed in
-   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification);
-   and moving the helpers the scenarios now duplicate into the shared layer.
-   Resolve the shared-helper limits before generated projects are graded.
+   pages they rejected (262 faults and 85 accepted variants in all). A third
+   change that day corrected the five recorded shared-helper limits and moved
+   the workarounds the scenarios duplicated into the shared layer (270 faults
+   and 86 variants; the complete test runs 881 checks). Still open: the
+   narrower helper limits that remain, the correct pages still rejected and
+   the behaviours still unverified, listed in
+   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification).
 2. Generate **at least two projects per system: 18 projects** using
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human

@@ -4,7 +4,7 @@
   "faults": [
     {
       "name": "current-by-position",
-      "caughtAs": "did not match the regular expression /Current/i",
+      "caughtAs": "did not match the regular expression /Current/\\.",
       "flags": ""
     },
     {
@@ -70,6 +70,16 @@
     {
       "name": "move-down-drops-current",
       "caughtAs": "Move down changed how Paper satellites is marked Current",
+      "flags": ""
+    },
+    {
+      "name": "inside-names-on-wrong-rows",
+      "caughtAs": "Rendered order mismatch: Paper satellites → Night lines → Second sunrise",
+      "flags": ""
+    },
+    {
+      "name": "current-mark-not-rendered",
+      "caughtAs": "did not match the regular expression /Current/\\.",
       "flags": ""
     }
   ],

@@ -81,7 +81,8 @@ gained an assertion with a specific message and the fixture gained the defect
 as a fault; where it does not, nothing was added. For each correct page an
 oracle rejected, the oracle was made to accept it and the page became a
 `variants` entry of the fixture (an equally correct rendering the oracle must
-accept). The seventeen fixtures now hold 262 faults and 85 variants. Checks
+accept). After that pass the seventeen fixtures held 262 faults and 85
+variants (270 and 86 since the shared-helper correction below). Checks
 that unrelated page text could satisfy (a regular expression over the whole
 body, a title repeated by an open panel, a count that the catalogue itself
 contained) now read the element concerned or the change the action caused, and
@@ -94,20 +95,72 @@ surviving an Undo; a message when the six-object limit refuses an addition.
 
 Limits that are **still open** after the second pass:
 
-Shared helpers, used by every oracle and not changed in the second pass (the
-scenarios work around them locally, which duplicates some code):
+Shared helpers, used by every oracle. The second pass did not change them and
+the scenarios worked around them locally. A third change on November 11
+corrected the five limits recorded here and moved the duplicated workarounds
+into the shared layer: one implementation each for the rows of a title, the
+entries and rendered order of names, row action names, lines that appeared,
+words that changed between two states and a statement that an action makes
+appear. Each correction is exercised by a variant that the old helper
+rejected and by a fault that the corrected helper still rejects; the fixtures
+now hold 270 faults and 86 variants.
 
-- `choose` matches a tab name exactly, so tabs that carry a count are found
-  only where a scenario handles them itself.
-- `ordered`, `selectEntry`, `item`, `literal` and `absent` match a name only
-  when it is the whole text of an element. A row written as "1. Old kiosk" or
-  "10:00 — Sound walks" in one text is not found, and `absent` then passes
-  without having looked.
-- `itemAction` fails when the same title appears in two visible rows with
-  unnamed buttons, and does not find "Add Night lines to queue".
-- A dialog opener given as a string does not match "Review my day (2)".
-- `withinText` with a case-sensitive pattern fails when the page capitalises
-  the text with CSS.
+- Fixed: `choose` finds a tab that carries a count ("Resolved (1)"), after the
+  tab or button named by the label alone (`filter-tabs-with-counts`,
+  `tabs-undo-does-nothing`).
+- Fixed for semantic rows: `item`, `selectEntry`, `shown` and `absent` read a
+  row that says "1. Old kiosk" or "10:00 — Sound walks" in one text when no
+  element is the bare name, so `absent` now fails on such a row
+  (`number-in-name-text`, `numbered-list-rows`; `numbered-rows-not-filtered`,
+  `numbered-rows-reset-keeps-itinerary`, `numbered-rows-move-wrong-row`,
+  `numbered-rows-select-wrong-place`). `ordered` also reads names that share
+  one line and places each name where it is rendered (`dialog-plain-lines`,
+  `number-in-name-text`; `plain-details-library-order`,
+  `plain-review-insertion-order`). `literal` accepts a label or byline in the
+  same element (`reason-with-label`, `byline-replies`,
+  `number-and-text-in-one`; `labelled-reason-markup`, `byline-markup-reply`).
+  A letter or digit beside the name makes another name: "Note 1" is not found
+  in "Note 10", nor North garden in "North gardeners' shed".
+- Fixed: `itemAction` accepts a title shown in two rows when one button does
+  the action, `itemActions` returns every such button for a scenario that may
+  press any of them, and an action name may hold the title inside it ("Add
+  Night lines to queue") (`shortlist-panel-lists-tools`,
+  `title-inside-action-names`; `panel-rows-list-remove-does-nothing`,
+  `inside-names-on-wrong-rows`).
+- Fixed: a dialog opener given as a string matches "Review my day (2)", after
+  the button named by the string alone (`other-wording`, `counted-names`;
+  `counted-opener-review-insertion-order`).
+- Fixed: `withinText` matches the text as rendered or as the page wrote it, so
+  the queue oracle reads `Current` case-sensitively again
+  (`uppercase-current-mark`; `current-mark-not-rendered`).
+
+Still open in the shared helpers:
+
+- `item`, `selectEntry`, `shown` and `absent` read a longer text only inside a
+  semantic row (`article`, `li`, `tr` or the roles row, listitem and group). A
+  page that writes "1. Old kiosk" in a paragraph or in a block without a role
+  is still not read, and `absent` still passes there without having looked.
+  A sentence outside the rows that names an item ("Current: Paper
+  satellites", a status line) deliberately does not count as listing it; a
+  scenario that must exclude every mention uses `unmentioned`, which reads
+  any element.
+- When no row holds the bare name, a row that only mentions it in a longer
+  text ("Conflicts with Sound walks") is taken for a row of that name.
+- The longer-text match reads each text node alone and only the first place
+  where the name occurs in it, is case-sensitive like the exact match, and
+  knows only ASCII letters and digits as the continuation of a name. A name
+  split over several elements is not found.
+- `itemAction` still fails when two rows of one title both offer the same
+  unnamed action; `selectEntry` still needs the exact title as the name of a
+  control or one row for it.
+- `assertText` and `comparedProduct` still read the rendered text only, so a
+  case-sensitive pattern fails under a CSS capitalisation; the catalogue
+  oracle keeps its case-insensitive size check for that reason.
+- `choose` operates a select only when it is given the name of its group; the
+  session board oracle keeps its own code for an unnamed select.
+- Counts of the bare name that scenarios still make themselves: the
+  renderings of a session title on the session board page and the cleared
+  detail area of the pocket guide.
 
 Correct pages still rejected:
 

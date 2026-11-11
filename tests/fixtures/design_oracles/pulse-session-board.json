@@ -71,6 +71,11 @@
       "name": "plain-review-insertion-order",
       "caughtAs": "Rendered order mismatch: Poster room → Light studies",
       "flags": ""
+    },
+    {
+      "name": "counted-opener-review-insertion-order",
+      "caughtAs": "Rendered order mismatch: Poster room → Light studies",
+      "flags": ""
     }
   ],
   "variants": [

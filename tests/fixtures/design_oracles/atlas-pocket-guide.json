@@ -81,6 +81,16 @@
       "name": "list-not-keyboard-reachable",
       "caughtAs": "Keyboard users cannot reach North garden through the list",
       "flags": ""
+    },
+    {
+      "name": "numbered-rows-not-filtered",
+      "caughtAs": "^Unexpected visible content: North garden$",
+      "flags": ""
+    },
+    {
+      "name": "numbered-rows-select-wrong-place",
+      "caughtAs": "Missing visible content: /North garden/",
+      "flags": ""
     }
   ],
   "variants": [
@@ -107,6 +117,10 @@
     {
       "name": "alternate-names",
       "why": "Other usual names: the regions are Map of small places, Place list and Detail area, and the dialog opener is Open place notes."
+    },
+    {
+      "name": "numbered-list-rows",
+      "why": "Each list row reads \"1. North garden\" in one text of its own, directly followed by a Select button, and the list ends with a row about a place that is not open yet, North gardeners' shed, whose name only begins like North garden."
     }
   ]
 }

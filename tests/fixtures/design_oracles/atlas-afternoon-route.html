@@ -53,7 +53,12 @@ window.fault='';window.variant='';
 const places=[['Old kiosk',60,150,28],['Glass hall',120,56,-18],['Willow court',220,130,28],['East steps',270,56,-18]],LIMIT=4;
 let route=[]; // place indexes in itinerary order; the map, the rows and the dialog are all drawn from it
 let stamp={},drawn=[],retired=[],seeded=false; // bookkeeping that only the faults read
-const el=id=>document.getElementById(id),F=name=>window.fault===name,V=name=>window.variant===name;
+// A fault named after an alternative rendering is that rendering with one defect of the
+// reference page, so that the oracle path that accepts the rendering is shown to refuse the defect.
+const implied={'numbered-rows-reset-keeps-itinerary':['number-in-name-text','reset-keeps-itinerary'],
+  'numbered-rows-move-wrong-row':['number-in-name-text','move-wrong-row']};
+const el=id=>document.getElementById(id),[rendering,defect]=[0,1].map(part=>()=>(implied[window.fault]||[])[part]);
+const F=name=>window.fault===name||defect()===name,V=name=>window.variant===name||rendering()===name;
 const matches=place=>places[place][0].toLowerCase().includes(el('query').value.trim().toLowerCase());
 function make(tag,text,attrs={},svg){
   const node=svg?document.createElementNS('http://www.w3.org/2000/svg',tag):document.createElement(tag);

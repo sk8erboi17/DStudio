@@ -8,7 +8,7 @@ body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff;max-width
 button,input{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}
 button[aria-pressed=true]{border-width:3px;font-weight:700}
-input{display:block;width:100%}ul{padding:0;list-style:none}li{margin:8px 0}li button{margin-right:8px}li label{display:inline-grid;grid-template-columns:20px auto;gap:8px;align-items:center}li input{display:inline-block;width:18px;height:18px;margin:0;padding:0}section{margin:20px 0}
+input{display:block;width:100%}ul{padding:0;list-style:none}li{margin:8px 0}li button{margin-right:8px}li.numbered button{margin-left:8px}li label{display:inline-grid;grid-template-columns:20px auto;gap:8px;align-items:center}li input{display:inline-block;width:18px;height:18px;margin:0;padding:0}section{margin:20px 0}
 .map{position:relative;border:1px solid #8c96a2;aspect-ratio:8/5}.map svg{display:block;width:100%;height:100%}
 .pin{position:absolute;display:flex;gap:6px;align-items:center}.pin *{background:var(--page)}.pin button{min-width:2.5rem;border-radius:50%}
 dialog{width:min(30rem,90vw);color:inherit;background:inherit}
@@ -42,18 +42,22 @@ const make=(tag,text)=>{const node=document.createElement(tag);node.textContent=
 // defect of the reference page, so that the more tolerant oracle path that
 // accepts the rendering is shown to refuse the defect as well.
 const implied={'numbered-name-wrong-place':'map-off-by-one','alternate-names-notes-previous-place':'notes-previous-place','numbered-title-stale-details':'stale-details'};
+// Two faults are the numbered-list-rows rendering with a defect of its own: rows that no filter hides,
+// and Select buttons that choose the next place.
 const fault=name=>window.fault===name||implied[window.fault]===name;
 const shape=(variant,...faults)=>window.variant===variant||faults.includes(window.fault);
 // Pins and rows are built once for each rendering, so that a selection keeps keyboard focus.
 function build(){
   const bareNames=shape('numbered-map-names','numbered-name-wrong-place'),groups=shape('map-groups');
   const selectButtons=shape('select-buttons-in-rows'),radios=shape('radio-list'),clickOnly=fault('list-not-keyboard-reachable');
-  const key=[bareNames,groups,selectButtons,radios,clickOnly].join();
+  const numbered=shape('numbered-list-rows','numbered-rows-not-filtered','numbered-rows-select-wrong-place');
+  const key=[bareNames,groups,selectButtons,radios,clickOnly,numbered].join();
   if(key===built)return;
   built=key;el('pins').replaceChildren();el('places').replaceChildren();
   views=places.map((place,index)=>{
     const pin=make('span',''),mark=make('button',index+1),label=make('span',place.title),row=make('li','');
-    const entry=make(clickOnly?'span':radios?'input':'button',selectButtons?'Select':radios?'':place.title),summary=make('span',` ${index+1} · ${place.category}`);
+    const entry=make(clickOnly?'span':radios?'input':'button',selectButtons||numbered?'Select':radios?'':place.title);
+    const summary=make('span',numbered?` · ${place.category}`:` ${index+1} · ${place.category}`);
     pin.className='pin';pin.style.left=place.left+'%';pin.style.top=place.top+'%';
     if(groups){pin.setAttribute('role','group');pin.setAttribute('aria-label',place.title);mark.setAttribute('aria-label','Select');}
     else mark.setAttribute('aria-label',`${bareNames?'':'Select '}${index+1}: ${place.title}`);
@@ -63,12 +67,16 @@ function build(){
       const choice=make('label','');entry.type='radio';entry.name='place';entry.onchange=()=>choosePlace(index);
       choice.append(entry,make('span',place.title));row.append(choice,summary);
     }else{
-      entry.onclick=()=>choosePlace(index);
-      if(selectButtons)row.append(make('span',place.title),entry,summary);else row.append(entry,summary);
+      entry.onclick=()=>choosePlace(fault('numbered-rows-select-wrong-place')?(index+1)%places.length:index);
+      // The numbered row reads "1. North garden" in one text of its own, directly followed by its button.
+      if(numbered){row.className='numbered';row.append(`${index+1}. ${place.title}`,entry,summary);}
+      else if(selectButtons)row.append(make('span',place.title),entry,summary);else row.append(entry,summary);
     }
     el('pins').append(pin);el('places').append(row);
     return {pin,mark,label,row,entry};
   });
+  // That rendering ends with a row about a place whose name only begins like North garden.
+  if(numbered)el('places').append(make('li',"Opening soon: North gardeners' shed."));
 }
 function render(){
   build();
@@ -83,7 +91,7 @@ function render(){
   if(selected!==null&&!visible[selected]&&!fault('stale-details')&&!(fault('stale-details-after-search')&&inCategory[selected])){selected=null;cleared=true;}
   for(const name of ['All','Indoors','Outdoors'])el('show-'+name).setAttribute('aria-pressed',String(category===name));
   views.forEach((view,index)=>{
-    view.row.hidden=!visible[index];
+    view.row.hidden=!visible[index]&&!fault('numbered-rows-not-filtered');
     view.pin.hidden=!visible[index]&&!fault('map-not-filtered')&&!fault('map-buttons-not-filtered');view.label.hidden=!visible[index]&&fault('map-buttons-not-filtered');
     if(view.entry.tagName==='BUTTON')view.entry.setAttribute('aria-pressed',String(selected===index));
     if(view.entry.tagName==='INPUT')view.entry.checked=selected===index;

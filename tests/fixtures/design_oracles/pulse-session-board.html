@@ -65,7 +65,8 @@ function render(){
     <button onclick="toggle(${i})" aria-label="Remove ${sessions[i][0]}">Remove</button></li>`).join('');
   el('parts').hidden=variant('filter-select');el('picker').hidden=!variant('filter-select');el('part').value=filter;
   for(const button of el('parts').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.textContent===filter));
-  el('open').textContent=variant('other-wording')?`Review my day (${chosen.length})`:'Review my day';
+  // One fault is the counted dialog button with the day listed in the order of selection.
+  el('open').textContent=variant('other-wording')||fault('counted-opener-review-insertion-order')?`Review my day (${chosen.length})`:'Review my day';
   el('rule').hidden=!fault('silent-rejection-beside-conflict-note');el('terms').hidden=!fault('finish-states-nothing');
   el('count').textContent=`${chosen.length} of 3 sessions chosen`;el('message').textContent=message;el('done').textContent=done;
 }
@@ -94,7 +95,8 @@ function toggle(i){
 function review(button){button.focus();drawDay();document.querySelector('dialog').showModal();}
 function drawDay(){
   const list=document.querySelector('dialog ol');list.replaceChildren();
-  const unsorted=fault('review-insertion-order')||fault('plain-review-insertion-order'),day=unsorted?chosen:chosen.slice().sort(chronological);
+  const unsorted=fault('review-insertion-order')||fault('plain-review-insertion-order')||fault('counted-opener-review-insertion-order');
+  const day=unsorted?chosen:chosen.slice().sort(chronological);
   const plain=variant('dialog-plain-lines')||fault('plain-review-insertion-order');
   for(const i of day)list.insertAdjacentHTML('beforeend',plain?`<li>${sessions[i][1]} — ${sessions[i][0]}</li>`
     :`<li><time>${sessions[i][1]}</time> <span>${sessions[i][0]}</span>${variant('titles-in-button-text')

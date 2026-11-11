@@ -91,6 +91,11 @@
       "name": "closing-request-claims-sent",
       "caughtAs": "Missing visible content: /No borrowing request was sent/",
       "flags": ""
+    },
+    {
+      "name": "panel-rows-list-remove-does-nothing",
+      "caughtAs": "Remove outside the dialog left Garden fork on the shortlist",
+      "flags": ""
     }
   ],
   "variants": [

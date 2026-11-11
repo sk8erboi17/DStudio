@@ -46,7 +46,9 @@ const currentTrack=()=>fault('current-by-position')?queue[current]:current;
 const currentLine=now=>now==null?'Current: none':variant('current-title-repeated')?`Current: <strong>${tracks[now]}</strong>`:'Current: '+tracks[now];
 // The list is rebuilt, so keyboard focus returns to the same control (data-act) of the row acted on.
 function render(position,act){
-  const inside=variant('title-inside-action-names'),worded=variant('other-names-and-wording'),hidden=variant('titles-in-button-text');
+  // One fault is the title-inside-action-names rendering with every row's buttons named after the row above.
+  const shifted=fault('inside-names-on-wrong-rows');
+  const inside=variant('title-inside-action-names')||shifted,worded=variant('other-names-and-wording'),hidden=variant('titles-in-button-text');
   document.body.classList.toggle('caps',variant('uppercase-current-mark'));
   [...el('library').querySelectorAll('button')].forEach((button,track)=>{
     const queued=variant('make-current-controls')&&queue.includes(track),title=tracks[track];
@@ -55,17 +57,20 @@ function render(position,act){
   el('queue').replaceChildren();
   queue.forEach((track,at)=>{
     const title=tracks[track],on=isCurrent(track,at),radio=variant('current-radio')||fault('radio-current-moves-to-next');
+    const named=shifted?tracks[queue[(at||queue.length)-1]]:title;
+    // One fault keeps the Current mark in the markup of the row without rendering it.
+    const mark=on?`<strong${fault('current-mark-not-rendered')?' hidden':''}>Current</strong>`:'';
     const said=(action,name)=>hidden?`>${action}<span class="sr"> ${title}</span>`:` aria-label="${name}">${action}`;
     const pick=hidden?`<span class="track">${title}</span>${on?'<strong>Current</strong>':''}`
       :variant('make-current-controls')
       ?`<span class="track">${title}</span>${on?'<strong>Current</strong>':`<button data-act="pick" onclick="choose(${at})" aria-label="Make ${title} current">Make current</button>`}`
       :radio?`<span class="track">${title}</span><label class="pick"><input type="radio" name="current" data-act="pick"${on?' checked':''}
         onchange="choose(${at})" aria-label="Make ${title} current"><span>Current</span></label>`
-      :`<button class="track" data-act="pick" aria-pressed="${on}" onclick="choose(${at})">${title}</button>${on?'<strong>Current</strong>':''}`;
+      :`<button class="track" data-act="pick" aria-pressed="${on}" onclick="choose(${at})">${title}</button>${mark}`;
     el('queue').insertAdjacentHTML('beforeend',`<li${on&&!radio?' aria-current="true"':''}${hidden?` onclick="if(!event.target.closest('button'))choose(${at})"`:''}>${pick}
-      <button data-act="up" onclick="move(${at},-1)"${at?'':' disabled'}${said('Move up',inside?`Move ${title} up`:`Move up ${title}`)}</button>
-      <button data-act="down" onclick="move(${at},1)"${at<queue.length-1?'':' disabled'}${said('Move down',inside?`Move ${title} down`:`Move down ${title}`)}</button>
-      <button data-act="remove" onclick="removeAt(${at})"${said('Remove',inside?`Remove ${title} from queue`:`Remove ${title}`)}</button></li>`);});
+      <button data-act="up" onclick="move(${at},-1)"${at?'':' disabled'}${said('Move up',inside?`Move ${named} up`:`Move up ${title}`)}</button>
+      <button data-act="down" onclick="move(${at},1)"${at<queue.length-1?'':' disabled'}${said('Move down',inside?`Move ${named} down`:`Move down ${title}`)}</button>
+      <button data-act="remove" onclick="removeAt(${at})"${said('Remove',inside?`Remove ${named} from queue`:`Remove ${title}`)}</button></li>`);});
   el('current').innerHTML=currentLine(currentTrack());
   el('queue-title').textContent=worded?`Your queue (${queue.length})`:'Queue';
   el('open').textContent=worded?`Queue details (${queue.length})`:'Queue details';
