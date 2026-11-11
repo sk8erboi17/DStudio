@@ -37366,6 +37366,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         for (const f of files) {
           try {
             const r = await fetch(fileUrl(f.name, Date.now()), { signal: AbortSignal.timeout(8000) });
+            // An error reply (missing, unreadable or larger than the host
+            // serves) is not the file: never archive its text in its place.
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
             entries.push({ name: f.name, data: new Uint8Array(await r.arrayBuffer()) });
           } catch {
             toast(`Export failed: cannot read ${f.name}`, 'error');
@@ -42600,7 +42603,15 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           refreshList().then(() => {
             const refining = updating?.rel === want;
             if (!turnEnded || list.some((f) => f.rel === want)) load(want, { keepView: refining, finalUpdate: refining && turnEnded });
-            else { if (live?.rel === want) clearLive(); draw(); }
+            else {
+              // The turn ended and the file is not on disk: say so, rather
+              // than going back to an empty new-map form.
+              if (live?.rel === want) clearLive();
+              const said = `${shortModel()} ended its turn without saving ${want}.`;
+              if (!doc) doc = { rel: want, error: `${said} Nothing was drawn; the conversation shows what happened. Use + New to map it again.` };
+              else toast(said, 'warn');
+              draw();
+            }
           });
         } else if (turnEnded) paint();
       }
@@ -43053,7 +43064,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const v = shown();
         if (!v || v.live) return;
         const base = (doc.rel.split('/').pop() || 'blueprint').replace(/\.json$/, '');
-        if (type === 'json') { downloadBlob(new Blob([JSON.stringify(v.spec, null, 2)], { type: 'application/json' }), `${base}.json`); return; }
+        // The JSON is the blueprint itself; the drawing may show a derived
+        // view of it (one box per group, or one group's neighbourhood).
+        if (type === 'json') { downloadBlob(new Blob([JSON.stringify(doc.spec, null, 2)], { type: 'application/json' }), `${base}.json`); return; }
         const svg = core.renderSvg(v.spec, v.lay, statusOf).replace('<svg ', `<svg style="background:var(--bp-bg)" `);
         const vars = ':root{--bp-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;--bp-mono:ui-monospace,SFMono-Regular,Menlo,monospace;--bp-bg:#fbfaf7;--bp-text:#17181c;--bp-text-2:#3d4049;--bp-muted:#6b7080;--bp-line:#8a90a0;--bp-data:#2f7d6d;--bp-accent:#2f5bd3;--bp-node:#ffffff;--bp-node-line:#c9ccd6;--bp-store:#f1f3f8;--bp-decision:#fff7e6;--bp-lane:#f4f2ed;--bp-lane-line:#d9d6ce;--bp-ok:#1f9d55;--bp-warn:#c98a12;--bp-bad:#d0453f}'
           + '@media (prefers-color-scheme:dark){:root{--bp-bg:#14161b;--bp-text:#eceef3;--bp-text-2:#c4c8d2;--bp-muted:#8d93a3;--bp-line:#6e7586;--bp-data:#4fb39e;--bp-accent:#7aa2ff;--bp-node:#1d2027;--bp-node-line:#363b47;--bp-store:#232733;--bp-decision:#2a2618;--bp-lane:#181b21;--bp-lane-line:#2c313c}}';

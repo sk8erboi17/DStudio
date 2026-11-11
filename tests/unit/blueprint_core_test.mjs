@@ -189,6 +189,30 @@ await check('the prompt names the file, the schema and the evidence contract', (
   assert.doesNotMatch(core.buildPrompt({ kind: 'architecture', path: 'x.json' }), /"steps"/);
 });
 
+await check('Workflow, Data flow and Lifecycle have their own prompt, types, relationship default and layout', (row) => {
+  const cases = {
+    workflow: { types: 'start | step | decision | tool | wait | end', fallback: 'step', edge: 'control', dir: 'TB' },
+    dataflow: { types: 'source | transform | store | sink | external', fallback: 'transform', edge: 'data', dir: 'LR' },
+    lifecycle: { types: 'initial | state | waiting | terminal | error', fallback: 'state', edge: 'event', dir: 'LR' },
+  };
+  row.kinds = [];
+  for (const [kind, want] of Object.entries(cases)) {
+    const p = core.buildPrompt({ kind, focus: 'orders', path: `.dstudio/blueprints/${kind}.json` });
+    assert.match(p, new RegExp(`one ${core.KINDS[kind].label.toLowerCase()} diagram`));
+    assert.ok(p.includes(`"schema": "dstudio.blueprint/1", "kind": "${kind}"`));
+    assert.ok(p.includes(`"type": "${want.types}"`), `${kind} node types`);
+    assert.ok(p.includes(`ONE write tool call to .dstudio/blueprints/${kind}.json`));
+    assert.doesNotMatch(p, /"steps"/);
+    const { spec, issues } = core.normalize({ kind, nodes: [{ id: 'a', type: want.types.split(' | ')[0] }, { id: 'b', type: 'service' }, { id: 'c' }],
+      edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c', type: 'call' }] });
+    assert.deepEqual(plain(spec.nodes.map((n) => n.type)), [want.types.split(' | ')[0], want.fallback, want.fallback]);
+    assert.ok(issues.some((i) => new RegExp(`type "service" is not a ${core.KINDS[kind].label.toLowerCase()} type; drawn as ${want.fallback}`).test(i.message)));
+    assert.deepEqual(plain(spec.edges.map((e) => e.type)), [want.edge, 'call'], 'an untyped relationship takes the kind default; a stated one is kept');
+    assert.equal(core.layout(spec).dir, want.dir);
+    row.kinds.push(kind);
+  }
+});
+
 await check('the Design hand-off carries every part and relationship, bounded', (row) => {
   const spec = core.normalize({ ...SPEC, nodes: [...SPEC.nodes, { id: 'web', label: 'Web shop', type: 'client', group: 'edge' }],
     edges: [...SPEC.edges, { from: 'web', to: 'api', label: 'POST /orders' }] }).spec;

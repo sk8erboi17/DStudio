@@ -5,8 +5,11 @@
 // write's file effect itself. It checks the production prompt and file path,
 // the diagram building live from the streamed JSON, citation verification
 // against the workspace bytes, trace/route/lens/find, opening a citation in
-// the IDE, the standalone HTML export, a sequence diagram, an invalid file and
-// persistence. No model or inference runs (see tests/live/blueprint_live_test.mjs).
+// the IDE, the standalone HTML, SVG and JSON exports, re-checking citations
+// after the code changed, Workflow / Data flow / Lifecycle maps, a sequence
+// diagram, an invalid file, a turn that saves no usable blueprint, persistence
+// and the confirmation before Send to Design stops a working Agent. No model or
+// inference runs (see tests/live/blueprint_live_test.mjs).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +96,7 @@ const RS = '\x1e';
 const ev = (o) => RS + JSON.stringify(o) + '\n';
 let raw = '', working = false, mode = 'server', runtimeDir = workspace;
 const sends = [], requests = [], starts = [], sessions = [];
+let interrupts = 0;
 const server = await uiMockServer(async (req, res, url) => {
   if (url.pathname.startsWith('/api/agent/fs/') || url.pathname === '/api/fs/mkdir') {
     const body = Buffer.concat(await (async () => { const c = []; for await (const x of req) c.push(x); return c; })());
@@ -135,13 +139,16 @@ const server = await uiMockServer(async (req, res, url) => {
       sessionWorking: false, ready: true, loadPct: 100 });
     return true;
   }
-  if (url.pathname === '/api/agent/interrupt') { working = false; jsonReply(res, { ok: true }); return true; }
+  if (url.pathname === '/api/agent/interrupt') { interrupts++; working = false; jsonReply(res, { ok: true }); return true; }
   if (url.pathname === '/api/agent/send') {
     const b = await requestBody(req);
     sends.push(b);
+    // As the host replies (api_agent_send): "from" is where this turn's echo
+    // starts in the transcript buffer, "at" where it ends.
+    const from = Buffer.byteLength(raw);
     raw += `\x01USER\x02${b.displayPrompt}\x01ENDUSER\x02\n`;
     working = true;
-    jsonReply(res, { ok: true, from: 0, at: Buffer.byteLength(raw) });
+    jsonReply(res, { ok: true, from, at: Buffer.byteLength(raw) });
     return true;
   }
   return false;
@@ -179,6 +186,46 @@ const geometry = () => page.evaluate(() => {
   return { k, drawn: r.width, expected: svg.viewBox.baseVal.width * k,
     inside: r.left >= stage.left - 1 && r.right <= stage.right + 1 && r.top >= stage.top - 1 && r.bottom <= stage.bottom + 1 };
 });
+
+const arrived = async (list, n, what) => {
+  for (const deadline = Date.now() + 8000; list.length <= n;) {
+    assert.ok(Date.now() < deadline, `${what} never arrived`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return list.at(-1);
+};
+const stored = (key) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
+const edgeStatus = () => page.evaluate(() => [...document.querySelectorAll('#bp-canvas .bp-edge')].map((e) => e.dataset.status));
+// One simulated Agent turn that saves `text` to `rel` with the write tool:
+// the streamed body, the call, the file effect (performed here) and its result.
+async function agentWrites(relPath, text) {
+  raw += ev({ type: 'tool_call_begin', name: 'write' }) + ev({ type: 'tool_call_param', param: 'path', path: '' })
+    + ev({ type: 'tool_call_param', param: 'content', path: relPath }) + ev({ type: 'tool_body_delta', text })
+    + ev({ type: 'tool_call', name: 'write', input: { path: relPath, content: text.slice(0, 200) } });
+  fs.writeFileSync(path.join(workspace, relPath), text);
+  raw += ev({ type: 'tool_result', name: 'write', output: `Wrote ${Buffer.byteLength(text)} bytes to ${relPath}` });
+}
+async function endTurn(text) {
+  raw += `${text}\n`;
+  working = false;
+  await hostWorking(false);
+}
+// "+ New", a kind and a focus, then Map it: returns the request and the file
+// path the production prompt names.
+async function requestMap(kind, focus) {
+  await page.locator('#bp-new-btn').click();
+  await page.locator('#bp-newcard').waitFor({ state: 'visible' });
+  await page.locator(`[data-bp-kind="${kind}"]`).click();
+  await page.locator('#bp-focus').fill(focus);
+  const before = sends.length;
+  await page.locator('#bp-map').click();
+  const sent = await arrived(sends, before, `the ${kind} map request`);
+  const m = sent.prompt.match(/write tool call to (\.dstudio\/blueprints\/[a-z]+-[a-z0-9-]+-\d{8}-\d{6}\.json)/);
+  assert.ok(m, `the prompt names the file: ${sent.prompt.slice(0, 200)}`);
+  working = true;
+  await hostWorking(true);
+  return { sent, file: m[1] };
+}
 
 let rel = '';
 try {
@@ -367,6 +414,124 @@ try {
     await viewer.close();
   });
 
+  const download = async (type, name) => {
+    await page.locator('#bp-export').click();
+    const [file] = await Promise.all([page.waitForEvent('download'), page.locator(`[data-export="${type}"]`).click()]);
+    const saved = path.join(dir, name);
+    await file.saveAs(saved);
+    return { saved, filename: file.suggestedFilename() };
+  };
+
+  await step('Export writes the drawing as a standalone SVG image', async (row) => {
+    const { saved, filename } = await download('svg', 'export.svg');
+    row.filename = filename;
+    assert.match(filename, /^architecture-how-an-order-is-stored-\d{8}-\d{6}\.svg$/);
+    const svg = fs.readFileSync(saved, 'utf8');
+    assert.doesNotMatch(svg, /<script|<foreignObject|\son[a-z]+\s*=|href\s*=|@import|url\((?!#)/i, 'no script, handler or external reference');
+    // Opened on its own it is a drawing with the same parts, relationships,
+    // verification marks and its own styles (the SVG default fill is black).
+    const viewer = await context.newPage();
+    const errors = [];
+    viewer.on('pageerror', (e) => errors.push(e.message));
+    await viewer.goto(pathToFileURL(saved).href);
+    const drawn = await viewer.evaluate(() => ({
+      root: document.documentElement.localName,
+      nodes: Object.fromEntries([...document.querySelectorAll('.bp-node')].map((n) => [n.getAttribute('data-node'), n.getAttribute('data-status')])),
+      labels: [...document.querySelectorAll('.bp-node .bp-label')].map((t) => t.textContent),
+      edges: [...document.querySelectorAll('.bp-edge')].map((e) => `${e.getAttribute('data-from')}>${e.getAttribute('data-to')}:${e.getAttribute('data-status')}`),
+      fill: getComputedStyle(document.querySelector('.bp-node .bp-box')).fill,
+      size: (({ width, height }) => [Math.round(width), Math.round(height)])(document.documentElement.getBoundingClientRect()),
+    }));
+    row.drawn = drawn;
+    assert.equal(drawn.root, 'svg');
+    assert.deepEqual(drawn.nodes, { server: 'verified', orders: 'partial', payments: 'unverified', db: 'unverified' });
+    assert.deepEqual(drawn.labels, ['HTTP server', 'Orders', 'Payments', 'Database']);
+    assert.deepEqual(drawn.edges, ['server>orders:verified', 'orders>payments:verified', 'orders>db:verified', 'db>orders:unsourced']);
+    assert.equal(drawn.fill, 'rgb(255, 255, 255)', 'the exported style sheet colours the boxes');
+    assert.ok(drawn.size[0] > 300 && drawn.size[1] > 100, `drawn at its own size: ${drawn.size}`);
+    await viewer.screenshot({ path: path.join(dir, 'export-svg.png') });
+    assert.deepEqual(errors, []);
+    await viewer.close();
+  });
+
+  await step('Export writes the blueprint as JSON that DStudio opens again with the same evidence', async (row) => {
+    const { saved, filename } = await download('json', 'export.json');
+    row.filename = filename;
+    assert.match(filename, /^architecture-how-an-order-is-stored-\d{8}-\d{6}\.json$/);
+    const out = JSON.parse(fs.readFileSync(saved, 'utf8'));
+    assert.equal(out.schema, 'dstudio.blueprint/1');
+    assert.equal(out.kind, 'architecture');
+    assert.equal(out.title, 'Order service');
+    assert.deepEqual(out.nodes.map((n) => [n.id, n.label, n.type, n.group]), SPEC.nodes.map((n) => [n.id, n.label, n.type, n.group]));
+    assert.deepEqual(out.nodes.map((n) => n.sources), SPEC.nodes.map((n) => n.sources));
+    assert.deepEqual(out.edges.map((e) => [e.from, e.to, e.label, e.type]), SPEC.edges.map((e) => [e.from, e.to, e.label, e.type]));
+    assert.deepEqual(out.questions, SPEC.open_questions);
+    const copy = '.dstudio/blueprints/exported-copy.json';
+    fs.copyFileSync(saved, path.join(workspace, copy));
+    await page.locator('#bp-refresh').click();
+    await page.locator(`#bp-list [data-file="${copy}"]`).click();
+    await until((f) => document.querySelector('#bp-list .bp-file.is-on')?.dataset.file === f, copy);
+    // The copy's own citations are checked once it is drawn.
+    await until(() => document.querySelector('#bp-canvas .bp-node[data-node="server"]')?.dataset.status === 'verified');
+    await page.locator('#bp-evidence', { hasText: '5/8 claims verified' }).waitFor();
+    assert.deepEqual(await nodeStatus(), { server: 'verified', orders: 'partial', payments: 'unverified', db: 'unverified' });
+    fs.rmSync(path.join(workspace, copy));
+  });
+
+  await step('JSON export of a blueprint shown as its group overview is still the whole blueprint', async (row) => {
+    const groups = ['edge', 'core', 'data'].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) }));
+    const nodes = Array.from({ length: 12 }, (_, i) => ({ id: `part-${i}`, label: `Part ${i + 1}`, type: 'module', group: groups[i % 3].id }));
+    const grouped = { schema: 'dstudio.blueprint/1', kind: 'architecture', title: 'Grouped shop', groups, nodes,
+      edges: nodes.slice(1).map((n, i) => ({ from: nodes[i].id, to: n.id, label: 'calls', type: 'call' })) };
+    const file = '.dstudio/blueprints/grouped-shop.json';
+    fs.writeFileSync(path.join(workspace, file), JSON.stringify(grouped));
+    await page.locator('#bp-refresh').click();
+    await page.locator(`#bp-list [data-file="${file}"]`).click();
+    await page.locator('#bp-name', { hasText: 'Grouped shop' }).waitFor();
+    // Twelve parts in three groups open as one box per group.
+    await page.locator('#bp-scope').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#bp-canvas .bp-node').count(), 3);
+    const { saved } = await download('json', 'export-grouped.json');
+    const out = JSON.parse(fs.readFileSync(saved, 'utf8'));
+    row.exportedNodes = out.nodes.length;
+    assert.deepEqual(out.nodes.map((n) => n.id), nodes.map((n) => n.id), 'the parts, not the overview boxes');
+    assert.equal(out.edges.length, 11);
+    fs.rmSync(path.join(workspace, file));
+    await page.locator('#bp-refresh').click();
+    await page.locator(`#bp-list [data-file="${rel}"]`).click();
+    await page.locator('#bp-evidence', { hasText: '5/8 claims verified' }).waitFor();
+  });
+
+  await step('Refresh re-checks the citations against the code as it is now', async (row) => {
+    // The code changes after the map was made: the quoted call in server.js
+    // is rewritten, and four lines added at the top of orders.js move every
+    // quote there beyond the two-line tolerance around its cited lines.
+    fs.writeFileSync(path.join(workspace, 'src/server.js'),
+      SERVER_JS.replace('createOrder(JSON.parse(await body(req)))', "createOrder(JSON.parse(await body(req)), { source: 'http' })"));
+    fs.writeFileSync(path.join(workspace, 'src/orders.js'), '// Orders module:\n// - charge the card\n// - store the order\n\n' + ORDERS_JS);
+    await page.keyboard.press('Escape');
+    await page.locator('#bp-refresh').click();
+    await page.locator('#bp-evidence', { hasText: '4/8 claims verified' }).waitFor();
+    row.nodes = await nodeStatus();
+    assert.deepEqual(row.nodes, { server: 'verified', orders: 'partial', payments: 'unverified', db: 'unverified' });
+    row.edges = await edgeStatus();
+    assert.deepEqual(row.edges, ['unverified', 'partial', 'partial', 'unsourced'], 'the rewritten call is not found, the moved ones are flagged');
+    await page.locator('#bp-inspect', { hasText: '4 of 8 claims are backed by a quote found in the code; 4 quotes at another line; 3 citations could not be found' }).waitFor();
+    assert.deepEqual(await page.locator('#bp-inspect .bp-cite[data-st="unverified"] .bp-cite-path').allInnerTexts(), ['src/db.js:1-2', 'src/server.js:6']);
+    await clickNode('orders');
+    assert.deepEqual(await page.locator('#bp-inspect .bp-cite').evaluateAll((ns) => ns.map((n) => `${n.dataset.st}:${n.querySelector('.bp-cite-st').textContent}`)),
+      ['moved:quote found at another line (line 8)', 'moved:quote found at another line (line 12)']);
+    assert.equal(fs.readFileSync(path.join(workspace, rel), 'utf8'), SPEC_TEXT, 're-checking never rewrites the blueprint');
+    await capture('reverified');
+    // The code is put back: the next check finds the quotes again.
+    fs.writeFileSync(path.join(workspace, 'src/server.js'), SERVER_JS);
+    fs.writeFileSync(path.join(workspace, 'src/orders.js'), ORDERS_JS);
+    await page.keyboard.press('Escape');
+    await page.locator('#bp-refresh').click();
+    await page.locator('#bp-evidence', { hasText: '5/8 claims verified' }).waitFor();
+    assert.deepEqual(await edgeStatus(), ['verified', 'verified', 'verified', 'unsourced']);
+  });
+
   await step('+ New opens the card over the drawing and Esc returns to it', async () => {
     await page.locator('#bp-new-btn').click();
     await page.locator('#bp-newcard').waitFor({ state: 'visible' });
@@ -381,6 +546,70 @@ try {
     await page.locator('#bp-new-close').click();
     await page.locator('#bp-newcard').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#bp-canvas .bp-node').count(), 4, 'the drawing stayed');
+  });
+
+  // The three other kinds, each mapped from the New card and written by the
+  // simulated Agent with citations into the workspace.
+  const src = (file, line, quote) => ({ path: file, lines: [line, line], quote });
+  const KIND_CASES = [
+    { kind: 'workflow', label: 'Workflow', focus: 'how an order is placed', hint: /steps of a process, its decisions/,
+      types: 'start | step | decision | tool | wait | end', edgeDefault: 'control', evidence: '3/11 claims verified',
+      spec: { schema: 'dstudio.blueprint/1', kind: 'workflow', title: 'Placing an order', nodes: [
+        { id: 'request', label: 'POST /orders', type: 'start', sources: [src('src/server.js', 5, "if (req.method === 'POST' && req.url === '/orders') {")] },
+        { id: 'charge', label: 'Charge the card', type: 'step', sources: [src('src/orders.js', 5, 'await payments.charge(input.card, input.total);')] },
+        { id: 'paid', label: 'Charge accepted?', type: 'decision' },
+        { id: 'store', label: 'Store the order', type: 'step', sources: [src('src/orders.js', 6, 'return db.insertOrder(input);')] },
+        { id: 'done', label: 'Order saved', type: 'end' }, { id: 'failed', label: 'Request fails', type: 'end' }],
+      edges: [{ from: 'request', to: 'charge' }, { from: 'charge', to: 'paid' }, { from: 'paid', to: 'store', label: 'yes' },
+        { from: 'paid', to: 'failed', label: 'no' }, { from: 'store', to: 'done' }] } },
+    { kind: 'dataflow', label: 'Data flow', focus: 'where order data goes', hint: /where data comes from/,
+      types: 'source | transform | store | sink | external', edgeDefault: 'data', evidence: '4/7 claims verified',
+      spec: { schema: 'dstudio.blueprint/1', kind: 'dataflow', title: 'Order data', nodes: [
+        { id: 'body', label: 'Request body', type: 'source', sources: [src('src/server.js', 6, 'JSON.parse(await body(req))')] },
+        { id: 'order', label: 'createOrder', type: 'transform', sources: [src('src/orders.js', 4, 'async function createOrder(input) {')] },
+        { id: 'pg', label: 'orders table', type: 'store', sources: [src('src/db.js', 4, "return pool.query('INSERT INTO orders VALUES ($1)', [o]);")] },
+        { id: 'response', label: 'JSON response', type: 'sink', sources: [src('src/server.js', 7, 'res.end(JSON.stringify(order));')] }],
+      edges: [{ from: 'body', to: 'order', label: 'parsed input' }, { from: 'order', to: 'pg', label: 'row' }, { from: 'order', to: 'response', label: 'order JSON' }] } },
+    { kind: 'lifecycle', label: 'Lifecycle', focus: 'the states of an order', hint: /states something goes through/,
+      types: 'initial | state | waiting | terminal | error', edgeDefault: 'event', evidence: '2/9 claims verified',
+      spec: { schema: 'dstudio.blueprint/1', kind: 'lifecycle', title: 'Order states', nodes: [
+        { id: 'new', label: 'New', type: 'initial' }, { id: 'charging', label: 'Charging', type: 'waiting' },
+        { id: 'paid', label: 'Paid', type: 'state' }, { id: 'stored', label: 'Stored', type: 'terminal' }, { id: 'declined', label: 'Declined', type: 'error' }],
+      edges: [{ from: 'new', to: 'charging', label: 'createOrder', sources: [src('src/orders.js', 4, 'async function createOrder(input) {')] },
+        { from: 'charging', to: 'paid', label: 'charge ok' }, { from: 'charging', to: 'declined', label: 'charge fails' },
+        { from: 'paid', to: 'stored', label: 'insertOrder', sources: [src('src/orders.js', 6, 'return db.insertOrder(input);')] }] } },
+  ];
+
+  await step('Workflow, Data flow and Lifecycle maps are requested from the New card and drawn', async (row) => {
+    row.kinds = [];
+    for (const k of KIND_CASES) {
+      await page.locator('#bp-new-btn').click();
+      await page.locator(`[data-bp-kind="${k.kind}"]`).click();
+      assert.equal(await page.locator(`[data-bp-kind="${k.kind}"]`).getAttribute('aria-checked'), 'true');
+      assert.match(await page.locator('#bp-kind-hint').innerText(), k.hint);
+      await page.keyboard.press('Escape');
+      const { sent, file } = await requestMap(k.kind, k.focus);
+      assert.equal(sent.displayPrompt, `Blueprint · ${k.label} · ${k.focus}`);
+      assert.ok(file.startsWith(`.dstudio/blueprints/${k.kind}-${k.focus.replace(/ /g, '-')}-`), file);
+      assert.ok(sent.prompt.includes(`"schema": "dstudio.blueprint/1", "kind": "${k.kind}"`), 'the schema line names the kind');
+      assert.ok(sent.prompt.includes(`"type": "${k.types}"`), `the node types of ${k.kind}`);
+      await page.locator('#bp-list .bp-file.is-pending').waitFor();
+      await agentWrites(file, JSON.stringify(k.spec, null, 1));
+      await endTurn(`${k.label} saved (simulated).`);
+      await page.locator('#bp-name', { hasText: k.spec.title }).waitFor();
+      await page.locator('#bp-evidence', { hasText: k.evidence }).waitFor();
+      assert.equal((await page.locator('#bp-kind').textContent()).trim(), k.label);
+      const drawn = await page.evaluate(() => ({
+        nodes: [...document.querySelectorAll('#bp-canvas .bp-node')].map((n) => `${n.dataset.node}:${[...n.classList].find((c) => c.startsWith('bp-n-')).slice(5)}`),
+        edges: [...document.querySelectorAll('#bp-canvas .bp-edge')].map((e) => [...e.classList].find((c) => c.startsWith('bp-t-')).slice(5)),
+      }));
+      assert.deepEqual(drawn.nodes, k.spec.nodes.map((n) => `${n.id}:${n.type}`), 'each node keeps its kind-specific type');
+      assert.deepEqual(drawn.edges, k.spec.edges.map(() => k.edgeDefault), `untyped ${k.kind} relationships are drawn as ${k.edgeDefault}`);
+      assert.equal(fs.readFileSync(path.join(workspace, file), 'utf8'), JSON.stringify(k.spec, null, 1));
+      await capture(`kind-${k.kind}`);
+      row.kinds.push({ kind: k.kind, file, nodes: drawn.nodes.length, evidence: k.evidence });
+      await until(() => !document.querySelector('#bp-map').disabled);   // the UI saw the turn end
+    }
   });
 
   await step('a large blueprint opens at a readable zoom and Fit shows all of it', async (row) => {
@@ -436,6 +665,31 @@ try {
     assert.equal(await page.locator('#bp-canvas .bp-node').count(), 0);
   });
 
+  await step('a turn that saves no usable blueprint is reported instead of an empty map', async (row) => {
+    // The Agent answers in prose and never writes the file it was asked for.
+    const lost = await requestMap('architecture', 'payment retries');
+    await page.locator('#bp-list .bp-file.is-pending').waitFor();
+    await endTurn('I found no retry logic, so I did not write a blueprint (simulated).');
+    await page.locator('#bp-empty h3', { hasText: 'This blueprint cannot be drawn' }).waitFor();
+    row.reported = (await page.locator('#bp-empty').innerText()).replace(/\s+/g, ' ');
+    assert.ok(row.reported.includes(`ended its turn without saving ${lost.file}`), row.reported);
+    assert.equal(await page.locator('#bp-canvas .bp-node').count(), 0);
+    assert.equal(await page.locator('#bp-list .bp-file.is-pending').count(), 0, 'no map is still pending');
+    assert.equal(await page.locator('#bp-newcard').isVisible(), false, 'the outcome is shown, not a blank new-map form');
+    assert.equal(fs.existsSync(path.join(workspace, lost.file)), false);
+    await capture('no-blueprint-written');
+    await until(() => !document.querySelector('#bp-map').disabled);
+    // The Agent saves a file that has no parts at all.
+    const empty = await requestMap('architecture', 'empty result');
+    await agentWrites(empty.file, JSON.stringify({ schema: 'dstudio.blueprint/1', kind: 'architecture', title: 'Nothing found', nodes: [], edges: [] }));
+    await endTurn('Saved an empty map (simulated).');
+    await page.locator('#bp-empty', { hasText: 'the diagram has no nodes' }).waitFor();
+    assert.match(await page.locator('#bp-empty h3').innerText(), /This blueprint cannot be drawn/);
+    assert.equal(await page.locator('#bp-canvas .bp-node').count(), 0);
+    assert.equal(await page.locator('#bp-evidence').isVisible(), false, 'no evidence claim for a map that is not drawn');
+    await until(() => !document.querySelector('#bp-map').disabled);
+  });
+
   await step('the last blueprint reopens after a reload', async () => {
     await page.locator(`#bp-list [data-file="${rel}"]`).click();
     await page.locator('#bp-name', { hasText: 'Order service' }).waitFor();
@@ -453,15 +707,6 @@ try {
     await page.locator('#blueprint').waitFor({ state: 'hidden' });
     await page.locator('#composer-input').waitFor({ state: 'visible' });
   });
-
-  const arrived = async (list, n, what) => {
-    for (const deadline = Date.now() + 8000; list.length <= n;) {
-      assert.ok(Date.now() < deadline, `${what} never arrived`);
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    return list.at(-1);
-  };
-  const stored = (key) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null'), key);
 
   await step('Implement code asks the Agent in the conversation the blueprint was opened from', async (row) => {
     await page.locator('#btn-blueprint').click();
@@ -485,20 +730,47 @@ try {
     await page.locator('#blueprint').waitFor({ state: 'hidden' });
     assert.equal((await stored('ds4web.active.v2')).ids.agent, before.chat, 'the same conversation');
     await page.locator('#agent-view', { hasText: 'Blueprint · implement · Order service' }).waitFor();
-    raw += 'Implemented (simulated).\n';
-    working = false;                           // the simulated turn ends
+    // The implement turn keeps running (simulated): the next step hands off
+    // to Design while the Agent still works.
+  });
+
+  await step('Send to Design while the Agent works asks to confirm the engine switch first', async (row) => {
+    await page.locator('#btn-blueprint').click();
+    await page.locator('#bp-evidence', { hasText: '5/8 claims verified' }).waitFor();
+    // The implement turn is still running (simulated): the UI sees it working.
+    await until(() => document.querySelector('#bp-implement').disabled);
+    assert.equal(await page.locator('#bp-to-design').isEnabled(), true, 'the hand-off is offered while the Agent works');
+    const before = { sends: sends.length, starts: starts.length, interrupts, chat: (await stored('ds4web.active.v2')).ids.agent };
+    await page.locator('#bp-to-design').click();
+    const dialog = page.locator('#confirm-dialog');
+    await dialog.waitFor({ state: 'visible' });
+    row.dialog = { title: await page.locator('#confirm-title').innerText(), body: await page.locator('#confirm-body').innerText(), go: await page.locator('#confirm-go').innerText() };
+    assert.equal(row.dialog.title, 'Interrupt the current generation?');
+    assert.match(row.dialog.body, /^The agent is still working\. Switching engines stops it/);
+    assert.equal(row.dialog.go, 'Switch anyway');
+    await capture('design-confirm');
+    await page.locator('#confirm-cancel').click();
+    await dialog.waitFor({ state: 'hidden' });
+    await until(() => document.querySelector('#bp-to-design span').textContent === 'Send to Design');
+    assert.equal(starts.length, before.starts, 'nothing starts without confirmation');
+    assert.equal(sends.length, before.sends);
+    assert.equal(interrupts, before.interrupts, 'the working Agent is not interrupted');
+    assert.equal(working, true);
+    assert.equal((await stored('ds4web.active.v2')).ids.agent, before.chat, 'the Agent conversation stays active');
+    assert.equal(await page.locator('#blueprint').isVisible(), true, 'the blueprint stays open');
+    assert.equal(await page.locator('.design-handoff').count(), 0);
+    // Confirmed: the switch goes ahead, on design/ inside the project.
+    await page.locator('#bp-to-design').click();
+    await dialog.waitFor({ state: 'visible' });
+    await page.locator('#confirm-go').click();
+    assert.deepEqual(await arrived(starts, before.starts, 'the Design start'), { mode: 'design', workdir: path.join(workspace, 'design') });
+    working = false;                           // the host replaced the Agent with Design
   });
 
   await step('Send to Design opens a Design conversation with the blueprint as context', async (row) => {
-    await page.locator('#btn-blueprint').click();
-    await page.locator('#bp-evidence', { hasText: '5/8 claims verified' }).waitFor();
-    // Wait until the UI saw the simulated turn end: switching engines while
-    // the Agent works asks for confirmation first (not tested here).
-    await until(() => !document.querySelector('#bp-implement').disabled);
-    const before = { sends: sends.length, starts: starts.length };
-    await page.locator('#bp-to-design').click();
-    // The design engine starts on design/ inside the project, never on the code.
-    assert.deepEqual(await arrived(starts, before.starts, 'the Design start'), { mode: 'design', workdir: path.join(workspace, 'design') });
+    // Started by the confirmed switch above: the design engine runs on
+    // design/ inside the project, never on the code.
+    const before = { sends: sends.length };
     assert.ok(fs.statSync(path.join(workspace, 'design')).isDirectory());
     const card = page.locator('.design-handoff');
     await card.waitFor({ state: 'visible' });
