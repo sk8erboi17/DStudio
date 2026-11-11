@@ -127,6 +127,7 @@ directly to the corresponding guide and section.
 - <a id="harnesses-pi-and-opencode-as-the-agent-runtime"></a>[Harnesses: pi and OpenCode as the Agent runtime](docs/engines-and-harnesses.md#harnesses-pi-and-opencode-as-the-agent-runtime)
 - <a id="engine-source-delta-review"></a>[Engine source-delta review](docs/engines-and-harnesses.md#engine-source-delta-review)
 - <a id="codex-cli-responses-protocol-scripted-server"></a>[Codex CLI Responses protocol (scripted server)](docs/engines-and-harnesses.md#codex-cli-responses-protocol-scripted-server)
+- <a id="held-out-and-longrecovery-agent-cases-no-agent"></a>[Held-out and long/recovery agent cases (no agent)](docs/engines-and-harnesses.md#held-out-and-longrecovery-agent-cases-no-agent)
 
 ### Offline installation, inference boundaries and cleanup
 

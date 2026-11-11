@@ -1042,6 +1042,17 @@ test-task-graph-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
 	@node extension/task-graph/bench/validate.mjs
 
+# The twenty held-out and twelve long/recovery cases of the six-agent lane
+# (PLAN.MD P9) graded without any agent or model: each oracle accepts its
+# reference result and rejects the untouched workspace and every listed wrong
+# result; default selections stay the fifty; the frozen case digests (fifty
+# included) still match. Needs node, python3 and git.
+.PHONY: test-agent-lane-cases
+test-agent-lane-cases:
+	@node tests/unit/agent_lane_cases_test.mjs
+
+check-fast: test-agent-lane-cases
+
 test-task-graph-real: $(TEST_SERVER)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-heavy.mjs $(TEST_SERVER)
 

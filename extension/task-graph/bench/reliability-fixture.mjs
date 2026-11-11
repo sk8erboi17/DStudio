@@ -12,6 +12,9 @@ export const RELIABILITY_VARIANTS = Object.freeze({
   pi: { slug: 'pi', marker: 'PI' },
   opencode: { slug: 'opencode', marker: 'OPENCODE' },
   codex: { slug: 'codex', marker: 'CODEX' },
+  // The six-agent lane (agent-lane.mjs) gives every agent this one variant in
+  // a workspace of its own, so all of them get the same bytes and prompt.
+  lane: { slug: 'task', marker: 'TASK' },
 });
 
 export const RELIABILITY_TASK_TYPES = Object.freeze([
@@ -175,7 +178,7 @@ function diagnosisFixture(variation) {
   return fixtures[variation];
 }
 
-function createVariantTask(workspace, template, variation, variant, scenarioId) {
+export function createVariantTask(workspace, template, variation, variant, scenarioId) {
   const config = RELIABILITY_VARIANTS[variant];
   if (!config) throw new Error(`unknown reliability variant: ${variant}`);
   const relativeRoot = posixJoin('cases', scenarioId, config.slug);

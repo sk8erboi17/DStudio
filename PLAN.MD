@@ -789,6 +789,25 @@ projects across the nine distinct systems. No manual benchmark-output repair.
 Status: TO_DO for the new complete campaign; fifty fixtures and historical
 comparisons already exist.
 
+Progress, November 11, 2026 (model-free; paused by the owner mid-slice). Done
+and verified: twenty held-out cases (ten kinds the fifty lack, two each) and
+twelve long/recovery cases (dirty workspace, a tool failing once, a partial
+patch, steering, Stop/resume, two sessions), each with a workspace-only oracle,
+a reference result used only by its self-test and at least two wrong results it
+rejects (`make test-agent-lane-cases`: 203 checks, 102 wrong results rejected).
+Held-out and recovery cases are selected only by name and only by
+`run-agent-lane.mjs`; the existing runners still run the fifty only. A
+differential check against the fifty as they were before this work (5
+variants × 50 cases, 875 graded comparisons of a reference and wrong results)
+found no difference; the published charts re-render byte-identical. Written
+but **not yet tested**: the six-agent `run-agent-lane.mjs` (with `--plan`), its
+drivers and the clean upstream ds4-agent build (`build-upstream-agent.mjs`, not
+run). Steering and Stop/resume rows are BLOCKED or not comparable for every
+agent until a scripted test exercises a driver. Still open: items 1–7 below as
+written, a scripted mechanics test, six-agent publication and plots, and every
+real-model attempt (none ran). See
+[the bench README](extension/task-graph/bench/README.md#case-sets-held-out-and-recovery).
+
 Compare clean upstream ds4-agent, direct patched DStudio Agent, the same Agent
 with Task Graph/check, Pi, OpenCode and Codex CLI. The historical Native
 baseline uses DStudio patches; it is not clean upstream.

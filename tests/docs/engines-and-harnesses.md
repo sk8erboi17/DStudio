@@ -582,6 +582,29 @@ split and Unicode frames, call identifiers, resume, compaction, Stop,
 truncated/malformed/refused responses, the sandbox, isolation from the user's
 environment and three fixture tasks graded by the benchmark. Every reply is
 scripted: it proves nothing about a model, about Codex as an agent or about
-the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS;
-other versions and platforms were not run. Scope, observations and what
+the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS,
+and 26/26 again the same day with codex-cli 0.167.1 (the CLI had updated
+itself); other versions and platforms were not run. Scope, observations and what
 remains open: [extension/task-graph/bench/README.md](../../extension/task-graph/bench/README.md).
+
+
+### Held-out and long/recovery agent cases (no agent)
+
+`make test-agent-lane-cases` (part of `check-fast`; needs node, python3 and
+git) grades the twenty held-out cases and the twelve long/recovery cases of the
+six-agent comparison (PLAN.MD P9) without any agent or model. For each case it
+runs a reference result and the plausible wrong results written for the test
+(shell commands in the case directory, from
+`extension/task-graph/bench/case-references.mjs`, which no runner imports) and
+asserts that the case's own oracle accepts the reference, stays inside the
+allowed changes, and rejects the untouched workspace and every wrong result,
+naming the failed check. For a two-phase case (steering, Stop/resume, two
+sessions) the first phase alone must reach the runner's trigger and must not
+be accepted. It also asserts that a run that names no set gets exactly the
+fifty development cases, that held-out and recovery cases are selected only by
+name, and that the frozen digests of all cases (the fifty as each published
+variant receives them included) still match `frozen-cases.json`.
+November 11, 2026: 203 checks passed (32 oracles, 102 wrong results rejected).
+
+It proves the oracles and the selection, not any agent: the reference results
+are written for the test, and no agent has run a held-out or recovery case.
