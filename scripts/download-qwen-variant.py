@@ -56,6 +56,12 @@ ORIGINALS = {
 # The private per-file stage inside each store.
 STAGE = '.dstudio-qwen-downloads'
 CHUNK = 1024 * 1024
+# The Hub answers a pinned URL with a redirect whose own body (about 300
+# bytes) is larger than the smallest pinned files, and curl applies
+# --max-filesize to that response too: a 58-byte file could never be fetched.
+# The transfer loop is the exact bound (it refuses any byte beyond the pinned
+# size); curl's limit only stops a grossly oversized body early.
+REDIRECT_BODY_ALLOWANCE = 64 * 1024
 MAX_SECONDS = 6 * 60 * 60
 MODIFIED = re.compile(r'abliterat|uncensor|jailbreak|heretic', re.I)
 ID = re.compile(r'qwen(36|27)-[a-z0-9][a-z0-9_.-]{0,31}')
@@ -304,7 +310,7 @@ def transfer(fd, size, url, token):
         'curl', '--disable', '--fail', '--location', '--silent', '--show-error',
         '--proto', protocols, '--proto-redir', protocols, '--connect-timeout', '30',
         '--max-time', str(MAX_SECONDS), '--speed-limit', '1024', '--speed-time', '120',
-        '--max-filesize', str(size - start), '--continue-at', str(start),
+        '--max-filesize', str(max(size - start, REDIRECT_BODY_ALLOWANCE)), '--continue-at', str(start),
         '--output', '-', '--config', '-', url,
     ]
     os.lseek(fd, start, os.SEEK_SET)
