@@ -142,6 +142,7 @@ directly to the corresponding guide and section.
 - <a id="deepseek-v41-http-download-and-resume"></a>[DeepSeek V4.1 HTTP download and resume](docs/regression.md#deepseek-v41-http-download-and-resume)
 - <a id="automatic-matching-vision-downloads-host-fixtures"></a>[Automatic matching vision downloads (host fixtures)](docs/regression.md#automatic-matching-vision-downloads-host-fixtures)
 - <a id="deepseek-v41-vision-sidecar-pairing-real-engine-no-weights"></a>[DeepSeek V4.1 vision sidecar pairing (real engine, no weights)](docs/regression.md#deepseek-v41-vision-sidecar-pairing-real-engine-no-weights)
+- <a id="laguna-prefill-batch-size-patch-lifecycle-real-weights-not-yet-run"></a>[Laguna prefill batch size (patch lifecycle; real weights not yet run)](docs/regression.md#laguna-prefill-batch-size-patch-lifecycle-real-weights-not-yet-run)
 - <a id="vision-encoder-with-ssd-streaming-real-metal"></a>[Vision encoder with SSD streaming (real Metal)](docs/regression.md#vision-encoder-with-ssd-streaming-real-metal)
 - <a id="small-ssd-prefill-batches-real-metal-128k-context"></a>[Small SSD prefill batches (real Metal, 128k context)](docs/regression.md#small-ssd-prefill-batches-real-metal-128k-context)
 - <a id="model-free-checks"></a>[Model-free checks](docs/regression.md#model-free-checks)

@@ -59,6 +59,40 @@ sidecar; the patched engine opens each Q2 only with its own sidecar and refuses
 the two mixed pairs. Accepted pairs must print the V4.1 model summary. This
 qualifies pairing admission only, not image inference or model quality.
 
+### Laguna prefill batch size (patch lifecycle; real weights not yet run)
+
+```sh
+make test-laguna-prefill-chunk-patch   # copies of the bundled Laguna engine; CPU compile, no model
+make test-laguna-prefill-chunk-live    # real Laguna Q4_K_M on Metal; LAGUNA_MODEL=/path/to.gguf
+make test-laguna-prefill-chunk-live LONG_TOKENS=60000 LONG_CTX=65536
+```
+
+The lifecycle test applies `patch/ds4-laguna-prefill-chunk` to copies of
+`src/engines/ds4-laguna-s21` (never the snapshot or an installed checkout):
+check, apply, repeat apply, restore to exact bytes, drift and partial or
+edited patches refused with no file changed, unrelated local edits preserved,
+ds4 main skipped, and composition after the managed runtime patch stack. It
+then compiles the patched `ds4-server` and `ds4` on the CPU, checks the help
+text, links a `DS4_TEST_HOOKS` build of the patched `ds4.c` and executes the
+engine's own batch resolver (Metal default 4096, other backends 16384,
+`--prefill-chunk` before `DS4_METAL_PREFILL_CHUNK`, 16-16384 accepted, anything
+else refused), and checks that applying or restoring the patch makes the
+built binaries stale for `make`. It loads no model and does no GPU work; it
+does not show that the batch split is numerically equivalent or that long
+prompts now complete.
+
+The live script builds the patched engine in a new
+`tests/.artifacts/laguna-prefill-chunk/run-*` directory, refuses to start
+beside another engine (`tests/support/heavy_preflight.mjs`), and runs the
+`ds4` CLI one process at a time under a pseudo-terminal (so prefill commits
+one Metal command buffer per layer, as ds4-server does). On a ~12,000-token
+prompt it compares batch 16384 (twice, for repeatability) with the default
+4096: every vocabulary logit, top-20 order and 64 greedy tokens must be
+identical (exact tolerance; see the patch README). It then runs a ~40,000-token
+needle prompt with the default, which must complete without the Metal
+watchdog error; the needle answer is reported separately. Not run yet: the
+equivalence and long-context results remain open evidence.
+
 ### Vision encoder with SSD streaming (real Metal)
 
 ```sh

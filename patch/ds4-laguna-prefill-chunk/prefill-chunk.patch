@@ -1,0 +1,173 @@
+diff --git a/ds4.c b/ds4.c
+--- a/ds4.c
++++ b/ds4.c
+@@ -12863,8 +12863,68 @@
+     if (cap == 0) cap = 1;
+     if (cap > (uint32_t)prompt_len) cap = (uint32_t)prompt_len;
+     return cap;
++}
++
++/*
++ * Laguna's prefill batch is also the row count of its preallocated graph
++ * scratch (laguna_graph_alloc).  The branch fixed it at 16384 rows.  On macOS
++ * one 16384-row Laguna layer at 16K-32K positions exceeds the GPU watchdog
++ * (kIOGPUCommandBufferCallbackErrorImpactingInteractivity), so a request for
++ * a smaller batch is honoured with the DeepSeek graph's precedence:
++ * --prefill-chunk, then DS4_METAL_PREFILL_CHUNK, then 4096 on Metal (the
++ * DeepSeek Flash long-prompt default in ds4_prefill_cap_for_prompt) and the
++ * original 16384 on other backends.  16384 stays selectable.  Larger batches
++ * (more scratch than the branch ever allocated) and batches smaller than one
++ * DFlash verifier block are refused, never clamped.  Every row keeps its
++ * absolute position; attention visits keys in causal order across batches.
++ */
++#define DS4_LAGUNA_PREFILL_CHUNK_MAX 16384u
++#define DS4_LAGUNA_METAL_PREFILL_CHUNK 4096u
++
++static uint32_t ds4_laguna_prefill_chunk(ds4_backend backend,
++                                         uint32_t    requested,
++                                         char       *err,
++                                         size_t      errlen) {
++    uint32_t chunk = requested;
++    const char *source = "--prefill-chunk";
++    if (chunk == 0) {
++        const char *env = getenv("DS4_METAL_PREFILL_CHUNK");
++        if (!env || !env[0]) {
++            return backend == DS4_BACKEND_METAL ?
++                DS4_LAGUNA_METAL_PREFILL_CHUNK : DS4_LAGUNA_PREFILL_CHUNK_MAX;
++        }
++        char *end = NULL;
++        const long long v = strtoll(env, &end, 10);
++        if (end == env || *end != '\0' || v <= 0 ||
++            v > (long long)DS4_LAGUNA_PREFILL_CHUNK_MAX) {
++            snprintf(err, errlen,
++                     "DS4_METAL_PREFILL_CHUNK=%s is not a Laguna prefill "
++                     "batch from %u to %u rows",
++                     env, (unsigned)DS4_DFLASH_BLOCK_SIZE,
++                     (unsigned)DS4_LAGUNA_PREFILL_CHUNK_MAX);
++            return 0;
++        }
++        chunk = (uint32_t)v;
++        source = "DS4_METAL_PREFILL_CHUNK";
++    }
++    if (chunk < DS4_DFLASH_BLOCK_SIZE || chunk > DS4_LAGUNA_PREFILL_CHUNK_MAX) {
++        snprintf(err, errlen,
++                 "%s %u is not a Laguna prefill batch from %u to %u rows",
++                 source, (unsigned)chunk, (unsigned)DS4_DFLASH_BLOCK_SIZE,
++                 (unsigned)DS4_LAGUNA_PREFILL_CHUNK_MAX);
++        return 0;
++    }
++    return chunk;
+ }
+ 
++#ifdef DS4_TEST_HOOKS
++uint32_t ds4_test_laguna_prefill_chunk(int backend, uint32_t requested,
++                                       char *err, size_t errlen) {
++    return ds4_laguna_prefill_chunk((ds4_backend)backend, requested,
++                                    err, errlen);
++}
++#endif
++
+ /* Allocate all CPU decode temporaries once.  This keeps generation deterministic
+  * from the VM's point of view and makes accidental hot-loop malloc visible. */
+ static void cpu_decode_scratch_init(ds4_cpu_decode_scratch *scratch, uint32_t ctx_size) {
+@@ -47810,14 +47870,18 @@
+     memset(g, 0, sizeof(*g));
+ }
+ 
+-static bool laguna_graph_alloc(ds4_laguna_gpu_graph *g, uint32_t ctx_size) {
++/* prefill_chunk comes from ds4_laguna_prefill_chunk(): it bounds both the
++ * batch split and every per-row scratch tensor below. */
++static bool laguna_graph_alloc(ds4_laguna_gpu_graph *g, uint32_t ctx_size,
++                               uint32_t prefill_chunk) {
+     if (!g || ctx_size == 0 || ctx_size > DS4_CONTEXT_LENGTH ||
++        prefill_chunk == 0 || prefill_chunk > DS4_LAGUNA_PREFILL_CHUNK_MAX ||
+         DS4_MODEL_FAMILY != DS4_MODEL_FAMILY_LAGUNA) {
+         return false;
+     }
+     memset(g, 0, sizeof(*g));
+     g->ctx_size = ctx_size;
+-    g->prefill_cap = ctx_size < 16384u ? ctx_size : 16384u;
++    g->prefill_cap = ctx_size < prefill_chunk ? ctx_size : prefill_chunk;
+ 
+     const uint64_t f32 = sizeof(float);
+     const uint64_t rows = g->prefill_cap;
+@@ -50225,6 +50289,7 @@
+         const token_vec   *prompt,
+         int                n_predict,
+         int                ctx_size,
++        uint32_t           prefill_chunk,
+         ds4_token_emit_fn  emit,
+         ds4_generation_done_fn done,
+         void              *emit_ud,
+@@ -50235,7 +50300,7 @@
+         return 1;
+     }
+     ds4_laguna_gpu_graph g;
+-    if (!laguna_graph_alloc(&g, (uint32_t)ctx_size)) return 1;
++    if (!laguna_graph_alloc(&g, (uint32_t)ctx_size, prefill_chunk)) return 1;
+     float *logits = xmalloc((size_t)DS4_N_VOCAB * sizeof(float));
+     bool ok = true;
+     const double prefill_t0 = now_sec();
+@@ -50368,6 +50433,7 @@
+                                             prompt,
+                                             n_predict,
+                                             ctx_size,
++                                            prefill_chunk,
+                                             emit,
+                                             done,
+                                             emit_ud,
+@@ -59502,16 +59568,29 @@
+             opt->directional_steering_attn != 0.0f ||
+             opt->directional_steering_ffn != 0.0f ||
+             e->power_percent < 100 ||
+-            opt->prefill_chunk != 0 ||
+             (opt->mtp_path && opt->mtp_path[0]) ||
+             opt->dspark || opt->glm_mtp || opt->first_token_test) {
+             fprintf(stderr,
+                     "ds4: Laguna S 2.1 currently supports the standard local "
+-                    "graph path only (no steering, power cap, custom "
+-                    "prefill chunk, MTP/DSpark, or first-token diagnostic)\n");
++                    "graph path only (no steering, power cap, "
++                    "MTP/DSpark, or first-token diagnostic)\n");
+             ds4_engine_close(e);
+             *out = NULL;
+             return 1;
++        }
++        {
++            /* Resolve once; sessions and the CLI generator allocate and
++             * split with exactly this value, and the server reports it. */
++            char chunk_err[160] = "";
++            const uint32_t chunk = ds4_laguna_prefill_chunk(
++                e->backend, opt->prefill_chunk, chunk_err, sizeof(chunk_err));
++            if (chunk == 0) {
++                fprintf(stderr, "ds4: Laguna S 2.1: %s\n", chunk_err);
++                ds4_engine_close(e);
++                *out = NULL;
++                return 1;
++            }
++            e->prefill_chunk = chunk;
+         }
+         vocab_load(&e->vocab, &e->model);
+     } else if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_GLM_DSA) {
+@@ -60759,7 +60838,8 @@
+     s->engine = e;
+     s->ctx_size = ctx_size;
+     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_LAGUNA) {
+-        if (!laguna_graph_alloc(&s->laguna_graph, (uint32_t)ctx_size)) {
++        if (!laguna_graph_alloc(&s->laguna_graph, (uint32_t)ctx_size,
++                                e->prefill_chunk)) {
+             free(s);
+             return 1;
+         }
+diff --git a/ds4_help.c b/ds4_help.c
+--- a/ds4_help.c
++++ b/ds4_help.c
+@@ -173,7 +173,7 @@
+     opt(fp, c, "--ssd-streaming-full-layers N", "GLM Metal streaming: keep the first N routed layers fully resident. Default: auto from NGB expert budget; use 0 to disable.");
+     opt(fp, c, "--ssd-streaming-preload-experts N", "SSD streaming: upfront popularity preload count. DeepSeek auto-seeds by default; GLM demand-fills unless N is explicit.");
+     opt(fp, c, "--simulate-used-memory NGB", "Diagnostic: lock N GiB before model load to simulate a smaller-memory machine.");
+-    opt(fp, c, "--prefill-chunk N", "Graph prefill chunk size. Default: CUDA TP 2048; PRO 8192; Laguna 16384; others 4096.");
++    opt(fp, c, "--prefill-chunk N", "Graph prefill chunk size. Default: CUDA TP 2048; PRO 8192; Laguna 4096 on Metal, 16384 elsewhere (16-16384); others 4096.");
+     if (full) {
+         if (tool != DS4_HELP_BENCH) {
+             opt(fp, c, "--mtp FILE", "Optional MTP support GGUF used for draft-token probes.");

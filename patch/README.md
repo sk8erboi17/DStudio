@@ -37,6 +37,17 @@ wheel's own `server.py`.
 `scripts/apply-ds4-v41-vision-pairing.sh` after the vision-streaming patch and
 a no-op once upstream has the change).
 
+[`ds4-laguna-prefill-chunk`](ds4-laguna-prefill-chunk/README.md) (Laguna
+`448d569`: the engine honours `--prefill-chunk` / `DS4_METAL_PREFILL_CHUNK`
+for its scratch and batch split, 16-16384 rows, default 4096 on Metal instead
+of the fixed 16384 whose second batch trips the macOS GPU watchdog on
+long prompts). `scripts/apply-ds4-laguna-prefill-chunk.sh` applies it after
+the managed runtime stack and skips ds4 main; `make
+test-laguna-prefill-chunk-patch` covers its lifecycle and a CPU build. It is
+not yet called by the installer or launch path, and its real-weights
+equivalence and long-context run (`make test-laguna-prefill-chunk-live`) is
+still open.
+
 Agent/Cowork patch **92** and `ds4-server-pld/` share
 [prompt lookup](ds4-agent-jsonl/PLD.md), with ordinary
 generation as the default reference path and an explicitly experimental Metal

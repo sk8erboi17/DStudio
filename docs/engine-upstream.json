@@ -17,6 +17,7 @@
     "Since October 22, 2026 the flash41-q2 target is the 1017 checkpoint: antirez's official DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf, the file upstream ds4 5379c1c's ds41f-q2 names. The vendored 890898c download_model.sh names it with the same published SHA-256 but follows the repository head; scripts/download-ds41-1017.sh downloads it at a pinned revision, together with the community 1017 vision sidecar (ds41f-1017-vision; antirez publishes none) whose source revision 1bae0e10 matches. patch/ds4-v41-vision-pairing (antirez/ds4 PR #1225, unmerged) pairs a V4.1 sidecar with the language GGUF by general.source.revision; it is a no-op once upstream drops the hard-coded df42c109 revision. Original-checkpoint receipts do not qualify the 1017 weights.",
     "Since November 11, 2026 the MLX Qwen3.6-35B-A3B MXFP8 selection has a target. MLX is installed from verified PyPI wheels (src/engines/mlx), not built from an archive: its tracks record the upstream revisions those wheels were released from (mlx-lm 0.32.2 and mlx 0.32.4), with no later commit under review, and its patch set is the three versioned mlx-lm adaptations. The same day the three host-served targets (llama.cpp Qwen3.6, llama.cpp Qwen3.8-27B and MLX) gained the gates the campaign requires of every selection: numerics, quality-100, install-upgrade, learn, desktop and design-runtime, plus textual-isolation for the text-only ones and vision-pdf-50 for 27B. No receipt was added.",
     "On November 11, 2026 thirteen patch-set entries (seven files of the main and Laguna sets) no longer matched their recorded SHA-256: the patches had changed without this manifest being refreshed, so the checker would have reported CONTENT_CHANGED. The hashes were refreshed to the files shipped at that commit. No receipt existed that was bound to the earlier patch-set digests.",
+    "Also on November 11, 2026 the Laguna patch set gained patch/ds4-laguna-prefill-chunk (Laguna honours --prefill-chunk / DS4_METAL_PREFILL_CHUNK, default 4096 rows on Metal instead of the fixed 16384 that trips the macOS GPU watchdog on ~40k-token prompts). Its lifecycle and CPU build pass; it is not yet applied by the managed installer or launch path, and the real-weights equivalence and long-context run (tests/live/laguna_prefill_chunk_equivalence.mjs) has not been run. No Laguna receipt existed.",
     "On November 11, 2026 the 300 main-track commits of f4d03f6..890898c were classified for the nine targets that list main (scripts/engine-delta-review.mjs, docs/upstream/main-delta-2026-11-11.json). The classification is by changed path, against a file-by-file comparison of src/engines/ds4 with upstream 890898c (498 shipped files identical; 2990 declared omissions, none compiled or read by the macOS build): 243 integrated and 57 not applicable for each of the six ds4 main and two llama.cpp targets, the latter because their Agent, Cowork and Design frontends are built from the main checkout. Laguna, built from its own branch, has 57 not applicable and 243 left unclassified: whether it needs a main change is a source judgment. This is not a behavioural review and adds no receipt. The same day the remote refs of main, llama.cpp, mlx-lm and mlx were 116, 446, 18 and 82 commits past their recorded tips (b3f5018, aa75ff3, 56230fa, fc344c9); no pin was moved and those commits are not reviewed."
   ],
   "tracks": [
@@ -378,6 +379,15 @@
       {
         "path": "scripts/apply-ds4-v41-vision-pairing.sh",
         "sha256": "762ec8a15bd4ea484a64dea8d879580c24e614f23f30615c964930c219f57f5b"
+      },
+      {
+        "path": "patch/ds4-laguna-prefill-chunk/prefill-chunk.patch",
+        "sha256": "a28c855a762b81f6860212e3322f381eccb9d480b005b3b01cc70084977a8134",
+        "check": "apply"
+      },
+      {
+        "path": "scripts/apply-ds4-laguna-prefill-chunk.sh",
+        "sha256": "ae34b2eba2724a353b47aa4702c51fd0fc90c92ebc2040a494aa8e628cd7c438"
       }
     ],
     "mlx": [

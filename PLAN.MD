@@ -652,7 +652,24 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    32,768, with `kIOGPUCommandBufferCallbackErrorImpactingInteractivity`: it
    does not depend on load. Laguna needs smaller Metal prefill batches as main
    has with `--prefill-chunk`; an adaptation goes under `patch/` with a
-   numerical comparison against the 16,384-token batch (in progress).
+   numerical comparison against the 16,384-token batch.
+   Progress (November 11, still open): in that rerun the first batch always
+   completed and every failure came in the second 16,384-row batch (4 in the
+   dense layer, 3 in MoE layers 5-21), which does about three times the
+   attention work of the first.
+   [`patch/ds4-laguna-prefill-chunk`](patch/ds4-laguna-prefill-chunk/README.md)
+   makes Laguna honour `--prefill-chunk`/`DS4_METAL_PREFILL_CHUNK` (16-16384
+   rows) for its scratch and batch split, default 4096 on Metal (scratch 1.43
+   instead of 5.72 GiB); `--prefill-chunk 16384` reproduces the old batch.
+   Done: patch, apply script, Laguna admission patch-set entry and
+   `make test-laguna-prefill-chunk-patch` (lifecycle, stack composition, CPU
+   build, engine resolver, build invalidation). Open: the installer/launch
+   wiring (the patch is not yet applied to installed Laguna engines, so the
+   corpus runner still omits `--prefill-chunk` for Laguna); the real-weights
+   comparison `make test-laguna-prefill-chunk-live` (exact tolerance: identical
+   logits and 64 greedy tokens on a ~12k-token prompt; ~40k and ~60k-token
+   prompts must complete without the watchdog); then a Laguna long-context
+   common-100 rerun on the wired engine.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.

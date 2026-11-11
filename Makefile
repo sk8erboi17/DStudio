@@ -952,6 +952,19 @@ test-v41-vision-pairing:
 test-v41-vision-pairing-live:
 	@node tests/live/v41_vision_pairing_live_test.mjs
 
+# Laguna prefill batch patch: lifecycle on copies of the bundled Laguna engine,
+# composition after the runtime stack, a CPU compile of ds4-server/ds4 and the
+# engine resolver from a DS4_TEST_HOOKS object. No model, no GPU work.
+.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-live
+test-laguna-prefill-chunk-patch:
+	@node tests/integration/laguna_prefill_chunk_patch_test.mjs
+
+# Real Laguna Q4_K_M weights on Metal, one engine at a time: batch 16384 versus
+# the patched default on a ~12k-token prompt (logits and greedy tokens), then a
+# ~40k-token prompt with the default. Refuses beside another engine.
+test-laguna-prefill-chunk-live:
+	@node tests/live/laguna_prefill_chunk_equivalence.mjs $(if $(LAGUNA_MODEL),--model "$(LAGUNA_MODEL)") $(if $(LONG_TOKENS),--long-tokens $(LONG_TOKENS)) $(if $(LONG_CTX),--long-ctx $(LONG_CTX))
+
 .PHONY: test-search-evidence
 test-search-evidence:
 	@node tests/unit/search_evidence_test.mjs

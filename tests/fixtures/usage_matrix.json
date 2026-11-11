@@ -9894,6 +9894,12 @@
               "covers": "The pairing patch script: applicable, applied, already applied, restored byte-exact and already restored."
             },
             {
+              "file": "tests/integration/laguna_prefill_chunk_patch_test.mjs",
+              "target": "test-laguna-prefill-chunk-patch",
+              "evidence": "model-free",
+              "covers": "The Laguna prefill batch patch on copies of the bundled engine: apply, repeat, byte-exact restore, drift and partial patches refused, local edits kept, main skipped, CPU build and the engine resolver."
+            },
+            {
               "file": "tests/integration/qwen38_prepare_patch_test.mjs",
               "target": "test-qwen38-prepare-patch",
               "evidence": "model-free",
