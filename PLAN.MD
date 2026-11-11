@@ -388,6 +388,24 @@ models and the MLX Qwen3.6, with development checks only.
    prefilled again), and saved pi/OpenCode sessions on these models. Saved
    conversation history alone is not KV resumption. A candidate route is
    llama-server's slot save/restore ([proposal 2](#proposals)).
+   November 11 progress (still open): the llama.cpp half is implemented in
+   `src/dstudio_kv_snapshot.c` but **off by default** (opt-in
+   `DSTUDIO_LLAMA_KV_SNAPSHOTS=1`). With it, the host saves the slot after a
+   completed turn, restores it before a restored session's first completion,
+   keys it to build, model/projector identity, context, arguments and session,
+   bounds and evicts the store, deletes it with the conversation/wipe and
+   reports "restored from disk snapshot (N tokens)" or "prefilled again" in
+   `/api/status` and turn metadata. Verified only model-free: `make
+   test-llama-kv-snapshot` (unit + 24 host cases against a scripted
+   llama-server) and the real runtimes' announcements
+   (`make test-llama-kv-snapshot-runtime`). Remaining: write and pass the
+   real-weight check on Qwen3.6 and Qwen3.8-27B (continuation equal to a normal
+   re-prefill; the hybrid recurrent layers are the specific risk) before turning
+   it on; UI text in the working label; deletion of a snapshot when its
+   conversation is deleted while the engine is stopped; a binary-identity check
+   beside the receipt; Agent/Cowork announcements are stdout lines a model
+   could imitate (bounded to a wrong cache entry the server's prefix check
+   ignores); MLX prefix cache and Chat are not covered.
 3. Complete Learn/Tutor on every selection: effective thinking/context,
    research → curriculum → audit → lesson/exercise/correction, actual references,
    progress and reopen. No hidden DeepSeek fallback or generic DeepSeek-only

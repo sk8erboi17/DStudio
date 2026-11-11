@@ -119,6 +119,7 @@ directly to the corresponding guide and section.
 - <a id="native-backend-and-browser-gates"></a>[Native backend and browser gates](docs/engines-and-harnesses.md#native-backend-and-browser-gates)
 - <a id="cowork-spreadsheet-read-scope-and-saved-file-receipts"></a>[Cowork spreadsheet read scope and saved-file receipts](docs/engines-and-harnesses.md#cowork-spreadsheet-read-scope-and-saved-file-receipts)
 - <a id="qwen36-and-qwen38-27b-on-llamacpp"></a>[Qwen3.6 and Qwen3.8-27B on llama.cpp](docs/engines-and-harnesses.md#qwen36-and-qwen38-27b-on-llamacpp)
+- <a id="disk-kv-snapshots-for-llamacpp-off-by-default"></a>[Disk KV snapshots for llama.cpp (off by default)](docs/engines-and-harnesses.md#disk-kv-snapshots-for-llamacpp-off-by-default)
 - <a id="qwen36-on-mlx-apple-silicon"></a>[Qwen3.6 on MLX (Apple Silicon)](docs/engines-and-harnesses.md#qwen36-on-mlx-apple-silicon)
 - <a id="every-pinned-qwen36-and-qwen38-27b-variant"></a>[Every pinned Qwen3.6 and Qwen3.8-27B variant](docs/engines-and-harnesses.md#every-pinned-qwen36-and-qwen38-27b-variant)
 - <a id="streaming-and-live-tool-previews"></a>[Streaming and live tool previews](docs/engines-and-harnesses.md#streaming-and-live-tool-previews)

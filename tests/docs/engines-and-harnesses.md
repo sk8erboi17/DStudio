@@ -100,6 +100,65 @@ the corrected check reads `otool -l` load commands. This does not execute
 CUDA, ROCm, Vulkan, Linux or Windows; those paths were only cross-compiled with
 `zig cc` (x86_64/aarch64 Windows, x86_64 Linux).
 
+### Disk KV snapshots for llama.cpp (off by default)
+
+`src/dstudio_kv_snapshot.c` saves the owned `llama-server` slot of an Agent,
+Cowork or Design session to disk after a completed turn, using only the
+bundled server's `--slot-save-path` and `POST /slots/0?action=save|restore`,
+so that a session restored onto a freshly started engine could reuse its KV
+state instead of being prefilled again. It is **off by default** and not yet
+verified on real weights: without `DSTUDIO_LLAMA_KV_SNAPSHOTS=1` the server
+gets no slot directory and nothing is saved or restored. MLX, the ds4 engines,
+Chat through `/v1` and the pi/OpenCode harnesses are not covered.
+
+With the opt-in, a save follows the runtime's own end-of-turn transcript save
+(its `saved session` line for Agent/Cowork, a `+DSTUDIO_SESSION_SAVED` marker
+on stderr for Design) and the end of the turn; it is skipped while the engine
+is busy and discarded if a newer turn, a deletion, a wipe or an engine change
+overtakes it. The key covers the installer receipt's build, the reported
+server build, the model and projector file identities, the context, the served
+alias, the server arguments, the runtime and the session; a restore needs the
+same key, the recorded file size and the restored message count. Any mismatch
+removes the stale file and prefills as before. The store lives in
+`<KV root>/llama-slots` (mode 0700), with `DSTUDIO_LLAMA_KV_MAX_BYTES`
+(default 32 GiB), `DSTUDIO_LLAMA_KV_MAX_ENTRIES` (64) and
+`DSTUDIO_LLAMA_KV_MIN_FREE_BYTES` (8 GiB) and least-recently-used eviction.
+`/api/status` reports it as `llamaKvSnapshot`; the first completion after a
+restore is reported as "restored from disk snapshot (N tokens)" or "prefilled
+again", the latter also when the server reused none of the restored tokens.
+
+`make test-llama-kv-snapshot` (in `check-fast`) runs the C unit test of the
+pure decisions (names, announcements, key, record, admission, eviction, disk
+margin, server replies, reporting, default off) and then
+`tests/integration/llama_kv_snapshot_test.mjs`: the production host binary,
+its launch, guard, relay and HTTP API against a **scripted** `llama-server`
+(`tests/support/fake_llama_server.mjs`) and a **simulated** tools runtime
+(`tests/support/fake_session_runtime.mjs`). Its 24 cases cover a save after a
+completed turn and never during one; the restore before the first completion
+after an engine restart, with the right file; a still-live session not
+restored again; key mismatches (context, model file, build id) removing the
+stale file without asking the server; a refused restore and an unused restore
+reported as "prefilled again" with a successful turn; a blocked save and a
+blocked restore (deterministic barriers in the fake, not sleeps) leaving
+`/api/status` and Stop responsive; a superseded save, a save answered after
+its session was deleted or after the engine was stopped, neither published;
+deletion with the conversation and with a history wipe; the byte cap, the entry
+cap, LRU order and the free-disk margin; hostile session ids; a remote model;
+the default-off and zero-cap cases; and Design's stderr markers. The fake
+server models the HTTP contract, the single slot, prefix reuse by
+`timings.cache_n`, filename validation, a refused restore clearing the slot
+and its task order; it does not model weights, KV tensors, the state file
+format, tokenization, context checkpoints or the Qwen hybrid recurrent layers.
+A pass says nothing about whether a real model's state survives a restore.
+
+`make test-llama-kv-snapshot-runtime REMOTE_TOOL_AGENT=<ds4-agent-jsonl>
+DESIGN_BINARY=<ds4-design>` feeds what the real, already built runtimes print
+(simulated model frames, real restarts) to the production line parser. Not
+written yet: the real-weight check (one pinned Qwen model, a long
+conversation, engine restart, continuation at temperature 0 equal to the one
+after a normal re-prefill, both timed). Until it passes on both Qwen models the
+store stays off by default; the hybrid recurrent layers are the specific risk.
+
 ### Qwen3.6 on MLX (Apple Silicon)
 
 Qwen3.6-35B-A3B also runs from the MLX MXFP8 folder

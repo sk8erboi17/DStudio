@@ -694,6 +694,29 @@ test-resident-guard: $(TEST_SERVER)
 
 check-fast: test-resident-unit test-resident-guard
 
+# Disk snapshots of the llama-server slot (src/dstudio_kv_snapshot.c; off by
+# default, DSTUDIO_LLAMA_KV_SNAPSHOTS=1 opts in): its pure decisions, then the
+# production host against a scripted llama-server and a simulated runtime.
+# No model, no llama.cpp build, no inference.
+$(TEST_BUILD)/llama_kv_snapshot_unit: tests/unit/llama_kv_snapshot_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/llama_kv_snapshot_unit.c -o $@
+
+.PHONY: test-llama-kv-snapshot-unit test-llama-kv-snapshot test-llama-kv-snapshot-runtime
+test-llama-kv-snapshot-unit: $(TEST_BUILD)/llama_kv_snapshot_unit
+	@$(TEST_BUILD)/llama_kv_snapshot_unit
+test-llama-kv-snapshot: test-llama-kv-snapshot-unit $(TEST_SERVER)
+	@node tests/integration/llama_kv_snapshot_test.mjs $(TEST_SERVER)
+check-fast: test-llama-kv-snapshot
+# The announcements of the REAL runtimes (already built; simulated model
+# frames), read by the production parser:
+#   make test-llama-kv-snapshot-runtime REMOTE_TOOL_AGENT=ds4/ds4-agent-jsonl [DESIGN_BINARY=ds4/ds4-design]
+test-llama-kv-snapshot-runtime: $(TEST_BUILD)/llama_kv_snapshot_unit
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
+	@node tests/integration/llama_kv_snapshot_runtime_test.mjs $(TEST_BUILD)/llama_kv_snapshot_unit $(REMOTE_TOOL_AGENT) $(DESIGN_BINARY)
+# The real-weight check (tests/live/llama_kv_snapshot_live_test.mjs) is not
+# written yet; until it passes the store stays off by default.
+
 # scripts/install-llama.py recipes (static macOS, dynamic Linux/Windows),
 # receipts and leases; toolchains simulated, nothing compiled.
 .PHONY: test-llama-install-profile

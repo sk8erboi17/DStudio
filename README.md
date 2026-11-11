@@ -1525,6 +1525,9 @@ host and Cowork runtime and a simulated model.
   independent named KV sessions where the engine supports them (ds4). On the
   llama.cpp and MLX models they save the transcript instead: after a restart
   `/switch` restores it and the server prefills it again; no KV is restored.
+  An experimental disk snapshot of the llama.cpp server's slot exists but is
+  off by default and not yet verified on real weights (opt in with
+  `DSTUDIO_LLAMA_KV_SNAPSHOTS=1`; [model-free checks only](tests/docs/engines-and-harnesses.md#disk-kv-snapshots-for-llamacpp-off-by-default)).
 
 ## Security
 

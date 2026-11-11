@@ -14057,6 +14057,21 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
     }
 }
 
+/* This session's transcript was saved, restored or deleted. The host keeps
+ * the model server's slot snapshot in step with it (src/dstudio_kv_snapshot.c
+ * reads exactly these lines). Control markers on stderr, like
+ * +DWARFSTAR_WAITING: design prose can neither imitate them nor arrive
+ * between one of them and the WAITING that follows it.
+ *   +DSTUDIO_SESSION_SAVED <sha8> <messages after the system prompt>
+ *   +DSTUDIO_SESSION_RESTORED <sha8> <messages>
+ *   +DSTUDIO_SESSION_DELETED <sha8> */
+static void marker_session(const char *what, const char *sha, int messages) {
+    char line[96];
+    if (messages >= 0) snprintf(line, sizeof line, "+DSTUDIO_SESSION_%s %.8s %d", what, sha, messages);
+    else snprintf(line, sizeof line, "+DSTUDIO_SESSION_%s %.8s", what, sha);
+    marker(line);
+}
+
 static bool design_remote_slash_is(const char *p, const char *cmd) {
     size_t n = strlen(cmd);
     return !strncmp(p, cmd, n) &&
@@ -14078,7 +14093,10 @@ static void design_remote_handle_slash(design_agent *a, const char *input) {
                design_remote_slash_is(p, "/sessions")) {
         design_remote_session_list(a);
     } else if (design_remote_slash_is(p, "/save")) {
-        if (design_remote_session_save(a)) emit_session_status("info", "session saved");
+        if (design_remote_session_save(a)) {
+            marker_session("SAVED", a->session_sha, a->remote_message_count - 1);
+            emit_session_status("info", "session saved");
+        }
         else emit_session_status("error", a->session_sha[0] ? "save failed: could not write the session transcript"
                                                             : "save failed: nothing to save yet");
     } else if (design_remote_slash_is(p, "/switch") || design_remote_slash_is(p, "/del")) {
@@ -14090,7 +14108,10 @@ static void design_remote_handle_slash(design_agent *a, const char *input) {
             emit_session_status("error", sw ? "usage: /switch <sha>" : "usage: /del <sha>");
         } else if (sw) {
             if (design_remote_session_switch(a, arg, err, sizeof err)) {
-                snprintf(m, sizeof m, "switched to %.8s (transcript restored; the model server reads it again)", a->session_sha);
+                /* What this runtime did; whether the model server reads the
+                 * transcript again or reuses a slot snapshot is the host's report. */
+                snprintf(m, sizeof m, "switched to %.8s (%d messages restored)", a->session_sha, a->remote_message_count - 1);
+                marker_session("RESTORED", a->session_sha, a->remote_message_count - 1);
                 emit_session_status("info", m);
             } else {
                 snprintf(m, sizeof m, "switch failed: %s", err);
@@ -14098,6 +14119,7 @@ static void design_remote_handle_slash(design_agent *a, const char *input) {
             }
         } else if (design_remote_session_delete(a, arg, sha, err, sizeof err)) {
             snprintf(m, sizeof m, "deleted %.8s", sha);
+            marker_session("DELETED", sha, -1);
             emit_session_status("info", m);
         } else {
             snprintf(m, sizeof m, "%s%s", strncmp(err, "delete failed", 13) ? "delete failed: " : "", err);
@@ -14142,8 +14164,10 @@ static int design_run_remote(design_agent *a) {
         free(prompt);
         /* End-of-turn autosave before the next WAITING; the UI's /list then
          * binds this conversation to the session marked current. */
-        if (a->session_sha[0] && !design_remote_session_save(a))
-            emit_session_status("error", "save failed: could not write the session transcript");
+        if (a->session_sha[0]) {
+            if (design_remote_session_save(a)) marker_session("SAVED", a->session_sha, a->remote_message_count - 1);
+            else emit_session_status("error", "save failed: could not write the session transcript");
+        }
         if (rc != 0) break;
     }
     free(input.ptr);
