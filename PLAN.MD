@@ -616,11 +616,15 @@ The sixteen added systems require separate future generated-output qualification
    broken behavior and keep late script/console errors observable.
    Since November 11 all eighteen oracles have an authored reference page
    with deliberate faults, checked in Chromium and WebKit, and the row helper
-   that made two oracles reject every page is corrected. Still open: the
-   correct pages some oracles and the WebKit audit still reject, and the
-   defects they do not detect, both listed in
-   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification).
-   Correct those before generated projects are graded.
+   that made two oracles reject every page is corrected. A second pass the
+   same day made the oracles detect the defects the first pass had found
+   undetected, where the brief requires the behaviour, and accept the correct
+   pages they rejected (262 faults and 85 accepted variants in all). Still
+   open: the shared-helper limits, the correct pages still rejected and the
+   behaviours still unverified, listed in
+   [the Design test guide](tests/docs/design.md#interaction-oracle-qualification);
+   and moving the helpers the scenarios now duplicate into the shared layer.
+   Resolve the shared-helper limits before generated projects are graded.
 2. Generate **at least two projects per system: 18 projects** using
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human

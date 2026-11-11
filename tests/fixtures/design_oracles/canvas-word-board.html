@@ -8,7 +8,8 @@
 *{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:16px;font:16px/1.5 system-ui;color:var(--fg);background:var(--bg)}
 h1,h2,p{margin:0 0 8px}h2{font-size:1.1rem}
-button,input{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 10px;max-width:100%}
+button,input,textarea{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 10px;max-width:100%}
+textarea{display:block;width:100%;margin-bottom:8px}
 :disabled{opacity:.55}:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.tools button{white-space:nowrap}
 main{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(284px,1fr))}
@@ -22,57 +23,80 @@ dialog{width:min(30rem,90vw);color:var(--fg);background:var(--bg);border:1px sol
 <div class="tools" role="toolbar" aria-label="Tools">
   <button id="add" onclick="addNote()">Add note</button><button id="undo" onclick="undo()">Undo</button><button id="redo" onclick="redo()">Redo</button>
   <button id="delete" onclick="deleteSelected()">Delete selected</button><button onclick="exportPreview(this)">Export preview</button></div>
+<p id="notice" role="status" hidden></p>
 <main>
 <section aria-labelledby="board-title"><h2 id="board-title">Artboard</h2><div id="board"></div>
   <p id="count" role="status"></p><p>Focus a note and press the arrow keys to move it inside the artboard.</p></section>
 <section aria-labelledby="inspector-title"><h2 id="inspector-title">Inspector</h2><p id="selection"></p>
   <label for="text">Text</label> <input id="text" maxlength="32" oninput="editText()" onblur="editing=false">
+  <button id="apply" onclick="applyText();editing=false" hidden>Apply</button>
   <p id="position"></p><p>Up to 32 characters, kept as literal text. Undo and Redo keep the last 50 actions.</p></section>
 </main>
-<dialog aria-labelledby="export-title"><h2 id="export-title">Export preview</h2><ul id="export"></ul><p id="export-empty">No notes yet.</p>
+<dialog aria-labelledby="export-title"><h2 id="export-title">Export preview</h2><ul id="export"></ul>
+  <textarea id="export-data" aria-label="Export data" rows="7" readonly hidden></textarea><p id="export-empty">No notes yet.</p>
   <p>Local demo: a preview only, no upload.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+// `fault` switches on one deliberate defect; `variant` one other, equally correct behaviour:
+//   add-refuses-at-six             Add note stays enabled; at six notes it adds nothing and says why
+//   repeated-moves-are-one-action  successive arrow keys on one note are a single Undo step
+//   text-applied-with-button       the Text field is a draft until Apply is pressed
+//   export-in-textarea             the dialog shows the export lines inside a read-only text area
+//   number-and-text-in-one         a note renders its number and its text as one text, "#2 words"
+window.fault='';window.variant='';
 const WIDTH=256,HEIGHT=260,NOTE_WIDTH=120,NOTE_HEIGHT=80,STEP=8,LIMIT=6,KEEP=50;
-let notes=[],selected=null,next=1,serial=1,past=[],future=[],editing=false;
-const el=id=>document.getElementById(id),F=name=>window.fault===name;
+let notes=[],selected=null,next=1,serial=1,past=[],future=[],editing=false,moving=null,message='';
+const el=id=>document.getElementById(id),F=name=>window.fault===name,V=name=>window.variant===name;
 const current=()=>notes.find(note=>note.id===selected),focusSelected=()=>el('board').querySelector('[aria-pressed=true]')?.focus();
 const make=(tag,text)=>{const node=document.createElement(tag);node.textContent=text;return node;};
 // Every action first records the notes and the selection; Undo and Redo exchange whole records,
 // so an undone delete returns the same note at the same place with the same selection.
 const record=()=>JSON.stringify({notes,selected,next});
-function restore(state){({notes,selected,next}=JSON.parse(state));editing=false;}
+function restore(state){({notes,selected,next}=JSON.parse(state));editing=false;moving=null;}
 function commit(){
-  past.push(record());if(past.length>(F('history-keeps-ten')?10:KEEP))past.shift();
-  if(!F('redo-kept-after-new-edit'))future=[];editing=false;
+  past.push(record());if(past.length>(F('history-keeps-ten')||F('history-ten-undo-enabled')?10:KEEP))past.shift();
+  if(!F('redo-kept-after-new-edit'))future=[];editing=false;moving=null;
 }
 function undo(){if(!past.length)return;future.push(record());restore(past.pop());if(F('undo-drops-selection'))selected=null;render();}
 function redo(){if(!future.length)return;past.push(record());restore(future.pop());render();}
 function addNote(){
-  if(notes.length>=LIMIT&&!F('capacity-not-enforced'))return;
+  if(notes.length>=(F('capacity-silent-at-five')?5:LIMIT)&&!F('capacity-not-enforced')){
+    if(notes.length>=LIMIT)message='Maximum six notes. Delete a note to add another.';render();return;
+  }
   commit();const number=F('note-numbers-repeat')?1:next++,slot=(number-1)%6;selected=serial++;
-  notes.push({id:selected,number,text:'Note '+number,x:8+slot*20,y:8+slot*30});render();
+  const label=F('notes-lettered')?'ABCDEF'[slot]:number;
+  notes.push({id:selected,number:label,text:'Note '+label,x:8+slot*20,y:8+slot*30});render();
 }
-function select(id){if(id===selected)return;selected=id;editing=false;render();}
-function editText(){
-  const note=F('edit-wrong-note')?notes[0]:current();if(!note)return;
+function select(id){if(id===selected)return;selected=id;editing=false;moving=null;render();}
+function editText(){if(!V('text-applied-with-button'))applyText();} // with the variant only Apply commits the draft
+function applyText(){
+  const edited=F('edit-wrong-note')?[notes[0]]:F('edit-changes-all')?notes:[current()];if(!current())return;
   if(!editing){if(!F('edit-not-in-history'))commit();editing=true;} // one typing session is one action
-  note.text=el('text').value.slice(0,32);render();
+  for(const note of edited)note.text=el('text').value.slice(0,F('text-over-32')?99:32);render();
 }
 function deleteSelected(){
-  if(!current())return;if(!F('delete-not-undoable'))commit();
-  notes.splice(F('delete-wrong-note')?0:notes.indexOf(current()),1);selected=null;render();
+  const gone=current();if(!gone)return;
+  if(F('undo-delete-loses-selection'))selected=null;
+  if(!F('delete-not-undoable'))commit();
+  if(F('delete-removes-all'))notes=[];else notes.splice(F('delete-wrong-note')?0:notes.indexOf(gone),1);
+  selected=null;render();
 }
 function nudge(event,note){
   const by={ArrowLeft:[-STEP,0],ArrowRight:[STEP,0],ArrowUp:[0,-STEP],ArrowDown:[0,STEP]}[event.key];if(!by)return;
   event.preventDefault();
-  const x=Math.max(0,Math.min(WIDTH-NOTE_WIDTH,note.x+by[0])),y=Math.max(0,Math.min(HEIGHT-NOTE_HEIGHT,note.y+by[1]));
-  if(x===note.x&&y===note.y)return;
-  if(!F('move-not-in-history'))commit();note.x=x;note.y=y;render();
+  const free=F('arrows-leave-artboard'),x=free?note.x+by[0]:Math.max(0,Math.min(WIDTH-NOTE_WIDTH,note.x+by[0]));
+  const y=free?note.y+by[1]:Math.max(0,Math.min(HEIGHT-NOTE_HEIGHT,note.y+by[1])),dx=x-note.x,dy=y-note.y;
+  if(!dx&&!dy)return;
+  if(!F('move-not-in-history')&&!(V('repeated-moves-are-one-action')&&moving===note.id))commit();
+  moving=note.id;for(const each of F('arrows-move-all')?notes:[note]){each.x+=dx;each.y+=dy;}render();
 }
 function exportPreview(button){
-  button.focus();const list=el('export');list.replaceChildren();
-  for(const note of notes)list.append(make('li',`Note ${note.number}: “${note.text}” at x ${note.x}, y ${note.y}`));
+  button.focus();const list=el('export'),lines=[],field=V('export-in-textarea');list.replaceChildren();
+  for(const note of F('export-only-selected')?notes.filter(each=>each.id===selected):notes){
+    const where=F('export-without-coordinates')?'':F('export-omits-y')?` at x ${note.x}`:` at x ${note.x}, y ${note.y}`;
+    const line=make('li',''),text=`Note ${note.number}: “${note.text}”${where}`;lines.push(text);
+    if(F('export-text-as-markup'))line.innerHTML=text;else line.textContent=text;list.append(line);
+  }
+  el('export-data').value=lines.join('\n');el('export-data').hidden=!field||!notes.length;list.hidden=field;
   el('export-empty').hidden=notes.length>0;document.querySelector('dialog').showModal();
 }
 function render(){
@@ -84,15 +108,20 @@ function render(){
     if(F('text-as-markup'))words.innerHTML=item.text;else words.textContent=item.text;
     number.className='number';button.className='note';button.style.left=item.x+'px';button.style.top=item.y+'px';
     button.setAttribute('aria-label',`Note ${item.number}: ${item.text}`);button.setAttribute('aria-pressed',item.id===selected);
-    button.onfocus=()=>select(item.id);button.onclick=()=>{select(item.id);focusSelected();};button.onkeydown=event=>nudge(event,item);
-    button.append(number,words);board.append(button);
+    if(!F('focus-ignores-inspector'))button.onfocus=()=>select(item.id);
+    button.onclick=()=>{select(item.id);focusSelected();};button.onkeydown=event=>nudge(event,item);
+    if(V('number-and-text-in-one')&&!F('text-as-markup'))button.textContent='#'+item.number+' '+item.text;else button.append(number,words);
+    board.append(button);
   }
   if(refocus)focusSelected();
   el('selection').textContent=note?'Selected: Note '+note.number:'No note selected.';
-  input.disabled=!note;if(input.value!==(note?note.text:''))input.value=note?note.text:'';
+  input.disabled=!note;input.maxLength=F('text-over-32')?99:32;if(input.value!==(note?note.text:''))input.value=note?note.text:'';
+  el('apply').hidden=!V('text-applied-with-button');el('apply').disabled=!note;
   el('position').textContent=note?`Position: x ${note.x}, y ${note.y}`:'';
   el('count').textContent=`${notes.length} of ${LIMIT} notes`+(notes.length?'':'. The artboard is empty: use Add note.');
-  el('add').disabled=notes.length>=LIMIT&&!F('capacity-not-enforced');el('undo').disabled=!past.length;
+  el('notice').textContent=message;el('notice').hidden=!message;message='';
+  el('add').disabled=notes.length>=LIMIT&&!F('capacity-not-enforced')&&!F('capacity-silent-at-five')&&!V('add-refuses-at-six');
+  el('undo').disabled=!past.length&&!F('history-ten-undo-enabled');
   el('redo').disabled=!future.length;el('delete').disabled=!note;
 }
 render();

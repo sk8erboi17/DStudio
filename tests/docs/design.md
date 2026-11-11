@@ -58,9 +58,9 @@ Since November 11, 2026 every oracle is qualified by an authored reference
 page: the first by the fixture inside `design_project_audit_test.mjs`, the
 other seventeen by `tests/fixtures/design_oracles/CASE_ID.html` with
 `CASE_ID.json`. Each page must be accepted standalone and inside the opaque
-preview frame, each of its deliberate faults (at least three; 6 to 13 in the
-new ones) must be rejected for the stated reason, and the complete audited
-view must pass in both themes, in Chromium and WebKit.
+preview frame, each of its deliberate faults (at least three) must be rejected
+for the stated reason, each declared variant must be accepted, and the
+complete audited view must pass in both themes, in Chromium and WebKit.
 `make test-design-project-auditor` runs all of them;
 `node tests/support/design_oracle_qualification.mjs CASE_ID` runs one. These
 are authored fixtures: they qualify the oracles, not a model and not the 18
@@ -74,62 +74,80 @@ could not pass any page, and the compare dialog accepted only a table layout.
 The helper now builds inner locators from the page or frame; all seventeen
 pages pass and the two formerly blocked ones reject their faults.
 
-Qualification also recorded limits that are **still open**. They are listed
-here so that a generated project is not judged by them unknowingly.
+A second pass on November 11 then worked through the limits that the first
+pass had recorded, oracle by oracle. For each defect an oracle did not detect,
+the frozen brief was read first: where it requires the behaviour, the oracle
+gained an assertion with a specific message and the fixture gained the defect
+as a fault; where it does not, nothing was added. For each correct page an
+oracle rejected, the oracle was made to accept it and the page became a
+`variants` entry of the fixture (an equally correct rendering the oracle must
+accept). The seventeen fixtures now hold 262 faults and 85 variants. Checks
+that unrelated page text could satisfy (a regular expression over the whole
+body, a title repeated by an open panel, a count that the catalogue itself
+contained) now read the element concerned or the change the action caused, and
+no oracle loops without a bound any more.
 
-Correct pages an oracle or the audit still rejects:
+Deliberately not required, because the brief does not ask for it: rejecting a
+reply or a reason made only of spaces; a follow indicator separate from the
+Follow/Unfollow control; a selection mark on the map or list; the last reason
+surviving an Undo; a message when the six-object limit refuses an addition.
 
-- `thread-replies-literal-text`: a thread that starts with sample replies (the
-  count check assumes it starts empty) and an author button named only by the
-  author's name (it must contain "profile" or "author").
-- `review-reason-and-undo`: filter buttons that carry their count, such as
-  "Resolved (1)".
-- `object-selection-edit-history`, `layer-order-visibility-history`: a
-  six-object limit enforced without disabling the Add button. The word-board
-  oracle then loops without end; the poster oracle reports `8 !== 6` because
-  it counts its own clicks instead of the objects on the board.
-- `variant-basket-totals`: row buttons whose accessible name repeats the
-  variant ("Remove Chalk, Long cable") make the field lookup ambiguous.
-- `settings-draft-commit`: a label such as "Project name (required)" (exact
-  match; read from the oracle, not run).
-- Audit, WebKit only: required text that exists only as `<option>` labels is
-  reported missing, because WebKit's `innerText` omits it.
+Limits that are **still open** after the second pass:
 
-Defects an oracle does not detect (each was tried as a fault and passed):
+Shared helpers, used by every oracle and not changed in the second pass (the
+scenarios work around them locally, which duplicates some code):
 
-- `settings-draft-commit`: saved summary never updated; no field error text;
-  Save committing only the name.
-- `room-wizard-validation`: Back clearing the room; Start over keeping time
-  and count; time not required; a stale count hidden by the capacity text.
-- `workshop-journey`: Start again keeping the chosen day.
-- `tool-shortlist-limits`: no reason for the limit; visible count never
-  updated; Remove on the main list doing nothing.
-- `schedule-conflicts`: Morning filter broken; a rejection without feedback on
-  a page that mentions conflicts elsewhere.
-- `catalog-compare-price-order`: a third product refused without a message;
-  shelf toggle and count stale after Remove in the dialog; a filter change
-  dropping the selection.
-- `queue-order-and-active-item`: duplicate tracks; Current moving to the next
-  track when the current one is removed.
-- `variant-basket-totals`: merging by colour only; quantities above four;
-  grand total stale after Remove.
-- `thread-replies-literal-text`: replies over the length limit or of spaces
-  only; Unfollow not leaving the Following filter; no follow indicator.
-- `review-reason-and-undo`: an Undo that does nothing when the open report
-  repeats its title; stale counts; last reason erased by Undo; reason shown
-  as markup outside the dialog; a reason of spaces only; one reason shared by
-  all reports.
-- `map-list-selection-filter`: stale details after a search; map buttons not
-  filtered; no selection mark; Outdoors filter; notes for a cleared selection.
-- `itinerary-order-map-path`: Remove deleting another stop; stale stop
-  numbers; a path that omits the last stop. Move down, duplicate Add and the
-  four-stop maximum are not exercised.
-- `object-selection-edit-history`: a ten-action history with Undo left
-  enabled; Delete removing every note; arrow keys moving all notes; notes
-  leaving the artboard; an export preview without coordinates.
-- `layer-order-visibility-history`: Hide hiding every object; Show doing
-  nothing; the review dialog ignoring order or visibility; added shapes
-  sharing a name; Add shape adding nothing; Move layer up doing nothing.
+- `choose` matches a tab name exactly, so tabs that carry a count are found
+  only where a scenario handles them itself.
+- `ordered`, `selectEntry`, `item`, `literal` and `absent` match a name only
+  when it is the whole text of an element. A row written as "1. Old kiosk" or
+  "10:00 — Sound walks" in one text is not found, and `absent` then passes
+  without having looked.
+- `itemAction` fails when the same title appears in two visible rows with
+  unnamed buttons, and does not find "Add Night lines to queue".
+- A dialog opener given as a string does not match "Review my day (2)".
+- `withinText` with a case-sensitive pattern fails when the page capitalises
+  the text with CSS.
+
+Correct pages still rejected:
+
+- `thread-replies-literal-text`: several author buttons in one thread, the
+  author as a link, a followed state not named "Unfollow…".
+- `review-reason-and-undo`: filters built as a select; a count further than
+  twelve characters from its status word; other names for Resolve, Undo
+  resolution or Clear filters.
+- `map-list-selection-filter`: map pins that are links; a legend with every
+  place name inside the map region.
+- `queue-order-and-active-item`: Current stated only in a line outside the row.
+- `variant-basket-totals`: the cable option as a select or a pressed button.
+- `catalog-compare-price-order`: a compare dialog built from non-semantic
+  blocks.
+- `itinerary-order-map-path`: a route shown only by restyling segments that
+  were already drawn.
+- `object-selection-edit-history`, `layer-order-visibility-history`: notes and
+  objects that are not buttons inside the artboard or poster region.
+- `room-wizard-validation`: choices offered as plain buttons that expose no
+  state cannot be read, so the time-required and time-preserved checks are
+  skipped for such a page.
+
+Still not verified:
+
+- `settings-draft-commit`: a page that validates without reporting anything;
+  which rendered line is the error; the order of before and after in the
+  review dialog.
+- `workshop-journey`: "full readable descriptions"; whether the day choices
+  are native radios.
+- `tool-shortlist-limits`: the reason and empty-state checks rely on English
+  wording, and the count must be a digit or a number word.
+- `review-reason-and-undo`: when the count is not in the filter control, an
+  unrelated number near the status word can satisfy the count check.
+- `catalog-compare-price-order`: side-by-side geometry; a selection count
+  written in words.
+- `variant-basket-totals`: quantity zero or a fraction.
+- `schedule-conflicts`: saved choices under the Morning filter.
+- `itinerary-order-map-path`: numbers and names are read only inside the map
+  drawing; row numbers produced by a CSS counter cannot be read back; the path
+  check is lenient when a skipped stop lies on the line between two others.
 - Audit: contrast is measured once on the initial view and skips closed
   dialogs and disabled controls; overlapping controls are not reported.
 

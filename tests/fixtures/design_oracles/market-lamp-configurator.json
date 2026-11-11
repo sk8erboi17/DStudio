@@ -1,51 +1,137 @@
 {
   "case": "market-lamp-configurator",
-  "steps": 3,
+  "steps": 4,
   "faults": [
     {
       "name": "cable-not-priced",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*68",
+      "caughtAs": "The configuration does not show the unit price €68 for Chalk with the Long cable",
       "flags": ""
     },
     {
       "name": "total-ignores-quantity",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*136",
+      "caughtAs": "The configuration does not show the total €136 for two",
       "flags": ""
     },
     {
       "name": "cap-not-enforced",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*337",
+      "caughtAs": "The basket does not show the grand total €337 after a fifth Chalk with the Long cable was refused",
       "flags": ""
     },
     {
       "name": "cap-silent",
-      "caughtAs": "did not match the regular expression /\\(\\?:maximum\\|max\\|limit",
+      "caughtAs": "A fifth unit of one variant was refused, but nothing visible states the limit of four",
       "flags": ""
     },
     {
       "name": "no-merge",
-      "caughtAs": "Expected one accessible item containing /Chalk/",
+      "caughtAs": "Adding the same Chalk and Long cable variant twice should give one row with the subtotal €272",
       "flags": ""
     },
     {
       "name": "stale-grand-total",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*402",
+      "caughtAs": "The basket does not show the grand total €582 after increasing the Ink row",
       "flags": ""
     },
     {
       "name": "remove-wrong-row",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*65",
+      "caughtAs": "Remove left the Chalk row with the Long cable in the basket",
       "flags": ""
     },
     {
       "name": "missing-empty-state",
-      "caughtAs": "did not match the regular expression /empty\\|no items/",
+      "caughtAs": "Clear basket did not restore a visible empty state in the basket",
       "flags": ""
     },
     {
       "name": "false-order-claim",
-      "caughtAs": "Missing visible content: /No order was placed/",
+      "caughtAs": "Completing the review did not say that No order was placed",
       "flags": ""
+    },
+    {
+      "name": "merge-by-colour-only",
+      "caughtAs": "Chalk without the Long cable should be its own row with the subtotal €180, not merged by colour",
+      "flags": ""
+    },
+    {
+      "name": "row-subtotal-missing",
+      "caughtAs": "Adding the same Chalk and Long cable variant twice should give one row with the subtotal €272",
+      "flags": ""
+    },
+    {
+      "name": "basket-plus-exceeds-four",
+      "caughtAs": "The increase control raised a basket row above four units",
+      "flags": ""
+    },
+    {
+      "name": "remove-stale-grand-total",
+      "caughtAs": "The basket does not show the grand total €305 after removing the Chalk row with the Long cable",
+      "flags": ""
+    },
+    {
+      "name": "quantity-above-four",
+      "caughtAs": "Add to basket put five units of one variant",
+      "flags": ""
+    },
+    {
+      "name": "empty-state-missing-beside-note",
+      "caughtAs": "Clear basket did not restore a visible empty state in the basket",
+      "flags": ""
+    },
+    {
+      "name": "completion-says-nothing",
+      "caughtAs": "Completing the review did not say that No order was placed",
+      "flags": ""
+    },
+    {
+      "name": "clear-leaves-a-row",
+      "caughtAs": "Clear basket left a Chalk row in the basket",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "named-row-buttons",
+      "why": "The basket row buttons repeat the variant in their accessible name: Remove Chalk, Long cable; Increase quantity of Ink, standard cable."
+    },
+    {
+      "name": "colour-radios",
+      "why": "The colour is a group of two radios; the reference page offers it as a select, whose option labels are the only initial rendering of Chalk and Ink."
+    },
+    {
+      "name": "cable-radios",
+      "why": "The Long cable is one of two radios (Standard cable, Long cable) instead of a checkbox, so it is switched off by choosing the other radio."
+    },
+    {
+      "name": "quantity-select",
+      "why": "The quantity is a select of the values 1 to 4, which cannot be typed into and cannot express five."
+    },
+    {
+      "name": "quantity-stepper",
+      "why": "The quantity is a value between a Decrease quantity and an Increase quantity button, with no text field."
+    },
+    {
+      "name": "add-disabled-at-cap",
+      "why": "Add to basket is disabled while the chosen variant already holds four units, and an always visible hint states the limit."
+    },
+    {
+      "name": "suffix-euro",
+      "why": "Amounts are written with decimals and the euro sign after the number: 272,00 €."
+    },
+    {
+      "name": "counted-names",
+      "why": "The Basket heading and the Review order button carry a number: Basket (5), Review order (2)."
+    },
+    {
+      "name": "row-quantity-fields",
+      "why": "Each basket row also has an editable field labelled Quantity next to its − and + buttons, so Quantity names more than one field once the basket has rows."
+    },
+    {
+      "name": "other-wording",
+      "why": "The configuration panel is headed Your lamp, which the brief does not name; the completion button is Submit demo order; the cap is stated as You already have 4 of this lamp, and the empty basket as Nothing in your basket yet."
+    },
+    {
+      "name": "removal-status",
+      "why": "A status line inside the basket names the variant that Remove took out: Removed Chalk, Long cable from the basket."
     }
   ]
 }

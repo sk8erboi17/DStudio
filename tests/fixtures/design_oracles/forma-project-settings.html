@@ -8,7 +8,7 @@ button,input[type=text]{font:inherit;color:inherit;background:inherit;border:1px
 input[type=text]{display:block;width:100%}button:disabled{opacity:.55}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}
 [aria-selected=true]{border-bottom:4px solid #3874e6;font-weight:700}
-main{display:grid;gap:16px}section{border:1px solid #8c96a2;padding:12px;min-width:0}
+main{display:grid;gap:16px}section{border:1px solid #8c96a2;padding:12px;min-width:0}form{margin:0}
 .choice{display:grid;grid-template-columns:auto 1fr;gap:10px;margin:12px 0}
 .choice input{width:1.2em;height:1.2em;margin:.15em 0 0;color:inherit;background:transparent}
 table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{padding:6px;text-align:left;overflow-wrap:anywhere}
@@ -18,64 +18,95 @@ dialog{width:min(34rem,90vw);color:inherit;background:inherit}
 @media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
 </style>
 <p>FORMROOM</p><h1>Project settings</h1><p>Sample data. Changes stay in this open page only.</p>
+<p id="sentence" hidden></p>
 <main>
 <section aria-labelledby="edit-title"><h2 id="edit-title">Edit settings</h2>
+<form novalidate onsubmit="event.preventDefault();commit()">
 <div role="tablist" aria-label="Settings sections">
-<button role="tab" id="tab-basics" aria-controls="basics" onclick="showTab('basics')">Basics</button>
-<button role="tab" id="tab-notifications" aria-controls="notifications" onclick="showTab('notifications')">Notifications</button></div>
+<button type="button" role="tab" id="tab-basics" aria-controls="basics" onclick="showTab('basics')">Basics</button>
+<button type="button" role="tab" id="tab-notifications" aria-controls="notifications" onclick="showTab('notifications')">Notifications</button></div>
 <div role="tabpanel" id="basics" aria-labelledby="tab-basics">
-<p><label for="name">Project name</label><input type="text" id="name" aria-required="true" aria-describedby="name-help name-error" oninput="edit()"></p>
+<p><label for="name" id="name-label">Project name</label><input type="text" id="name" aria-required="true" aria-describedby="name-help name-error" oninput="edit()" oninvalid="refused(event)"></p>
 <p id="name-help">Required, up to 40 characters.</p><p id="name-error" role="alert" hidden></p></div>
 <div role="tabpanel" id="notifications" aria-labelledby="tab-notifications">
 <label class="choice"><input type="checkbox" id="digest" onchange="edit()"><span>Daily digest</span></label>
 <label class="choice"><input type="checkbox" id="alerts" onchange="edit()"><span>Comment alerts</span></label></div>
-<p><button onclick="review(this)">Review changes</button> <button id="save" onclick="save()">Save changes</button> <button onclick="cancel()">Cancel changes</button></p>
+<p><button type="button" onclick="review(this)">Review changes</button> <button id="save">Save changes</button> <button type="button" onclick="cancel()">Cancel changes</button></p>
+</form>
 <p id="status" role="status"></p></section>
-<section aria-labelledby="saved-title"><h2 id="saved-title">Saved summary</h2><dl id="summary"></dl></section>
+<section id="summary-panel" aria-labelledby="saved-title"><h2 id="saved-title">Saved summary</h2><dl id="summary"></dl></section>
 </main>
 <dialog aria-labelledby="review-title"><h2 id="review-title">Review changes</h2>
 <table><thead><tr><th>Setting</th><th>Before</th><th>After</th></tr></thead><tbody></tbody></table>
 <button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant one other
+// correct rendering (see forma-project-settings.json). Call render() after either.
+window.fault='';window.variant='';
 const onOff=value=>value?'On':'Off';
 const rows=[['name','Project name',value=>value],['digest','Daily digest',onOff],['alerts','Comment alerts',onOff]];
 const initial={name:'Studio notes',digest:true,alerts:false};
-let saved={...initial},draft={...initial},tab='basics',error='';
+let saved={...initial},draft={...initial},tab='basics',error='',touched=false,locked=false,everSaved=false;
 const el=id=>document.getElementById(id);
+const is=(...names)=>names.includes(window.fault)||names.includes(window.variant);
+function problem(){
+  return !draft.name.trim()&&!is('empty-name-accepted')?'Enter a project name.'
+    :draft.name.length>40&&!is('name-limit-not-enforced')?'Use 40 characters or fewer.':'';
+}
 function render(){
+  // The browser reports the error itself: required and maxlength in a validating form.
+  const native=is('native-validation','native-error-suppressed'),sentence=is('summary-in-a-sentence','sentence-summary-never-updated');
   for(const id of ['basics','notifications']){el('tab-'+id).setAttribute('aria-selected',String(tab===id));el(id).hidden=tab!==id;}
+  el('name-label').textContent=is('label-marks-required')?'Project name (required)':'Project name';
+  document.forms[0].noValidate=!native;el('name').required=native;
+  if(native)el('name').maxLength=40;else el('name').removeAttribute('maxlength');
   if(el('name').value!==draft.name)el('name').value=draft.name;
   el('digest').checked=draft.digest;el('alerts').checked=draft.alerts;
-  el('name').setAttribute('aria-invalid',String(Boolean(error)));el('name-error').textContent=error;el('name-error').hidden=!error;
-  const baseline=window.fault==='dirty-check-against-defaults'?initial:saved;
-  el('save').disabled=rows.every(([key])=>draft[key]===baseline[key]);
-  el('summary').replaceChildren(...rows.flatMap(([key,label,show])=>[['dt',label],['dd',show(saved[key])]])
+  const silent=is('no-field-error-text')||is('no-limit-error-text')&&draft.name.length>40;
+  el('name').setAttribute('aria-invalid',String(Boolean(error)));el('name-error').textContent=silent?'':error;el('name-error').hidden=!error||silent;
+  const baseline=is('dirty-check-against-defaults')?initial:saved;
+  el('save').disabled=locked||(is('save-commits-name-only')?!touched:rows.every(([key])=>draft[key]===baseline[key]))
+    ||is('validates-while-typing')&&Boolean(problem());
+  const shown=is('summary-shows-draft')?draft:is('summary-never-updated','sentence-summary-never-updated')?initial
+    :is('summary-notifications-stale')?{...initial,name:saved.name}:saved;
+  el('summary-panel').hidden=sentence||is('no-saved-summary');el('sentence').hidden=!sentence;
+  el('sentence').textContent=`Saved: ${shown.name}. Daily digest ${onOff(shown.digest).toLowerCase()}, comment alerts ${onOff(shown.alerts).toLowerCase()}.`;
+  el('summary').replaceChildren(...rows.flatMap(([key,label,show])=>[['dt',label],['dd',show(shown[key])]])
     .map(([tag,value])=>Object.assign(document.createElement(tag),{textContent:value})));
 }
 function showTab(id){tab=id;render();}
 function edit(){
   draft.name=el('name').value;draft.digest=el('digest').checked;draft.alerts=el('alerts').checked;
-  if(window.fault==='toggles-skip-draft'){saved.digest=draft.digest;saved.alerts=draft.alerts;}
-  error='';el('status').textContent='Unsaved draft.';render();
+  if(is('toggles-skip-draft')){saved.digest=draft.digest;saved.alerts=draft.alerts;}
+  touched=true;error=is('validates-while-typing')?problem():'';el('status').textContent='Unsaved draft.';render();
 }
 function cancel(){
-  if(window.fault==='cancel-active-tab-only'){if(tab==='basics')draft.name=saved.name;else{draft.digest=saved.digest;draft.alerts=saved.alerts;}}
-  else draft={...(window.fault==='cancel-restores-defaults'?initial:saved)};
-  error='';el('status').textContent='Draft discarded.';render();
+  if(is('cancel-active-tab-only')){if(tab==='basics')draft.name=saved.name;else{draft.digest=saved.digest;draft.alerts=saved.alerts;}}
+  else if(is('cancel-keeps-toggles-after-save')&&everSaved)draft.name=saved.name;
+  else draft={...(is('cancel-restores-defaults')?initial:saved)};
+  touched=false;error='';el('status').textContent='Draft discarded.';render();
 }
-function save(){
-  error=!draft.name.trim()&&window.fault!=='empty-name-accepted'?'Enter a project name.'
-    :draft.name.length>40&&window.fault!=='name-limit-not-enforced'?'Use 40 characters or fewer.':'';
-  if(error){render();if(window.fault!=='no-invalid-focus')el('name').focus();return;}
-  saved=window.fault==='saved-aliases-draft'?draft:{...draft};
+// Not named save(): inside the form, an inline handler resolves that name to the button with id "save".
+function commit(){
+  error=problem();
+  if(error){render();if(!is('no-invalid-focus')&&!(is('limit-error-without-focus')&&draft.name.length>40))el('name').focus();return;}
+  if(is('save-commits-name-only'))saved={...saved,name:draft.name};
+  else saved=is('saved-aliases-draft')?draft:{...draft};
+  touched=false;everSaved=true;locked=is('save-stays-disabled');
   el('status').textContent='Saved in this page only (local demo).';render();
 }
+// The browser found the name invalid. One fault hides its message and shows none of its own.
+function refused(event){if(is('native-error-suppressed')){event.preventDefault();el('name').focus();}}
 function review(button){
   button.focus();const body=document.querySelector('tbody');body.replaceChildren();
-  const before=window.fault==='review-before-from-draft'?draft:saved;
-  for(const [key,label,show] of rows){const row=body.insertRow();
-    for(const value of [label,show(before[key]),show(draft[key])])row.insertCell().textContent=value;}
+  const before=is('review-before-from-draft')?draft:saved;
+  for(const [key,label,show] of rows){
+    if(is('review-omits-notifications')&&key!=='name')continue;
+    const row=body.insertRow();
+    // One fault lists the notification settings without their change.
+    const after=is('review-notifications-unchanged')&&key!=='name'?before:draft;
+    for(const value of [label,show(before[key]),show(after[key])])row.insertCell().textContent=value;
+  }
   document.querySelector('dialog').showModal();
 }
 render();

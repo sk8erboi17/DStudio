@@ -1,6 +1,6 @@
 {
   "case": "atlas-afternoon-route",
-  "steps": 1,
+  "steps": 2,
   "faults": [
     {
       "name": "add-stop-prepends",
@@ -34,8 +34,92 @@
     },
     {
       "name": "reset-keeps-itinerary",
-      "caughtAs": "did not match the regular expression /empty\\|no stops\\|add\\.\\*stop/i[\\s\\S]*Glass hall",
+      "caughtAs": "^Unexpected visible content: Glass hall",
       "flags": ""
+    },
+    {
+      "name": "remove-wrong-stop",
+      "caughtAs": "^Remove Old kiosk left it in the route",
+      "flags": ""
+    },
+    {
+      "name": "reset-leaves-map-stale",
+      "caughtAs": "^map still shows a connecting path after Reset route",
+      "flags": ""
+    },
+    {
+      "name": "row-numbers-stale",
+      "caughtAs": "^route row Old kiosk does not show its stop number 1",
+      "flags": ""
+    },
+    {
+      "name": "map-numbers-stale",
+      "caughtAs": "^map shows stop number 2 at Old kiosk, expected 1",
+      "flags": ""
+    },
+    {
+      "name": "path-omits-last-stop",
+      "caughtAs": "^map connecting path does not reach East steps",
+      "flags": ""
+    },
+    {
+      "name": "move-down-does-nothing",
+      "caughtAs": "^Rendered order mismatch: Old kiosk → Willow court → East steps",
+      "flags": ""
+    },
+    {
+      "name": "add-duplicates-stop",
+      "caughtAs": "^Add stop added Willow court to the itinerary twice",
+      "flags": ""
+    },
+    {
+      "name": "fifth-stop-allowed",
+      "caughtAs": "^itinerary accepted a fifth stop; the maximum is four",
+      "flags": ""
+    },
+    {
+      "name": "review-keeps-removed-stop",
+      "caughtAs": "^Review route lists Willow court, which is not in the itinerary",
+      "flags": ""
+    },
+    {
+      "name": "removed-stop-stays-unavailable",
+      "caughtAs": "^a removed stop cannot be added again",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "number-in-name-text",
+      "why": "Route rows and map labels read \"1. Old kiosk\" in one text, row buttons are named by their action inside the row, and the dialog lists the ordered stops on one line."
+    },
+    {
+      "name": "native-list-numbers",
+      "why": "The route is an ordered list whose own markers number the rows; no number is written in the row text."
+    },
+    {
+      "name": "named-buttons-in-group",
+      "why": "Each row's buttons show the place name (\"Remove Old kiosk\") and sit in a labelled group inside the list item; the row number stays outside that group."
+    },
+    {
+      "name": "map-legs-and-decor",
+      "why": "The schematic map has a river and grid lines of its own, draws the route as one line per leg, and groups each marker under the accessible name of its place."
+    },
+    {
+      "name": "sample-route-at-start",
+      "why": "The brief fixes no opening itinerary: the page starts with two sample stops and Reset route empties it."
+    },
+    {
+      "name": "added-place-leaves-list",
+      "why": "A place already in the route is no longer listed under Available places, so it cannot be added twice."
+    },
+    {
+      "name": "add-refuses-with-message",
+      "why": "Add stop stays enabled; pressing it for a place already in the route, or with four stops, adds nothing and says why."
+    },
+    {
+      "name": "empty-route-without-hint",
+      "why": "The brief asks for no empty-state sentence: an empty route shows only its heading, the stop count and its buttons."
     }
   ]
 }

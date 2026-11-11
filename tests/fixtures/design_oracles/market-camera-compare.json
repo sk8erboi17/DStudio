@@ -4,7 +4,7 @@
   "faults": [
     {
       "name": "filters-not-combined",
-      "caughtAs": "Unexpected visible content: Canvas wrap",
+      "caughtAs": "Small with the search \"wrap\": Canvas wrap is still listed",
       "flags": ""
     },
     {
@@ -14,23 +14,97 @@
     },
     {
       "name": "third-accepted",
-      "caughtAs": "Unexpected visible content: Lens pouch",
+      "caughtAs": "After a third product was chosen: the Compare toggle of Lens pouch is on",
       "flags": ""
     },
     {
       "name": "third-evicts-oldest",
-      "caughtAs": "Expected one accessible item containing Pocket strap",
+      "caughtAs": "After a third product was chosen: the Compare toggle of Pocket strap is off",
       "flags": ""
     },
     {
       "name": "shared-compare-values",
-      "caughtAs": "did not match the regular expression /\\(\\?:€\\\\s\\*32",
+      "caughtAs": "Compare selected does not show €32 for Canvas wrap",
       "flags": ""
     },
     {
       "name": "dialog-remove-not-synced",
-      "caughtAs": "Missing visible content: Lens pouch",
+      "caughtAs": "After Remove in the dialog: the Compare toggle of Pocket strap is on",
       "flags": ""
+    },
+    {
+      "name": "search-hides-everything",
+      "caughtAs": "Small with the search \"pouch\": Lens pouch is missing",
+      "flags": ""
+    },
+    {
+      "name": "large-filter-ignored",
+      "caughtAs": "Large: Pocket strap is still listed",
+      "flags": ""
+    },
+    {
+      "name": "third-refused-silently",
+      "caughtAs": "The third product was refused without an explicit message",
+      "flags": ""
+    },
+    {
+      "name": "third-toggle-stays-checked",
+      "caughtAs": "After a third product was chosen: the Compare toggle of Lens pouch is on",
+      "flags": ""
+    },
+    {
+      "name": "filter-drops-selection",
+      "caughtAs": "After filtering by size: the Compare toggle of Pocket strap is off",
+      "flags": ""
+    },
+    {
+      "name": "dialog-remove-stale-toggle",
+      "caughtAs": "After Remove in the dialog: the Compare toggle of Pocket strap is on",
+      "flags": ""
+    },
+    {
+      "name": "dialog-remove-stale-count",
+      "caughtAs": "After Remove in the dialog: the selection count reads \"2 of 2 selected for comparison\" instead of \"1 of 2 selected for comparison\"",
+      "flags": ""
+    },
+    {
+      "name": "article-shared-values",
+      "caughtAs": "Compare selected does not show €32 for Canvas wrap",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "article-dialog",
+      "why": "The dialog compares one article per product, side by side, instead of the columns of a table."
+    },
+    {
+      "name": "header-remove-buttons",
+      "why": "Each column header of the comparison table holds the product name and that product's Remove control."
+    },
+    {
+      "name": "other-wording",
+      "why": "The dialog button carries the number of selected products, Compare selected (2), and the refusal says You can compare two products at a time."
+    },
+    {
+      "name": "button-toggles",
+      "why": "The Compare toggles are pressed-state buttons; with two selected the others are disabled and an always visible hint states the limit of two."
+    },
+    {
+      "name": "selected-list",
+      "why": "The Comparison panel also lists the selected product names, so a selected name is rendered twice outside the dialog."
+    },
+    {
+      "name": "worded-toggle-labels",
+      "why": "The Compare toggles are checkboxes labelled Add to comparison instead of Compare."
+    },
+    {
+      "name": "uppercase-values",
+      "why": "The style sheet sets the values of the comparison table in capitals (text-transform), so the rendered size reads SMALL."
+    },
+    {
+      "name": "named-toggle-labels",
+      "why": "Each Compare label ends with the product name in a visually hidden element (Compare <span>Pocket strap</span>), so the bare name is rendered twice in its row."
     }
   ]
 }

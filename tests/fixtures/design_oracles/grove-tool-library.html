@@ -17,65 +17,104 @@ h3{margin:0}dialog{width:min(34rem,90vw);color:inherit;background:inherit}
 <p><label for="category">Category</label><select id="category" onchange="render()"><option>All</option><option>Repair</option><option>Garden</option></select></p>
 <p><label for="search">Search</label><input type="search" id="search" oninput="render()"></p></section>
 <section aria-labelledby="tools-title"><h2 id="tools-title">Tools</h2>
-<ul id="tools"></ul><p id="empty" role="status">No tools match this category and search. Choose All or clear the search.</p></section>
+<ul id="tools"></ul><p id="empty" role="status"></p></section>
 <section aria-labelledby="shortlist-title"><h2 id="shortlist-title">Shortlist</h2>
-<p id="count"></p><p id="limit" role="status"></p>
-<button onclick="review(this)">Review shortlist</button></section>
+<p id="count"></p><p id="guide" hidden>You can keep up to two tools on your shortlist.</p><p id="limit" role="status"></p>
+<ul id="panel" hidden></ul>
+<p><button onclick="review(this)">Review shortlist</button> <button id="page-request" onclick="request()" hidden>Send demo request</button></p>
+<p id="page-sent" role="status"></p></section>
 <dialog aria-labelledby="dialog-title"><h2 id="dialog-title" tabindex="-1">Review shortlist</h2>
 <ul id="chosen"></ul><p id="none">Your shortlist is empty.</p>
-<p><button onclick="request()">Send demo request</button> <button onclick="this.closest('dialog').close()">Close</button></p>
+<p><button id="dialog-request" onclick="request()">Send demo request</button> <button onclick="this.closest('dialog').close()">Close</button></p>
 <p id="sent" role="status"></p></dialog>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant one other
+// correct rendering (see grove-tool-library.json). Call render() after either.
+window.fault='';window.variant='';
 const tools=[['Hand drill','Repair','Makes small holes for shelves and hooks.'],['Sewing kit','Repair','Needles, thread and patches for mending.'],
   ['Garden fork','Garden','Turns soil and lifts roots in small beds.']];
-let shortlist=[],pool=tools;
+const statement='No borrowing request was sent. This is a local demo.';
+let shortlist=[],pool=tools,refused='';
 const el=id=>document.getElementById(id);
+const is=(...names)=>names.includes(window.fault)||names.includes(window.variant);
 const make=(tag,text='')=>Object.assign(document.createElement(tag),{textContent:text});
 const items=tools.map(([title,group,about])=>{
   const item=make('li'),button=make('button');button.onclick=()=>toggle(title);
   item.append(make('h3',title),make('p',group+'. '+about),button);el('tools').append(item);return {title,item,button};
 });
+// Row buttons are named after their tool, except in the variant that shows a chosen
+// tool in two rows: there each button is identified by its row alone.
+const named=(button,title)=>is('shortlist-panel-lists-tools')?button.removeAttribute('aria-label'):button.setAttribute('aria-label',button.textContent+': '+title);
+// A row of a chosen tool with its own Remove button, for the dialog and the optional panel.
+const chosenRow=(title,remove)=>{
+  const item=make('li'),button=make('button','Remove');named(button,title);
+  button.onclick=()=>remove(title);item.append(make('span',title),' ',button);return item;
+};
+function renderCount(){
+  const n=is('count-never-updated')?0:is('count-stops-at-one')?Math.min(shortlist.length,1):shortlist.length;
+  el('count').textContent=is('plain-wording')?(n?`${n} ${n===1?'tool':'tools'} on your shortlist.`:'Your shortlist is empty.')
+    :is('no-search-empty-state')&&!n?'No tools shortlisted yet.':`${n} of 2 tools shortlisted.`;
+}
 function renderList(){
   const category=el('category').value,query=el('search').value.trim().toLowerCase();
-  const shown=pool=(window.fault==='filter-never-recovers'?pool:tools).filter(([title,group])=>
-    (category==='All'||group===category||window.fault==='search-ignores-category'&&query)&&title.toLowerCase().includes(query));
-  const full=shortlist.length>=2,open=['limit-not-enforced','third-evicts-first'].includes(window.fault);
+  const shown=pool=(is('filter-never-recovers')?pool:tools).filter(([title,group])=>
+    (category==='All'||group===category||is('search-ignores-category')&&query)&&title.toLowerCase().includes(query));
+  // Two faults and one variant leave the third Add button enabled.
+  const full=shortlist.length>=2,open=is('limit-not-enforced','third-evicts-first','refusal-on-click');
   for(const {title,item,button} of items){
     const chosen=shortlist.includes(title);
     item.hidden=!shown.some(tool=>tool[0]===title);
-    button.textContent=chosen?'Remove from shortlist':'Add to shortlist';
-    button.setAttribute('aria-label',button.textContent+': '+title);button.disabled=!chosen&&full&&!open;
+    // One fault offers removal in the dialog only: the list shows an inert "Shortlisted".
+    const inert=chosen&&is('no-remove-outside-dialog');
+    button.textContent=inert?'Shortlisted':chosen?'Remove from shortlist':full&&is('full-button-label')?'Shortlist full: remove a tool first':'Add to shortlist';
+    named(button,title);button.disabled=inert||!chosen&&full&&!open;
   }
-  el('empty').hidden=(window.fault==='empty-state-from-full-list'?tools:shown).length>0;
-  el('count').textContent=`${shortlist.length} of 2 tools shortlisted.`;
-  el('limit').textContent=full?'Your shortlist is full: only two tools can be shortlisted. Remove one to add another.':'';
+  el('empty').textContent=is('plain-wording')?'Nothing found for this category and search.':'No tools match this category and search. Choose All or clear the search.';
+  el('empty').hidden=is('no-search-empty-state')||(is('empty-state-from-full-list')?tools:shown).length>0;
+  // The reason for the limit: shown while the shortlist is full, only after a refused
+  // third tool, as guidance that is always visible, or as the label that replaces
+  // Add to shortlist on the other tools (three variants).
+  el('guide').hidden=!is('plain-wording');
+  el('limit').textContent=is('no-limit-reason','plain-wording','full-button-label')?'':is('refusal-on-click')?refused
+    :full?'Your shortlist is full: only two tools can be shortlisted. Remove one to add another.':'';
+  el('panel').hidden=!is('shortlist-panel-lists-tools');el('panel').replaceChildren(...shortlist.map(title=>chosenRow(title,toggle)));
+  const onPage=is('request-on-page','page-request-claims-sent');
+  el('page-request').hidden=!onPage;el('dialog-request').hidden=onPage;
 }
 function renderChosen(){
-  el('chosen').replaceChildren(...shortlist.map(title=>{
-    const item=make('li'),button=make('button','Remove');button.setAttribute('aria-label','Remove '+title);
-    button.onclick=()=>removeChosen(title);item.append(make('span',title),' ',button);return item;
-  }));
+  el('chosen').replaceChildren(...shortlist.map(title=>chosenRow(title,removeChosen)));
   el('none').hidden=shortlist.length>0;
 }
-function render(){renderList();renderChosen();}
+function render(){renderCount();renderList();renderChosen();}
 function toggle(title){
-  if(shortlist.includes(title))shortlist=shortlist.filter(name=>name!==title);
+  refused='';
+  if(shortlist.includes(title)){if(is('list-remove-does-nothing'))return;shortlist=shortlist.filter(name=>name!==title);}
   else{
-    if(shortlist.length>=2){if(window.fault==='third-evicts-first')shortlist.shift();else if(window.fault!=='limit-not-enforced')return;}
+    if(shortlist.length>=2){
+      if(is('third-evicts-first'))shortlist.shift();
+      else if(!is('limit-not-enforced')){refused=title+' was not added: only two tools can be shortlisted. Remove one first.';render();return;}
+    }
     shortlist.push(title);
   }
   render();
 }
 function removeChosen(title){
-  shortlist=shortlist.filter(name=>name!==title);
-  if(window.fault!=='list-stale-after-dialog-removal')renderList();
-  if(window.fault!=='dialog-removal-not-live')renderChosen();
+  shortlist=shortlist.filter(name=>name!==title);refused='';
+  if(!is('list-stale-after-dialog-removal','count-stale-after-dialog-removal'))renderCount();
+  if(!is('list-stale-after-dialog-removal'))renderList();
+  if(!is('dialog-removal-not-live'))renderChosen();
   el('dialog-title').focus();
 }
-function review(button){button.focus();el('sent').textContent='';renderChosen();document.querySelector('dialog').showModal();}
+function review(button){
+  button.focus();el('sent').textContent=is('request-does-nothing')?statement:'';renderChosen();document.querySelector('dialog').showModal();
+}
 function request(){
-  el('sent').textContent=window.fault==='request-claims-sent'?'Your borrowing request was sent to the shed.':'No borrowing request was sent. This is a local demo.';
+  if(is('request-does-nothing'))return;
+  // One variant answers on the page after closing the dialog.
+  const closing=is('request-closes-dialog','closing-request-claims-sent');
+  el(closing||is('request-on-page','page-request-claims-sent')?'page-sent':'sent').textContent=
+    is('request-claims-sent','page-request-claims-sent','closing-request-claims-sent')?'Your borrowing request was sent to the shed.':statement;
+  if(closing)document.querySelector('dialog').close();
 }
 render();
 </script></html>
