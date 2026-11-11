@@ -221,6 +221,11 @@ TEMPLATE='@TEMPLATE@'
   printf '#!/bin/sh\\necho "truncated link output"\\nexit 70\\n' > "$build/bin/llama-server"
   chmod 755 "$build/bin/llama-server"
   barrier cmake-build
+  if [ -e "$CONTROL/cmake-build.bytes" ]; then
+    # A large object file, as a real compiler writes one: on a full disk the write fails.
+    head -c "$(cat "$CONTROL/cmake-build.bytes")" /dev/zero > "$build/objects/large.o" ||
+      { echo "stand-in compiler: error: cannot write $build/objects/large.o" >&2; exit 1; }
+  fi
   if [ -e "$CONTROL/cmake-build.fail" ]; then echo "stand-in compiler: error: build failure" >&2; exit 2; fi
   if [ -e "$CONTROL/cmake-build.noserver" ]; then rm -f "$build/bin/llama-server"; exit 0; fi
   if [ -e "$CONTROL/cmake-build.wrongbuild" ]; then number=1; fi
