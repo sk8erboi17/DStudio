@@ -106,7 +106,10 @@ async function inference(id, entry) {
   const context=commonQuality?entry.quality.manifest.settings.context:8192;
   const tokenLimit=commonQuality?entry.quality.manifest.settings.max_tokens:256;
   const args=['--metal','-m',file,'--host','127.0.0.1','--port',String(port),'--ctx',String(context),'--tokens',String(tokenLimit)];
-  if(id!=='laguna')args.push('--prefill-chunk','512'); // Laguna rejects a custom chunk.
+  // Laguna runs with its engine default, as the app starts it: 4096-row batches
+  // on Metal with patch/ds4-laguna-prefill-chunk (the unpatched branch refuses
+  // a custom chunk).
+  if(id!=='laguna')args.push('--prefill-chunk','512');
   entry.inference={mode:id==='qwen'?'resident backbone + embedded BF16 n-grams on SSD':'Metal resident, no SSD expert streaming',transport:viaApp?'DStudio launch API and Chat HTTP proxy':'native engine HTTP',model:{path:file,bytes:st.size,mtime:st.mtime.toISOString()},binarySha256:hashFile(bin),argv:viaApp?undefined:args,cases:[]};
   if(id==='qwen') {
     const weights = {

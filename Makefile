@@ -955,9 +955,23 @@ test-v41-vision-pairing-live:
 # Laguna prefill batch patch: lifecycle on copies of the bundled Laguna engine,
 # composition after the runtime stack, a CPU compile of ds4-server/ds4 and the
 # engine resolver from a DS4_TEST_HOOKS object. No model, no GPU work.
-.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-live
+.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-upgrade test-laguna-prefill-chunk-live
 test-laguna-prefill-chunk-patch:
 	@node tests/integration/laguna_prefill_chunk_patch_test.mjs
+check-fast: test-laguna-prefill-chunk-patch
+
+# The Chat launch step (setup_ensure_server_metrics_runtime) on a copy of the
+# bundled Laguna engine whose ds4-server predates the batch patch: the patch is
+# applied and the server rebuilt (a real `make ds4-server`), a ready server is
+# kept, and a pre-patch server newer than its sources is still rebuilt. No
+# model, no GPU work. Build logs: tests/.artifacts/laguna-chat-upgrade/run-*.
+$(TEST_BUILD)/laguna_chat_upgrade: tests/integration/laguna_chat_upgrade.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/integration/laguna_chat_upgrade.c -o $@
+
+test-laguna-prefill-chunk-upgrade: $(TEST_BUILD)/laguna_chat_upgrade
+	@mkdir -p tests/.artifacts/laguna-chat-upgrade
+	@$(TEST_BUILD)/laguna_chat_upgrade "$$(mktemp -d "$$PWD/tests/.artifacts/laguna-chat-upgrade/run-XXXXXX")"
 
 # Real Laguna Q4_K_M weights on Metal, one engine at a time: batch 16384 versus
 # the patched default on a ~12k-token prompt (logits and greedy tokens), then a

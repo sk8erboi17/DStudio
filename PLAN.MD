@@ -1,6 +1,6 @@
 # DStudio — remaining macOS completion work
 
-Updated November 10, 2026. This document contains only unfinished implementation
+Updated November 11, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete. On November 10, 2026
 the owner resumed it: complete every item of this plan and of
 [the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
@@ -10,14 +10,12 @@ maintainer's Mac, including the owner-reserved quality reruns; it does not turn
 an unfinished, failed or blocked requirement into a pass.
 
 <a id="pause"></a>
-**Paused on November 11, 2026 at the owner's request.** The slices in
-progress were finished, verified and published; nothing new was started and
-no model, engine or campaign queue is running. Resume in this order:
+**Paused on November 11, 2026 at the owner's request, resumed the same
+evening.** The resume follows this order:
 
-1. Laguna prefill (P6.2): wire `patch/ds4-laguna-prefill-chunk` into the
-   managed installer and launch path, run `make test-laguna-prefill-chunk-live`
-   (exact comparison, then 40k and 60k-token prompts), then rerun Laguna's
-   common-100.
+1. Laguna prefill (P6.2): done except the rerun. The patch is wired into the
+   installer and every launch path and passes on real weights (see P6.2);
+   the app-path check and Laguna's common-100 rerun are queued first.
 2. The cancelled real-model queue: the host runner's restart fault-injection
    check (Qwen3.6 IQ4_XS, engine killed after case 6), pi/OpenCode on Laguna
    (runner now selects its checkout), and the three `check-real` suites (now
@@ -31,9 +29,9 @@ no model, engine or campaign queue is running. Resume in this order:
    check.
 6. Agent comparisons (P9): the scripted mechanics test, `--plan`, six-agent
    publication, then the real lanes.
-7. P12 inputs: the 54 uncovered usage cases (not started), and an opt-in,
-   bounded copy of the resident server's output so that failures such as the
-   27B MLX `generation thread died` can be diagnosed.
+7. P12 inputs: the 54 uncovered usage cases (not started). The opt-in,
+   bounded copy of the resident server's output is in place; the 27B MLX
+   diagnostic rerun that uses it is queued.
 8. Everything else in P0–P13 that the sections below still list as open,
    including the native desktop matrix (P1, P7), real inference per mode
    (P5.3), numerics, protocols and Learn/Search quality (P6), profiling
@@ -203,8 +201,11 @@ saved a page without the exact requested heading (an answer failure), and its
 Chat request failed with the MLX server's `generation thread died`. The cause
 of that exception is not known: the host keeps only the last bytes of a
 resident server's output, so the server's traceback was not retained. Keep
-both failures; a bounded, opt-in log of the resident server's output is
-needed before that case can be diagnosed:
+both failures. Since November 11 the host copies a resident server's output
+to the file named by `DSTUDIO_RESIDENT_LOG` (opt-in, at most 64 MiB per host
+process, then one truncation line; `make test-resident-unit`), and the live
+runners started through `startDStudio` keep it as `resident-server.log`; a
+diagnostic rerun of `qwen27-mlx-4bit` with it is open:
 
 | # | Variant (id) | Download | What it represents |
 | --- | --- | ---: | --- |
@@ -688,23 +689,31 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    does not depend on load. Laguna needs smaller Metal prefill batches as main
    has with `--prefill-chunk`; an adaptation goes under `patch/` with a
    numerical comparison against the 16,384-token batch.
-   Progress (November 11, still open): in that rerun the first batch always
-   completed and every failure came in the second 16,384-row batch (4 in the
-   dense layer, 3 in MoE layers 5-21), which does about three times the
-   attention work of the first.
-   [`patch/ds4-laguna-prefill-chunk`](patch/ds4-laguna-prefill-chunk/README.md)
-   makes Laguna honour `--prefill-chunk`/`DS4_METAL_PREFILL_CHUNK` (16-16384
-   rows) for its scratch and batch split, default 4096 on Metal (scratch 1.43
-   instead of 5.72 GiB); `--prefill-chunk 16384` reproduces the old batch.
-   Done: patch, apply script, Laguna admission patch-set entry and
-   `make test-laguna-prefill-chunk-patch` (lifecycle, stack composition, CPU
-   build, engine resolver, build invalidation). Open: the installer/launch
-   wiring (the patch is not yet applied to installed Laguna engines, so the
-   corpus runner still omits `--prefill-chunk` for Laguna); the real-weights
-   comparison `make test-laguna-prefill-chunk-live` (exact tolerance: identical
-   logits and 64 greedy tokens on a ~12k-token prompt; ~40k and ~60k-token
-   prompts must complete without the watchdog); then a Laguna long-context
-   common-100 rerun on the wired engine.
+   Progress (November 11): two engine defects, not one, and both are fixed
+   in [`patch/ds4-laguna-prefill-chunk`](patch/ds4-laguna-prefill-chunk/README.md).
+   Smaller batches alone (4096 rows) made each layer's command buffer about
+   four times shorter and still failed at token 20,480 (`run-MmwPWU`,
+   retained): Laguna's prefill attention gives each query one GPU thread
+   group that walks every earlier key serially, and walks of ~20,000 keys are
+   what macOS ends. The same run showed that two runs of one prompt could
+   differ: the ring commit wrote a whole batch into the 512-slot
+   sliding-window ring in one dispatch, so the surviving row of a slot was
+   unspecified. The patch now keeps the 4096-row default batch, attends in
+   passes of at most 4096 keys per dispatch with the online-softmax state
+   kept exactly between passes, and writes each ring slot once. The
+   installer, every Chat launch, local harness launches and the
+   Agent/Cowork/Design builds apply it, and a Laguna `ds4-server` built
+   without it is rebuilt (`make test-laguna-prefill-chunk-upgrade`). Real
+   weights (`make test-laguna-prefill-chunk-live`, `run-fbEHUg`): final
+   logits over the whole vocabulary are bit-identical to the unpatched
+   engine's at batch 16384 and 4096; greedy decoding (tokens, top-20 order
+   and logits) is identical across batch sizes and repeated runs; a
+   40,153-token needle prompt at ctx 49152 completes with the needle
+   (`4183-KESTREL`), and so does a 60,689-token prompt at ctx 65536. Open:
+   Laguna's common-100 rerun on the patched installed engine, queued after an
+   app-path check (`tests/live/laguna_app_long_prompt_live.mjs`) that upgrades
+   the installed checkout through a Chat launch and answers a ~40,000-token
+   prompt through `/v1`.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.

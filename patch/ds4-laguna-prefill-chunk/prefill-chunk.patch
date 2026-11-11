@@ -171,3 +171,394 @@ diff --git a/ds4_help.c b/ds4_help.c
      if (full) {
          if (tool != DS4_HELP_BENCH) {
              opt(fp, c, "--mtp FILE", "Optional MTP support GGUF used for draft-token probes.");
+diff --git a/ds4_metal.m b/ds4_metal.m
+--- a/ds4_metal.m
++++ b/ds4_metal.m
+@@ -5516,6 +5516,25 @@ static int ds4_gpu_encode_rope_tail_inplace(
+     uint32_t pad0;
+ } ds4_gpu_laguna_prefill_attention_args;
+ 
++/* DStudio: key passes of Laguna prefill attention (laguna.metal,
++ * ds4_metal_args_laguna_prefill_pass). A SIMD group walks at most this many
++ * keys per dispatch; walks of 16,384 keys completed and walks of about
++ * 20,000-24,000 keys were ended by macOS (ImpactingInteractivity). */
++#define DS4_LAGUNA_PREFILL_KEYS_PER_PASS 4096u
++
++typedef struct {
++    uint32_t key_lo;
++    uint32_t key_hi;
++    uint32_t first;
++    uint32_t last;
++} ds4_gpu_laguna_prefill_pass_args;
++
++/* Running max and sum of every (row, query head) between key passes: two
++ * floats each, grown to the largest prefill batch seen and kept for the
++ * process. Prefill attention is encoded by one thread and its command
++ * buffers run in order, so one buffer serves every layer and batch. */
++static id<MTLBuffer> g_laguna_pass_state;
++
+ typedef struct {
+     uint32_t in_dim;
+     uint32_t out_dim;
+@@ -32285,25 +32304,62 @@ int ds4_gpu_laguna_attention_prefill_tensor(
+             threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+         ds4_gpu_end_compute_encoder(cb, enc);
+ 
+-        enc = ds4_gpu_compute_encoder(cb);
+-        [enc setComputePipelineState:attention_pipeline];
+-        [enc setBytes:&args length:sizeof(args) atIndex:0];
+-        [enc setBuffer:qbuf offset:ds4_gpu_tensor_offset(q) atIndex:1];
+-        [enc setBuffer:gatebuf offset:ds4_gpu_tensor_offset(gate) atIndex:2];
+-        [enc setBuffer:keybuf offset:ds4_gpu_tensor_offset(key_cache) atIndex:3];
+-        [enc setBuffer:valuebuf offset:ds4_gpu_tensor_offset(value_cache) atIndex:4];
+-        [enc setBuffer:stagedkeybuf offset:ds4_gpu_tensor_offset(staged_key)
+-                atIndex:5];
+-        [enc setBuffer:stagedvaluebuf offset:ds4_gpu_tensor_offset(staged_value)
+-                atIndex:6];
+-        [enc setBuffer:headsbuf offset:ds4_gpu_tensor_offset(heads) atIndex:7];
++        /* DStudio: one dispatch per key pass once a query walks more than
++         * DS4_LAGUNA_PREFILL_KEYS_PER_PASS keys. Pass boundaries are
++         * absolute key positions, so a query's operations do not depend on
++         * the prefill batch it belongs to. */
++        const uint32_t pass_keys = DS4_LAGUNA_PREFILL_KEYS_PER_PASS;
++        const uint32_t last_pos = pos0 + n_tokens - 1u;
++        const uint32_t first_key = pos0 + 1u - MIN(pos0 + 1u, cache_cap);
++        const bool use_passes = cache_cap > pass_keys && last_pos >= pass_keys;
++        const uint32_t pass_first = use_passes ? first_key / pass_keys : 0u;
++        const uint32_t pass_last = use_passes ? last_pos / pass_keys : 0u;
++        id<MTLBuffer> statebuf = headsbuf;
++        if (use_passes) {
++            const NSUInteger state_bytes =
++                (NSUInteger)n_tokens * n_head * 2u * sizeof(float);
++            if (!g_laguna_pass_state || g_laguna_pass_state.length < state_bytes) {
++                g_laguna_pass_state = [g_device newBufferWithLength:state_bytes
++                                                            options:MTLResourceStorageModePrivate];
++                if (!g_laguna_pass_state) {
++                    fprintf(stderr, "ds4: Metal Laguna prefill attention could not allocate %lu bytes of pass state\n",
++                            (unsigned long)state_bytes);
++                    return 0;
++                }
++            }
++            statebuf = g_laguna_pass_state;
++        }
+         const uint32_t attention_groups = use_gqa6 ?
+             n_head / 6u : use_gqa3 ? n_head / 3u : n_head;
+-        [enc dispatchThreadgroups:MTLSizeMake(attention_groups,
+-                                              n_tokens,
+-                                              1)
+-             threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
+-        ds4_gpu_end_compute_encoder(cb, enc);
++        for (uint32_t pass = pass_first; pass <= pass_last; pass++) {
++            const ds4_gpu_laguna_prefill_pass_args pass_args = {
++                .key_lo = use_passes ? pass * pass_keys : 0u,
++                .key_hi = use_passes ? (pass + 1u) * pass_keys : UINT32_MAX,
++                .first = pass == pass_first,
++                .last = pass == pass_last,
++            };
++            enc = ds4_gpu_compute_encoder(cb);
++            [enc setComputePipelineState:attention_pipeline];
++            [enc setBytes:&args length:sizeof(args) atIndex:0];
++            [enc setBuffer:qbuf offset:ds4_gpu_tensor_offset(q) atIndex:1];
++            [enc setBuffer:gatebuf offset:ds4_gpu_tensor_offset(gate) atIndex:2];
++            [enc setBuffer:keybuf offset:ds4_gpu_tensor_offset(key_cache) atIndex:3];
++            [enc setBuffer:valuebuf offset:ds4_gpu_tensor_offset(value_cache) atIndex:4];
++            [enc setBuffer:stagedkeybuf offset:ds4_gpu_tensor_offset(staged_key)
++                    atIndex:5];
++            [enc setBuffer:stagedvaluebuf offset:ds4_gpu_tensor_offset(staged_value)
++                    atIndex:6];
++            [enc setBuffer:headsbuf offset:ds4_gpu_tensor_offset(heads) atIndex:7];
++            [enc setBytes:&pass_args length:sizeof(pass_args) atIndex:8];
++            [enc setBuffer:statebuf
++                    offset:statebuf == headsbuf ? ds4_gpu_tensor_offset(heads) : 0
++                   atIndex:9];
++            [enc dispatchThreadgroups:MTLSizeMake(attention_groups,
++                                                  n_tokens,
++                                                  1)
++                 threadsPerThreadgroup:MTLSizeMake(32, 1, 1)];
++            ds4_gpu_end_compute_encoder(cb, enc);
++        }
+ 
+         enc = ds4_gpu_compute_encoder(cb);
+         [enc setComputePipelineState:commit_pipeline];
+diff --git a/metal/laguna.metal b/metal/laguna.metal
+--- a/metal/laguna.metal
++++ b/metal/laguna.metal
+@@ -171,6 +171,22 @@ struct ds4_metal_args_laguna_prefill_attention {
+     uint32_t pad0;
+ };
+ 
++// DStudio: one prefill attention dispatch covers the absolute key positions
++// [key_lo, key_hi). A long prompt is attended in consecutive passes so that
++// no SIMD group walks more than one pass of keys in a single dispatch (a
++// serial walk of ~20k keys keeps the GPU from the window server and macOS
++// ends the command buffer). Between passes each query head keeps its online
++// softmax state in memory -- running max and sum in `pass_state`, the
++// unnormalised accumulator in its own `out` row -- so the float operations
++// and their order are those of a single walk. One pass with
++// [0, UINT32_MAX), first = last = 1, is the original kernel.
++struct ds4_metal_args_laguna_prefill_pass {
++    uint32_t key_lo;
++    uint32_t key_hi;
++    uint32_t first;
++    uint32_t last;
++};
++
+ // Before the sliding window wraps, verifier rows occupy distinct cache slots.
+ // Store the complete speculative block at once; each query still limits its
+ // key count, so later rows cannot become visible to earlier queries.
+@@ -221,6 +237,8 @@ kernel void kernel_laguna_attention_prefill_gqa_f16(
+         device const half  *staged_key,
+         device const half  *staged_value,
+         device float       *out,
++        constant ds4_metal_args_laguna_prefill_pass &pass,
++        device float       *pass_state,
+         ushort lane [[thread_index_in_simdgroup]],
+         uint3 tgpig [[threadgroup_position_in_grid]]) {
+     const uint head = tgpig.x;
+@@ -243,7 +261,20 @@ kernel void kernel_laguna_attention_prefill_gqa_f16(
+     float4 acc = float4(0.0f);
+     float max_score = -INFINITY;
+     float score_sum = 0.0f;
+-    for (uint key_pos = key_start; key_pos <= query_pos; key_pos++) {
++    const uint pass_lo = max(key_start, pass.key_lo);
++    const uint pass_hi = min(query_pos + 1u, pass.key_hi);
++    if (pass.first == 0u && pass.last == 0u && pass_lo >= pass_hi) return;
++    device float *pass_out = out +
++        ((uint64_t)token * args.n_head + head) * args.head_dim;
++    device float *pass_st = pass_state +
++        ((uint64_t)token * args.n_head + head) * 2u;
++    if (pass.first == 0u) {
++        max_score = pass_st[0u];
++        score_sum = pass_st[1u];
++        acc = float4(pass_out[lane], pass_out[lane + 32u],
++                      pass_out[lane + 64u], pass_out[lane + 96u]);
++    }
++    for (uint key_pos = pass_lo; key_pos < pass_hi; key_pos++) {
+         const bool current = key_pos >= args.pos0;
+         const uint source_row = current ?
+             key_pos - args.pos0 : key_pos % args.cache_cap;
+@@ -278,6 +309,18 @@ kernel void kernel_laguna_attention_prefill_gqa_f16(
+         max_score = next_max;
+     }
+ 
++    if (pass.last == 0u) {
++        if (lane == 0u) {
++            pass_st[0u] = max_score;
++            pass_st[1u] = score_sum;
++        }
++        pass_out[lane]       = acc.x;
++        pass_out[lane + 32u] = acc.y;
++        pass_out[lane + 64u] = acc.z;
++        pass_out[lane + 96u] = acc.w;
++        return;
++    }
++
+     const float inv_sum = score_sum > 0.0f ? 1.0f / score_sum : 0.0f;
+     const float gate_value = gate[(uint64_t)token * args.n_head + head];
+     const float gate_scale = gate_value > 20.0f ?
+@@ -302,6 +345,8 @@ kernel void kernel_laguna_attention_prefill_gqa3_f16(
+         device const half  *staged_key,
+         device const half  *staged_value,
+         device float       *out,
++        constant ds4_metal_args_laguna_prefill_pass &pass,
++        device float       *pass_state,
+         ushort lane [[thread_index_in_simdgroup]],
+         uint3 tgpig [[threadgroup_position_in_grid]]) {
+     const uint head0 = tgpig.x * 3u;
+@@ -335,7 +380,30 @@ kernel void kernel_laguna_attention_prefill_gqa3_f16(
+     float sum0 = 0.0f;
+     float sum1 = 0.0f;
+     float sum2 = 0.0f;
+-    for (uint key_pos = key_start; key_pos <= query_pos; key_pos++) {
++    const uint pass_lo = max(key_start, pass.key_lo);
++    const uint pass_hi = min(query_pos + 1u, pass.key_hi);
++    if (pass.first == 0u && pass.last == 0u && pass_lo >= pass_hi) return;
++    device float *pass_out = out +
++        ((uint64_t)token * args.n_head + head0) * args.head_dim;
++    device float *pass_out1 = pass_out + args.head_dim;
++    device float *pass_out2 = pass_out1 + args.head_dim;
++    device float *pass_st = pass_state +
++        ((uint64_t)token * args.n_head + head0) * 2u;
++    if (pass.first == 0u) {
++        max0 = pass_st[0u];
++        sum0 = pass_st[1u];
++        acc0 = float4(pass_out[lane], pass_out[lane + 32u],
++                      pass_out[lane + 64u], pass_out[lane + 96u]);
++        max1 = pass_st[2u];
++        sum1 = pass_st[3u];
++        acc1 = float4(pass_out1[lane], pass_out1[lane + 32u],
++                      pass_out1[lane + 64u], pass_out1[lane + 96u]);
++        max2 = pass_st[4u];
++        sum2 = pass_st[5u];
++        acc2 = float4(pass_out2[lane], pass_out2[lane + 32u],
++                      pass_out2[lane + 64u], pass_out2[lane + 96u]);
++    }
++    for (uint key_pos = pass_lo; key_pos < pass_hi; key_pos++) {
+         const bool current = key_pos >= args.pos0;
+         const uint source_row = current ?
+             key_pos - args.pos0 : key_pos % args.cache_cap;
+@@ -390,6 +458,34 @@ kernel void kernel_laguna_attention_prefill_gqa3_f16(
+         max2 = next_max2;
+     }
+ 
++    if (pass.last == 0u) {
++        if (lane == 0u) {
++            pass_st[0u] = max0;
++            pass_st[1u] = sum0;
++        }
++        pass_out[lane]       = acc0.x;
++        pass_out[lane + 32u] = acc0.y;
++        pass_out[lane + 64u] = acc0.z;
++        pass_out[lane + 96u] = acc0.w;
++        if (lane == 0u) {
++            pass_st[2u] = max1;
++            pass_st[3u] = sum1;
++        }
++        pass_out1[lane]       = acc1.x;
++        pass_out1[lane + 32u] = acc1.y;
++        pass_out1[lane + 64u] = acc1.z;
++        pass_out1[lane + 96u] = acc1.w;
++        if (lane == 0u) {
++            pass_st[4u] = max2;
++            pass_st[5u] = sum2;
++        }
++        pass_out2[lane]       = acc2.x;
++        pass_out2[lane + 32u] = acc2.y;
++        pass_out2[lane + 64u] = acc2.z;
++        pass_out2[lane + 96u] = acc2.w;
++        return;
++    }
++
+     const float inv_sum0 = sum0 > 0.0f ? 1.0f / sum0 : 0.0f;
+     const float inv_sum1 = sum1 > 0.0f ? 1.0f / sum1 : 0.0f;
+     const float inv_sum2 = sum2 > 0.0f ? 1.0f / sum2 : 0.0f;
+@@ -432,6 +528,8 @@ kernel void kernel_laguna_attention_prefill_gqa6_f16(
+         device const half  *staged_key,
+         device const half  *staged_value,
+         device float       *out,
++        constant ds4_metal_args_laguna_prefill_pass &pass,
++        device float       *pass_state,
+         ushort lane [[thread_index_in_simdgroup]],
+         uint3 tgpig [[threadgroup_position_in_grid]]) {
+     const uint head0 = tgpig.x * 6u;
+@@ -476,7 +574,45 @@ kernel void kernel_laguna_attention_prefill_gqa6_f16(
+     float sum3 = 0.0f;
+     float sum4 = 0.0f;
+     float sum5 = 0.0f;
+-    for (uint key_pos = key_start; key_pos <= query_pos; key_pos++) {
++    const uint pass_lo = max(key_start, pass.key_lo);
++    const uint pass_hi = min(query_pos + 1u, pass.key_hi);
++    if (pass.first == 0u && pass.last == 0u && pass_lo >= pass_hi) return;
++    device float *pass_out = out +
++        ((uint64_t)token * args.n_head + head0) * args.head_dim;
++    device float *pass_out1 = pass_out + args.head_dim;
++    device float *pass_out2 = pass_out1 + args.head_dim;
++    device float *pass_out3 = pass_out2 + args.head_dim;
++    device float *pass_out4 = pass_out3 + args.head_dim;
++    device float *pass_out5 = pass_out4 + args.head_dim;
++    device float *pass_st = pass_state +
++        ((uint64_t)token * args.n_head + head0) * 2u;
++    if (pass.first == 0u) {
++        max0 = pass_st[0u];
++        sum0 = pass_st[1u];
++        acc0 = float4(pass_out[lane], pass_out[lane + 32u],
++                      pass_out[lane + 64u], pass_out[lane + 96u]);
++        max1 = pass_st[2u];
++        sum1 = pass_st[3u];
++        acc1 = float4(pass_out1[lane], pass_out1[lane + 32u],
++                      pass_out1[lane + 64u], pass_out1[lane + 96u]);
++        max2 = pass_st[4u];
++        sum2 = pass_st[5u];
++        acc2 = float4(pass_out2[lane], pass_out2[lane + 32u],
++                      pass_out2[lane + 64u], pass_out2[lane + 96u]);
++        max3 = pass_st[6u];
++        sum3 = pass_st[7u];
++        acc3 = float4(pass_out3[lane], pass_out3[lane + 32u],
++                      pass_out3[lane + 64u], pass_out3[lane + 96u]);
++        max4 = pass_st[8u];
++        sum4 = pass_st[9u];
++        acc4 = float4(pass_out4[lane], pass_out4[lane + 32u],
++                      pass_out4[lane + 64u], pass_out4[lane + 96u]);
++        max5 = pass_st[10u];
++        sum5 = pass_st[11u];
++        acc5 = float4(pass_out5[lane], pass_out5[lane + 32u],
++                      pass_out5[lane + 64u], pass_out5[lane + 96u]);
++    }
++    for (uint key_pos = pass_lo; key_pos < pass_hi; key_pos++) {
+         const bool current = key_pos >= args.pos0;
+         const uint source_row = current ?
+             key_pos - args.pos0 : key_pos % args.cache_cap;
+@@ -561,6 +697,58 @@ kernel void kernel_laguna_attention_prefill_gqa6_f16(
+         max5 = next_max5;
+     }
+ 
++    if (pass.last == 0u) {
++        if (lane == 0u) {
++            pass_st[0u] = max0;
++            pass_st[1u] = sum0;
++        }
++        pass_out[lane]       = acc0.x;
++        pass_out[lane + 32u] = acc0.y;
++        pass_out[lane + 64u] = acc0.z;
++        pass_out[lane + 96u] = acc0.w;
++        if (lane == 0u) {
++            pass_st[2u] = max1;
++            pass_st[3u] = sum1;
++        }
++        pass_out1[lane]       = acc1.x;
++        pass_out1[lane + 32u] = acc1.y;
++        pass_out1[lane + 64u] = acc1.z;
++        pass_out1[lane + 96u] = acc1.w;
++        if (lane == 0u) {
++            pass_st[4u] = max2;
++            pass_st[5u] = sum2;
++        }
++        pass_out2[lane]       = acc2.x;
++        pass_out2[lane + 32u] = acc2.y;
++        pass_out2[lane + 64u] = acc2.z;
++        pass_out2[lane + 96u] = acc2.w;
++        if (lane == 0u) {
++            pass_st[6u] = max3;
++            pass_st[7u] = sum3;
++        }
++        pass_out3[lane]       = acc3.x;
++        pass_out3[lane + 32u] = acc3.y;
++        pass_out3[lane + 64u] = acc3.z;
++        pass_out3[lane + 96u] = acc3.w;
++        if (lane == 0u) {
++            pass_st[8u] = max4;
++            pass_st[9u] = sum4;
++        }
++        pass_out4[lane]       = acc4.x;
++        pass_out4[lane + 32u] = acc4.y;
++        pass_out4[lane + 64u] = acc4.z;
++        pass_out4[lane + 96u] = acc4.w;
++        if (lane == 0u) {
++            pass_st[10u] = max5;
++            pass_st[11u] = sum5;
++        }
++        pass_out5[lane]       = acc5.x;
++        pass_out5[lane + 32u] = acc5.y;
++        pass_out5[lane + 64u] = acc5.z;
++        pass_out5[lane + 96u] = acc5.w;
++        return;
++    }
++
+     const float inv_sum0 = sum0 > 0.0f ? 1.0f / sum0 : 0.0f;
+     const float inv_sum1 = sum1 > 0.0f ? 1.0f / sum1 : 0.0f;
+     const float inv_sum2 = sum2 > 0.0f ? 1.0f / sum2 : 0.0f;
+@@ -629,6 +817,14 @@ kernel void kernel_laguna_commit_kv_f16(
+     const uint values = args.n_tokens * width;
+     if (gid >= values) return;
+     const uint token = gid / width;
++    // DStudio: a batch longer than a sliding-window ring maps several rows to
++    // one slot in this single dispatch, where the order of the stores is
++    // unspecified. Only the newest cache_cap rows survive in the ring, so
++    // only they are written: each slot gets exactly one store.
++    if (args.n_tokens > args.cache_cap &&
++        token < args.n_tokens - args.cache_cap) {
++        return;
++    }
+     const uint col = gid - token * width;
+     const uint cache_row = (args.pos0 + token) % args.cache_cap;
+     const uint64_t dst = (uint64_t)cache_row * width + col;

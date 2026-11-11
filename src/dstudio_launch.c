@@ -238,9 +238,7 @@ static int launch_prepare_cli(int argc, char **argv) {
         if (ok && MODE_IS_PIPED(mode)) {
             /* The frontend is DStudio's tool runtime, ds4-design or the harness bridge. */
             if (mode == ENGINE_DESIGN) {
-                ok = run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") && !g_launch_worker_cancel &&
-                     run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") && !g_launch_worker_cancel &&
-                     run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") && !g_launch_worker_cancel &&
+                ok = apply_ds4_build_patches() && !g_launch_worker_cancel &&
                      run_ext_script("src/harness/design/build-design.sh", "build");
                 snprintf(binary, sizeof binary, "%s/%s", g_ds4_dir, launch_binary(mode, -1));
             } else if (harness[0]) ok = harness_verify(g_ds4_dir, harness, error, sizeof error) &&
@@ -266,9 +264,7 @@ static int launch_prepare_cli(int argc, char **argv) {
 #ifdef _WIN32
         win_prepare_engine_runtime(); ok = file_present("ds4-design.exe");
 #else
-        ok = run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") && !g_launch_worker_cancel &&
-             run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") && !g_launch_worker_cancel &&
-             run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") && !g_launch_worker_cancel &&
+        ok = apply_ds4_build_patches() && !g_launch_worker_cancel &&
              run_ext_script("src/harness/design/build-design.sh", "build");
 #endif
     } else if (ok && harness[0]) {
@@ -276,10 +272,17 @@ static int launch_prepare_cli(int argc, char **argv) {
          * ds4-server, so that server (not ds4-agent-jsonl) must exist. A
          * remote/cloud model needs no engine binary at all. */
         ok = harness_verify(g_ds4_dir, harness, error, sizeof error);
+#ifndef _WIN32
+        /* The same preparation as a Chat launch: managed patches applied
+         * and a stale or missing server rebuilt, so a harness never starts
+         * a server that predates them (Laguna's prefill batch, for one). */
+        if (ok && !g_remote_base_url[0]) ok = setup_ensure_server_metrics_runtime(error, sizeof error);
+#else
         if (ok && !g_remote_base_url[0] && !file_present("ds4-server")) {
             cstr_copy(error, sizeof error, "This engine has no ds4-server build; start Chat with this model once to build it");
             ok = 0;
         }
+#endif
         if (ok) { char kv[DSTUDIO_PATH_MAX]; kv_dir_for_model(current_model_rel(), kv, sizeof kv); mkpath(kv); }
     } else if (ok) ok = run_build_jsonl("build");
     if (g_launch_worker_cancel) ok = 0;
@@ -462,7 +465,7 @@ static int launch_capture_dependencies(launch_job *j) {
         snprintf(rel, sizeof rel, "%s/SKILL.md", request->skill);
         ok = launch_add_dependency(j, dir, rel, 0);
     }
-    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-v41-vision-pairing.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "src/harness/design/build-design.sh", NULL};
+    const char *scripts[] = {"scripts/apply-ds4-glm53-m2max.sh", "scripts/apply-ds4-vision-streaming.sh", "scripts/apply-ds4-v41-vision-pairing.sh", "scripts/apply-ds4-laguna-prefill-chunk.sh", "scripts/apply-ds4-server-metrics.sh", "scripts/apply-ds4-qwen38-prepare.sh", "src/harness/design/build-design.sh", NULL};
     for (int i = 0; ok && scripts[i]; i++) ok = launch_add_dependency(j, request->assets_dir, scripts[i], 0);
     /* The installer may build llama-server during preparation, so its own
      * output is bound by the executable identity the worker reports. */

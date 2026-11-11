@@ -1,7 +1,11 @@
 #!/bin/sh
-# Laguna S 2.1 honours a requested prefill batch (--prefill-chunk, then
-# DS4_METAL_PREFILL_CHUNK) for its scratch and batch split, with 4096 rows on
-# Metal instead of the branch's fixed 16384 (macOS GPU watchdog).
+# Laguna S 2.1 long-prompt prefill on Metal (patch/ds4-laguna-prefill-chunk):
+# a requested prefill batch (--prefill-chunk, then DS4_METAL_PREFILL_CHUNK),
+# 4096 rows by default on Metal instead of the branch's fixed 16384; prefill
+# attention in passes of at most 4096 keys per dispatch, so no GPU thread walks
+# ~20k keys and trips the macOS interactivity watchdog; and a sliding-window
+# ring commit that writes each slot once. Files: ds4.c, ds4_help.c,
+# ds4_metal.m, metal/laguna.metal.
 set -eu
 action=${1:-apply}
 case "$action" in apply|build|check|restore) ;; *)

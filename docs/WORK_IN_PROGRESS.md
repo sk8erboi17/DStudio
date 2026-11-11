@@ -1,9 +1,11 @@
-# Remaining work — November 10, 2026
+# Remaining work — November 11, 2026
 
 The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
 resumed it: complete every item below, then the final simplification step.
-**It is paused since November 11** at the owner's request; the order in which
-to resume is in [the plan](../PLAN.MD#pause).
+It was paused on November 11 at the owner's request and resumed the same
+evening, in [the order the plan records](../PLAN.MD#pause). First resumed
+step: Laguna long prompts (two engine defects fixed and checked on real
+weights; its common-100 rerun is queued).
 [PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
 its short index. A documentation, download-integrity or simulated UI pass does
 not close a model-quality gate.
@@ -36,20 +38,22 @@ seven selections measured (every one that runs on this machine), none at
 the required 100/100. That gate measures the models; it closes as a
 documented FAIL unless a model passes it ([why](../PLAN.MD#closure)).
 
-### Pinned Qwen variants: five representative checks (NOT RUN)
+### Pinned Qwen variants: five representative checks
 
 The required variants, IDs, download sizes and production-host gate are listed
-in [PLAN.MD](../PLAN.MD#qwen-variants). These checks remain NOT RUN; downloadable
-catalog entries and fixture passes are not real-weight verification. The
-requirements and their full denominator are unchanged.
+in [PLAN.MD](../PLAN.MD#qwen-variants). Run on November 11: four pass 6/6;
+`qwen27-mlx-4bit` passes 4/6 and stays FAIL (a Design heading and an MLX
+`generation thread died`). A diagnostic rerun that keeps the MLX server's
+output is queued; the earlier failures stay.
 
 ## DeepSeek V4.1 1017 Q2: back in the maintainer's plan, SSD streaming only
 
 On November 10 the owner returned DeepSeek V4.1 Flash 1017 Q2, and only that
 checkpoint, to the maintainer's execution plan, with expert SSD streaming
-only. It is no longer BLOCKED and is not run yet. A result qualifies that
-memory mode on that Mac only. The conditions are in
-[PLAN.MD](../PLAN.MD#v41-ssd); no run was started.
+only. It is no longer BLOCKED. Its common-100 result (68/100, SSD streaming
+effective) is in [the campaign report](benchmarks/quality-multihardware/README.md);
+the rest of its conditions are in [PLAN.MD](../PLAN.MD#v41-ssd). A result
+qualifies that memory mode on that Mac only.
 
 ## Contributor hardware wanted
 

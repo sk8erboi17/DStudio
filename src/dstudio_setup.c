@@ -454,6 +454,7 @@ static int setup_apply_ds4_runtime_patches(void) {
            run_ext_script("scripts/apply-ds4-glm53-m2max.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-vision-streaming.sh", "apply") &&
            run_ext_script("scripts/apply-ds4-v41-vision-pairing.sh", "apply") &&
+           run_ext_script("scripts/apply-ds4-laguna-prefill-chunk.sh", "apply") &&
            setup_qwen38_prepare_patch("apply");
 }
 
@@ -517,6 +518,12 @@ static int setup_server_metrics_binary_ready(void) {
     if (setup_binary_contains_ascii(source, "static bool ds4_model_is_glm53") &&
         !setup_binary_contains_ascii(server, "DS4_METAL_DISABLE_M2_GLM53_TOP8_STREAM_ADDR"))
         return 0;
+    /* A Laguna server built before the prefill batch patch keeps the fixed
+     * 16384-row batch that trips the macOS GPU watchdog on long prompts. The
+     * patched engine's refusal message is compiled into the executable. */
+    if (setup_binary_contains_ascii(source, "ds4_laguna_prefill_chunk(") &&
+        !setup_binary_contains_ascii(server, "is not a Laguna prefill batch"))
+        return 0;
     struct stat binary;
     if (stat(server, &binary) != 0 || engine_metal_source_newer_than(g_ds4_dir, &binary))
         return 0;
@@ -549,6 +556,10 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
         snprintf(err, errsz, "could not apply the managed V4.1 vision pairing patch");
         return 0;
     }
+    if (!run_ext_script("scripts/apply-ds4-laguna-prefill-chunk.sh", "apply")) {
+        snprintf(err, errsz, "could not apply the managed Laguna prefill batch patch");
+        return 0;
+    }
     if (setup_server_metrics_binary_ready()) return 1;
     if (!ds4_dir_valid()) {
         snprintf(err, errsz, "ds4 checkout is invalid; cannot prepare Chat metrics");
@@ -563,8 +574,12 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
         return 0;
     }
 
+    /* The readiness check has already found this executable wrong. Its file
+     * and objects can still be newer than their sources (a binary copied
+     * back, or built before a patch was restored and re-applied), so a
+     * timestamp-driven make would keep it: rebuild unconditionally. */
     char log_tail[8192] = "";
-    char *make_argv[] = { "make", "-C", g_ds4_dir, "ds4-server", NULL };
+    char *make_argv[] = { "make", "-B", "-C", g_ds4_dir, "ds4-server", NULL };
     int rc = setup_run_cmd_capture(NULL, make_argv, log_tail, sizeof log_tail);
     if (rc != 0) {
         snprintf(err, errsz,
