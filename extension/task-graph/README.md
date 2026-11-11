@@ -142,6 +142,9 @@ current state.
 make test-task-graph-unit
 make test-task-graph-http
 make test-task-graph-bench-validate
+# The live dialog in WebKit and Chromium against the real host: watch, pause,
+# resume, and reopen paused/finished graphs after a host restart (no model)
+make test-ui-task-graph
 # Held-out and long/recovery cases of the six-agent comparison: oracles and
 # case selection, no agent (bench/README.md#case-sets-held-out-and-recovery)
 make test-agent-lane-cases

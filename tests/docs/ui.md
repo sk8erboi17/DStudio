@@ -137,6 +137,34 @@ fresh for each response. The Agent IDE test holds background re-reads of the
 file it changes on disk, so its conflict step always exercises the host's
 digest refusal instead of depending on timing.
 
+`make test-ui-task-graph` (in `check-fast` through `test-ui-browser`) runs
+WebKit and Chromium with every `/api/task-graph*` request forwarded to the real
+test host, whose scheduler, journal and synthetic executor (nodes that only
+wait) run the graphs; the Agent session status is simulated and no model runs.
+The user opens the live Task Graph from the ⌘K palette, starts a ready graph,
+watches the node cards follow the host's states, pauses (the running node
+finishes and the next stays pending while paused), resumes to success and sees
+the durable events. A second graph is paused, the window closes and the host
+process stops; after both start again the dialog lists the paused and the
+finished graph from their journals with no new event, and the paused graph
+resumes and finishes without rerunning its completed step.
+
+`make test-ui-skills-editor` (in `check-fast` through `test-ui-browser`) runs
+WebKit and Chromium with `/api/user-skills*` forwarded to the real test host
+under a task-owned `HOME`. A skill written in the editor (quotes, backslashes,
+a tab, non-ASCII text and a `---` line) is saved byte for byte as
+`SKILL.md` in the folder the Agent runtime reads, selected for the next turn
+without a restart, reloaded exactly for editing, rewritten in place, and listed
+again in a new window with an empty browser profile. A skill over the size the
+host can store is refused in the editor with its text kept; before November 12,
+2026 the host saved it cut to 32 KiB and reported success, and each
+edit-and-save added a trailing newline.
+
+`make test-ui-plan` also acts on finished plans with simulated replies: Stay in
+plan mode sends nothing and the next request is planned into its own file;
+Implement plan turns Plan off and sends the execution turn for that file; Chat
+about this turns Plan off and the next message is a plain turn.
+
 `make test-ui-native-titlebar` runs WebKit and Chromium with the 28px
 title-bar inset that DStudio.app injects (`--native-titlebar-height`, top frame
 only). It checks that no operable control in the main window or the Learn study

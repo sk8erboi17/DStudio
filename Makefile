@@ -741,6 +741,15 @@ test-harness-patches:
 
 check-fast: test-harness-bridge test-harness-patches
 
+# pi/OpenCode as the Agent runtime through the real host, launch preparation
+# and bridge: a missing harness, a harness or runtime dying mid-turn, GSA/RSA
+# refused on a harness. pi, OpenCode and their replies are SIMULATED; no model.
+.PHONY: test-harness-host
+test-harness-host: $(TEST_SERVER)
+	@node tests/integration/harness_host_test.mjs $(TEST_SERVER)
+
+check-fast: test-harness-host
+
 # MLX runtime (bundled wheels in src/engines/mlx): installer helpers with
 # simulated interpreters (check-fast), and a real offline installation with
 # outbound network denied (explicit; macOS 26, Python 3.12-3.14, no model).
@@ -1573,6 +1582,17 @@ test-ui-agent-ide: $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 test-ui-browser: test-ui-agent-ide
+# Live Task Graph dialog and the Skills editor: real browser + real host
+# (Task Graph scheduler/journal with its synthetic executor; skill files);
+# the Agent session around them is simulated. No model.
+.PHONY: test-ui-task-graph test-ui-skills-editor
+test-ui-task-graph: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_task_graph_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_task_graph_playwright_test.mjs $(TEST_SERVER)
+test-ui-skills-editor: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_skills_editor_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_skills_editor_playwright_test.mjs $(TEST_SERVER)
+test-ui-browser: test-ui-task-graph test-ui-skills-editor
 # Full-window screens under the native macOS title-bar strip (simulated inset).
 .PHONY: test-ui-native-titlebar
 test-ui-native-titlebar:

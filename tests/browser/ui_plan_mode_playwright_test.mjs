@@ -1,3 +1,7 @@
+// Plan mode in the production page: the plan contract, the question form, the
+// written plan and the follow-up actions (Implement plan, Stay in plan mode,
+// Chat about this). The Agent runtime and its replies are SIMULATED by this
+// test's server; no model runs.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -24,6 +28,7 @@ let currentMode = 'server';
 let currentWorkdir = '/tmp/dstudio-plan-mode';
 let transcriptBytes = 0;
 const pollQueue = [];
+let planForms = 0;
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -108,7 +113,10 @@ const server = http.createServer(async (req, res) => {
     const body = JSON.parse(await readBody(req) || '{}');
     sends.push({ mode: currentMode, body });
     const from = transcriptBytes;
-    if (/PLAN MODE/.test(body.prompt || '')) enqueueDelta(questionForm);
+    // Ask first: a question form; Auto ("Do not ask clarifying questions"): the plan at once.
+    if (/PLAN MODE/.test(body.prompt || '') && /Do not ask clarifying questions/.test(body.prompt || '')) enqueueDelta(planMarkdown);
+    // Each new plan request gets its own form, as a model asks request-specific questions.
+    else if (/PLAN MODE/.test(body.prompt || '')) enqueueDelta(planForms++ ? questionForm.replace('"id":"plan-setup"', `"id":"plan-setup-${planForms}"`) : questionForm);
     else if (/§QUESTION_ANSWER/.test(body.prompt || '')) enqueueDelta(planMarkdown);
     else enqueueDelta('ok');
     json(res, 200, { ok: true, from, at: transcriptBytes });
@@ -309,6 +317,76 @@ try {
   await page.getByText('Implement plan').waitFor({ timeout: 5000 });
   await page.getByText('Stay in plan mode').waitFor({ timeout: 5000 });
   await page.getByText('Chat about this').waitFor({ timeout: 5000 });
+
+  // ---- Acting on a finished plan: each action and the follow-up it causes ----
+  // The saved preference, once the Store has written it.
+  const savedPlanMode = (value) => page.waitForFunction((v) =>
+    JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').planMode === v, value, { timeout: 5000 });
+  const planFile = async () => (await page.locator('#plan-actions .ba-subtitle').innerText()).match(/^Written as (.+)\.$/)[1];
+  const chooseAction = async (label) => {
+    await page.locator('#plan-actions .ba-opt', { hasText: label }).click();
+    await page.locator('#plan-actions').waitFor({ state: 'hidden', timeout: 5000 });
+  };
+  const sendNext = async (text) => {
+    const before = sends.length;
+    await page.waitForFunction(() => !document.querySelector('.agent-working'), null, { timeout: 5000 });
+    await page.locator('#composer-input').fill(text);
+    await page.locator('#btn-send').click();
+    await waitFor(() => sends.length > before, `no send for: ${text}`, () => JSON.stringify({ sends, pageErrors }, null, 2));
+    return sends[before].body;
+  };
+  const answerPlanForm = async () => {
+    await page.locator('#plan-actions[data-kind="question"] .qform').waitFor({ timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector('.agent-working'), null, { timeout: 5000 });
+    const form = page.locator('#plan-actions');
+    await form.getByRole('button', { name: /^Simple admin uploads\b/ }).click();
+    await form.getByRole('button', { name: /^Partial import\b/ }).click();
+    await form.getByRole('button', { name: 'Continue' }).click();
+    await page.getByText('Plan ready').waitFor({ timeout: 5000 });
+  };
+
+  // Stay in plan mode: nothing is sent; the next request is planned again.
+  let sentBefore = sends.length;
+  await chooseAction('Stay in plan mode');
+  await page.getByText('Plan mode stays on').waitFor({ timeout: 5000 });
+  assert.equal(sends.length, sentBefore, 'Stay in plan mode sends nothing by itself');
+  await savedPlanMode('on');
+  const stayed = await sendNext('Plan the rollback procedure for the importer.');
+  assert.match(stayed.prompt, /PLAN MODE — create a Markdown planning file/, 'the next request is planned, not executed');
+  const stayedFile = stayed.prompt.match(/Write exactly one Markdown file named `([^`]+)`/)[1];
+  assert.match(stayedFile, /rollback-procedure.*-plan\.md$/);
+  await answerPlanForm();
+  assert.equal(await planFile(), stayedFile, 'the new plan has its own planning file');
+
+  // Implement plan: Plan mode ends and an execution turn for that file is sent at once.
+  sentBefore = sends.length;
+  await chooseAction('Implement plan');
+  await waitFor(() => sends.length === sentBefore + 1, 'Implement plan did not send the execution turn',
+    () => JSON.stringify({ sends: sends.slice(sentBefore), pageErrors }, null, 2));
+  const implement = sends.at(-1).body;
+  assert.equal(implement.prompt, `Implement the plan in \`${stayedFile}\`. Read that Markdown file from the selected workspace first, then execute it step by step.`);
+  assert.doesNotMatch(implement.prompt, /PLAN MODE/);
+  await savedPlanMode('off');
+  await page.waitForFunction(() => !document.querySelector('.agent-working'), null, { timeout: 5000 });
+  assert.equal(await page.locator('#plan-actions:not([hidden])').count(), 0, 'an implementation turn ends without plan actions');
+
+  // Plan first again (Auto from the composer settings), then Chat about this.
+  await page.locator('#cbar-gear').click();
+  await page.locator('.cbar-plan__choice', { hasText: 'Auto' }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.settings.v2') || '{}').planMode === 'on');
+  await page.keyboard.press('Escape');
+  const auto = await sendNext('Plan the CSV export.');
+  assert.match(auto.prompt, /PLAN MODE[\s\S]*Do not ask clarifying questions/);
+  await page.getByText('Plan ready').waitFor({ timeout: 5000 });
+  sentBefore = sends.length;
+  await chooseAction('Chat about this');
+  await page.getByText('Plan mode off — continue chatting normally.').waitFor({ timeout: 5000 });
+  assert.equal(sends.length, sentBefore, 'Chat about this sends nothing by itself');
+  await savedPlanMode('off');
+  const chat = await sendNext('Which step of that plan is the riskiest?');
+  assert.equal(chat.prompt, 'Which step of that plan is the riskiest?', 'the discussion is a plain turn, not a new plan');
+  await page.waitForFunction(() => !document.querySelector('.agent-working'), null, { timeout: 5000 });
+  assert.equal(await page.locator('#plan-actions:not([hidden])').count(), 0);
 
   assert.equal(pageErrors.length, 0, `page errors:\n${pageErrors.join('\n')}`);
   console.log(`ui_plan_mode_playwright_test: ok (${path.relative(repoRoot, screenshotPath)})`);

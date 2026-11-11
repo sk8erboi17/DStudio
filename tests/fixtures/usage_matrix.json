@@ -808,7 +808,14 @@
           "id": "act-on-finished-plan",
           "use": "The user presses Implement plan, Stay in plan mode or Chat about this on a finished plan and the matching follow-up happens.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_plan_mode_playwright_test.mjs",
+              "target": "test-ui-plan",
+              "evidence": "simulated",
+              "covers": "Production page with authored replies: Stay in plan mode sends nothing and plans the next request into its own file; Implement plan turns Plan off and sends the execution turn for that file; Chat about this turns Plan off and the next message is a plain turn."
+            }
+          ]
         },
         {
           "id": "use-a-skill",
@@ -833,7 +840,14 @@
           "id": "create-or-edit-a-skill",
           "use": "The user writes a new skill in the Skills editor and it is saved as a local Markdown pack for later turns.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_skills_editor_playwright_test.mjs",
+              "target": "test-ui-skills-editor",
+              "evidence": "model-free",
+              "covers": "Production Skills editor against the real host handlers: a new skill is written byte for byte as SKILL.md under the user skills folder and selected for the next turn without a restart; editing reloads and rewrites the same pack exactly; an over-long skill is refused instead of being cut short; a fresh browser profile lists it from the machine."
+            }
+          ]
         },
         {
           "id": "attach-image-to-agent",
@@ -1390,19 +1404,40 @@
           "id": "post-edit-syntax-check",
           "use": "After the Agent edits a source file a syntax check reports an obvious error so the model repairs it in the same turn.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/remote_structured_tools_test.mjs",
+              "target": "test-remote-structured-tools",
+              "evidence": "simulated",
+              "covers": "Built native Agent with authored model frames: writing a broken .js and .py file returns the node/python3 syntax report in the tool result, a valid file gets none, and the repairing edits in the same turn come back clean."
+            }
+          ]
         },
         {
           "id": "tool-fails-at-run-time",
           "use": "A valid tool call fails when it runs (file to read is missing, a command exits non-zero, the text to edit is not found); the error goes back to the model and the turn continues.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/remote_structured_tools_test.mjs",
+              "target": "test-remote-structured-tools",
+              "evidence": "simulated",
+              "covers": "Built native Agent with authored model frames: a read of a missing file, a command exiting 3 and an edit whose text is absent each return an error result to the model, the file stays unchanged, and the same turn continues to a later successful write."
+            }
+          ]
         },
         {
           "id": "agent-runtime-dies-mid-turn",
           "use": "The Agent, Cowork or Design runtime process dies during a turn; the failure is reported, the transcript so far is kept and the mode can be started again.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host: the Agent runtime (the pi bridge) killed with SIGKILL and a Design runtime fixture that kills itself mid-turn; the turn is marked incomplete, the partial transcript and the stop reason are kept, and each mode starts again and completes a turn."
+            }
+          ]
         },
         {
           "id": "stale-working-folder-repaired",
@@ -7886,19 +7921,40 @@
           "id": "harness-process-crashes-mid-turn",
           "use": "pi or OpenCode crashes or exits during a turn; the turn is reported as failed and the Agent can be restarted.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host and bridge with simulated pi and OpenCode that exit mid-turn: the turn fails with its partial answer and an exit notice, the bridge ends so the host reports the Agent stopped and refuses new prompts, and a restarted Agent completes a turn."
+            }
+          ]
         },
         {
           "id": "selected-harness-not-installed",
           "use": "The saved harness is not installed when Agent starts; the start fails with a clear message instead of hanging or silently running something else.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "model-free",
+              "covers": "Real host launch preparation with pi and then OpenCode selected but not installed: the start fails with the install-it-in-Settings message, the launch task is failed and nothing is started in its place."
+            }
+          ]
         },
         {
           "id": "plan-or-gsa-with-a-harness",
           "use": "The user enables Plan, GSA or RSA while pi or OpenCode is the harness, a combination the documentation calls not qualified; it either works or is refused explicitly.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host with simulated pi as the Agent runtime: a multi-line Plan contract reaches pi intact and its question form returns in the transcript; GSA and RSA starts are refused with an explicit message and prepare no run, and are admitted again without a harness runtime."
+            }
+          ]
         },
         {
           "id": "continue-after-stopping-harness-turn",
@@ -8083,7 +8139,14 @@
           "id": "watch-graph-progress-in-dialog",
           "use": "The user watches a running graph's nodes change state in the dialog and pauses or resumes it there.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_task_graph_playwright_test.mjs",
+              "target": "test-ui-task-graph",
+              "evidence": "model-free",
+              "covers": "Production dialog against the real host scheduler and journal (synthetic executor): Start runs the graph, node cards follow the host states, Pause holds the remaining nodes, Resume runs them to success and the durable events are listed."
+            }
+          ]
         },
         {
           "id": "optional-step-fails-but-graph-continues",
@@ -8149,7 +8212,14 @@
           "id": "oversized-graph-request",
           "use": "An oversized graph definition or request body is refused with a bounded error.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/task_graph_http_test.sh",
+              "target": "test-task-graph-http",
+              "evidence": "model-free",
+              "covers": "Real host API: 257 nodes, a 4097-byte goal, a 16385-byte action text, more than 65536 JSON tokens and a body one byte over 2 MiB are refused with a short error naming the limit; nothing is persisted and status stays responsive."
+            }
+          ]
         },
         {
           "id": "malformed-or-invalid-graph",
@@ -8306,7 +8376,14 @@
           "id": "reopen-graph-after-app-restart",
           "use": "The user restarts the app and reopens a paused or finished graph from the dialog.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_task_graph_playwright_test.mjs",
+              "target": "test-ui-task-graph",
+              "evidence": "model-free",
+              "covers": "The host process is stopped and started again and a new app window opens: the dialog lists the paused and the finished graph from their journals without new events, and the paused one resumes and finishes without rerunning its completed step."
+            }
+          ]
         }
       ]
     },

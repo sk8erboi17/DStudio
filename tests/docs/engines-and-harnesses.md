@@ -373,6 +373,26 @@ real `git apply` on private copies: apply, repeat-apply rejection, exact
 reverse, drift rejection without changes, the receipt rule (a different patch
 set, pin or entry point is not current) and the bundled snapshots' identity.
 
+`make test-harness-host` (in `check-fast`) runs the real test host, its launch
+preparation (`install-harness.py --status`, the bridge copy) and the real bridge
+on a remote-model fixture that no turn contacts. pi and OpenCode are simulated
+programs with receipts for the bundled pins, so the production status check
+accepts them; their replies are authored. It checks that a selected harness
+that is not installed fails the start with the Settings message and starts
+nothing; that pi or OpenCode exiting mid-turn fails that turn, keeps its
+partial answer, ends the bridge so the host reports the Agent stopped and
+refuses further prompts, and that a restarted Agent completes a turn; that the
+Agent runtime (the bridge) and a Design runtime fixture killed mid-turn leave
+an incomplete task, the partial transcript and the stop reason, and start
+again; that a multi-line Plan contract reaches pi intact and its question form
+returns; and that GSA and RSA starts are refused while pi runs, because only
+the native runtime's `gsa_submit_phase` tool can advance a phase. Before the
+November 12, 2026 fixes the crashed-harness bridge kept running and a later
+prompt stayed `working` indefinitely, and a GSA/RSA run was admitted on a
+harness although the page advances a phase only on the native `gsa_phase`
+event. Whether a real model under pi or OpenCode follows the Plan contract is
+not covered here.
+
 `make test-harness-live` (explicit, real weights, sequential) runs pi and
 OpenCode through the production host with Qwen3.6 and Qwen3.8-27B (llama.cpp)
 and DeepSeek V4 Flash (bridge-owned ds4-server): a CSV total written to a file,

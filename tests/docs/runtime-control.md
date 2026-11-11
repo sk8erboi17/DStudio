@@ -50,6 +50,23 @@ One-shot success, failure and Stop must produce distinct process outcomes.
 Four repeated tool calls are fed byte-for-byte into the host watchdog, with
 distinct transport IDs; a generated JSON record is not reconstructed by the
 harness. This is integration coverage, not a real-model quality benchmark.
+Two cases follow a turn past failing tools. `tool-fails-at-run-time` sends three
+valid calls that fail when they run (a read of a missing file, a command that
+exits 3, an edit whose text is absent): each returns its error as the tool
+result, the file is unchanged, and the next request of the same turn writes a
+file successfully. `post-edit-syntax-check` writes a broken `.js` and `.py` file
+and a valid one: the write results carry the `[verify] node`/`python3` report
+for the broken files only, and the repairing edits in the same turn come back
+without one (the test then checks both files itself). November 12, 2026: 36/36
+on a main-qwen Agent built from `src/engines/ds4` into a task-owned folder; the
+Laguna variant of the same check was not built or run.
+
+`make test-task-graph-http` (in `check-fast`) also sends oversized Task Graph
+requests to the real host: 257 nodes, a 4097-byte goal, a 16385-byte action
+text, more than 65536 JSON tokens and a body one byte over the 2 MiB API cap.
+Each is refused (400, or 413 for the body) with an error under 1 KiB that names
+the limit, `/api/status` answers within a second after each, and no graph is
+listed or left as a directory afterwards.
 
 `make test-remote-turn-error` executes the host's control-frame parser and the
 Task Graph scheduler/store. A failed turn followed by an idle marker must stay
