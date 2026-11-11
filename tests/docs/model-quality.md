@@ -215,13 +215,23 @@ Default backend link tests cover the active main and Laguna trees; Qwen Next
 uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
 
-`make test-engine-startup` runs five real HTTP startup cases without
+`make test-engine-startup` runs eight real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
 fixtures. A persisted checkout whose `.dstudio-source.json` receipt names an
 engine DStudio does not run (or no engine) must be left untouched, never
 receive ds4 Agent recovery and be refused with `unsupported_engine` when chosen
 explicitly; clean native sources remain
-usable and missing/legacy-modified native sources keep their errors and backups. This gate is model-free and included in `check-fast`
+usable and missing/legacy-modified native sources keep their errors and backups.
+Three cases (since November 12, 2026) damage the persisted engine-folder
+preference (`engine-checkout`): it points to a missing folder, names a regular
+file, or holds quotes, control bytes and invalid UTF-8 without a newline. The
+host must still start; `/api/status` names that folder with `ds4dirOk: false`,
+the doctor's "Engine folder" check is an error with the `setup-ds4` action,
+the file is left byte for byte and the host exits cleanly. An empty file or a
+relative value such as `.` is not used, because it falls back to a default
+folder that can be a real engine checkout. The `http-port` preference is read
+only by the windowed launcher (`src/app.cc`), so no headless test executes it.
+This gate is model-free and included in `check-fast`
 on the current POSIX host, not a Windows or inference qualification.
 
 `tests/live/desktop_chat_e2e.mjs` attaches only to an explicitly provided

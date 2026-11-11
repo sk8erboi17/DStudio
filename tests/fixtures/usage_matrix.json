@@ -288,25 +288,53 @@
           "id": "switch-model-mid-conversation",
           "use": "The user switches to another model in the middle of a conversation and continues; the next message goes to the new model with the conversation intact.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_model_picker_playwright_test.mjs",
+              "target": "test-ui-browser",
+              "evidence": "simulated",
+              "covers": "After an authored answer from Qwen3.8-27B the composer picker loads Qwen3.6-35B-A3B with one start request; the next request names the new model and carries both earlier turns, and the saved chat holds all four messages."
+            }
+          ]
         },
         {
           "id": "file-artifact-and-preview",
           "use": "An answer that contains a generated file shows it as a file artifact the user can open or preview.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "An authored answer with a dstudio-files block shows a file tile and opens the canvas with the rendered Markdown; Download gives the exact bytes, the tile reopens it after a reload and the payload is not shown as answer text."
+            }
+          ]
         },
         {
           "id": "send-empty-prompt",
           "use": "The user presses Send with an empty or whitespace-only composer; nothing is sent.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "model-free",
+              "covers": "Send and Enter with an empty, a spaces-only and a tabs-and-newlines composer issue no request and add no message; the next real send (an authored reply used only as the barrier) is the only request and turn."
+            }
+          ]
         },
         {
           "id": "conversation-exceeds-context",
           "use": "A Chat conversation grows beyond the configured context; what happens next (refusal or cache rollover) is explicit to the user and no text is dropped silently.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "Authored HTTP 400 context refusals in ds4-server and llama-server wording are shown with Retry and announced as failed; the refused request carried every earlier message and the saved conversation keeps them unchanged."
+            }
+          ]
         },
         {
           "id": "long-context-question",
@@ -457,13 +485,27 @@
           "id": "answer-stops-at-output-limit",
           "use": "The model reaches its output-token limit mid-answer; the Chat answer is marked as cut off, not complete.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "An authored stream ending with finish_reason length shows \"Response truncated (token limit)\" and Continue, saves finishReason length with the streamed text and is not announced as completed."
+            }
+          ]
         },
         {
           "id": "engine-process-dies-mid-answer",
           "use": "The engine process dies while a Chat answer is streaming; the partial text is kept and the failure is reported.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_engine_death_playwright_test.mjs",
+              "target": "test-ui-chat-engine-death",
+              "evidence": "simulated",
+              "covers": "A scripted engine process behind the real host /v1 relay is killed with SIGKILL after two chunks, in close-delimited and chunked framing: the partial text is saved and shown with the incomplete or interrupted message, the host keeps answering and the next answer completes once an engine listens again."
+            }
+          ]
         },
         {
           "id": "model-changed-while-request-in-flight",
@@ -508,7 +550,20 @@
           "id": "continue-incomplete-answer",
           "use": "After an incomplete answer the user presses Continue and the answer resumes from the retained text.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "Continue after a token-limit cut and after a stream that ended without [DONE]: the request carries the retained text verbatim as the previous assistant turn followed by \"Continue.\", and the cut answer stays saved unchanged."
+            },
+            {
+              "file": "tests/browser/ui_chat_engine_death_playwright_test.mjs",
+              "target": "test-ui-chat-engine-death",
+              "evidence": "simulated",
+              "covers": "Continue after the engine process died sends the saved partial text through the real host relay once an engine listens again, and the new answer completes."
+            }
+          ]
         },
         {
           "id": "send-restarts-stopped-engine",
@@ -6352,7 +6407,14 @@
           "id": "damaged-host-preference-file",
           "use": "A host-side preference file (engine folder, port) is damaged or points nowhere; the host starts and reports the problem.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/engine_startup_test.mjs",
+              "target": "test-engine-startup",
+              "evidence": "model-free",
+              "covers": "Real host startup with an engine-folder preference that points nowhere, names a file or holds damaged bytes: status and the doctor check report the folder as unusable, the file is left unchanged and the host exits cleanly. The http-port file, read only by the windowed launcher, is not executed."
+            }
+          ]
         },
         {
           "id": "settings-survive-reload-and-restart",
@@ -6524,7 +6586,14 @@
           "id": "delete-conversation",
           "use": "The user deletes one conversation and it disappears from history.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "model-free",
+              "covers": "Delete from the row menu removes one conversation from the sidebar, the browser history and the host store with a tombstone; the other conversations are unchanged and it stays deleted after a reload."
+            }
+          ]
         },
         {
           "id": "clear-all-history",
@@ -6731,7 +6800,14 @@
           "id": "history-size-ceilings",
           "use": "History reaches the 64 MiB save limit or more than 64 pending save callers; the excess is refused explicitly and nothing is trimmed.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_persistence_playwright_test.mjs",
+              "target": "test-ui-persistence",
+              "evidence": "model-free",
+              "covers": "Production Store refuses a history over 64 MiB and a 65th pending save caller with explicit messages while memory, the browser copy and the native file keep every byte; the real host saves exactly 64 MiB, answers 413 to one byte more and reloads the whole file after a restart."
+            }
+          ]
         },
         {
           "id": "new-design-session-ordering",

@@ -434,6 +434,11 @@ checkout switch. The fixture lists a single main installation, so choosing
 between engine checkouts is not exercised. Catalog delays/errors and
 background download polling must preserve
 search input and focus. The launcher is simulated; this is not real inference.
+Since November 12, 2026 it ends with a model switch in the middle of a
+conversation: after an authored answer from Qwen3.8-27B the picker loads
+Qwen3.6-35B-A3B with one start request, and the next message is addressed to
+the new model and carries both earlier turns; the saved chat holds all four
+messages. The answers are authored (simulated).
 Screenshots and the request receipt go under `tests/.artifacts/model-picker/`.
 
 The old source-pattern contract files were removed. Their useful parser, LAN,

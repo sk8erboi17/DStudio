@@ -581,6 +581,39 @@ progress and on retained writer output after a transport failure, recording
 The local persistence fixture returns the native host's JSON object in `data`;
 the Chat controls test consumes a produced snapshot from a fresh browser context
 and checks the restored conversation against its original complete contents.
+Since November 12, 2026 `make test-ui-chat-controls` also covers Chat's
+boundaries on the same simulated fixture, in WebKit and Chromium. Send and
+Enter with an empty, spaces-only or tabs-and-newlines composer issue no request
+and add no message. An authored stream that ends with `finish_reason: length`
+shows "Response truncated (token limit)" with Continue; one that ends without
+`data: [DONE]` shows "Response incomplete". In both, Continue sends the retained
+text verbatim as the previous assistant turn followed by `Continue.`, and the cut
+answer stays saved unchanged. HTTP 400 context refusals worded as ds4-server and
+llama-server word them are shown with Retry; the refused request carried every
+earlier message and none is trimmed from the saved conversation. A
+`dstudio-files` block becomes a file tile whose canvas renders the Markdown,
+downloads the exact bytes and reopens after a reload. Deleting a conversation
+from its row menu removes it from the sidebar, the browser history and the
+fixture host store (with a tombstone) and it stays deleted after a reload. The
+test first failed against the previous page: the screen-reader status announced
+a token-limit cut (and an error) as "Response completed"; it now announces
+"Response truncated (token limit)" and "Response failed". The engine replies
+are authored; this is not model behavior at a real context or token limit.
+
+`make test-ui-chat-engine-death` runs the production page in WebKit and
+Chromium against the real test host (`tests/.build/dstudio-server-test`). The
+host's `/v1` relay forwards the completion to a scripted engine process (no
+model) that streams two chunks and is then killed with SIGKILL. With
+close-delimited SSE (ds4-server framing) the page keeps the partial text and
+shows "Response incomplete" with Continue. With chunked SSE (llama-server
+framing) Chromium reports "Connection interrupted during the response." with
+Retry, while WebKit's fetch ends the body and the page shows "Response
+incomplete"; both keep and save every streamed byte. The host keeps answering
+`/api/status`, and once a new scripted engine listens Continue or Retry
+completes the answer. The UI fixture pipes only the completion request to the
+host; the other page endpoints are simulated. Receipts and screenshots are in
+`tests/.artifacts/chat-engine-death-BROWSER/`. The host does not own this engine
+process, so its own crash reporting for an owned engine is not exercised here.
 
 Prerequisites: Node, Playwright with installed WebKit/Chromium, and Python with
 Pillow for the selection recordings. Each run retains its receipt/logs under
@@ -684,10 +717,16 @@ eviction. Migration commits before deleting the old localStorage key; failure
 retains existing copies. Host saves admit one immutable candidate of at most
 64 MiB plus the previous snapshot, refuse concurrent writes/wipe as busy, and
 publish file/memory/revision only after preparation. Browser save callers are
-bounded to 64; excess calls return an explicit failure. No test executes the
-64 MiB limit or the 64-caller bound: the native test saves and restores an
-8 MiB history and checks the busy refusals, and the browser test checks one
-serialized native writer with later save promises. Snapshot failure never
+bounded to 64; excess calls return an explicit failure. Since November 12,
+2026 `make test-ui-persistence` executes both ceilings. In the browser, a
+history over 64 MiB is refused with "Conversation history exceeds the 64 MiB
+storage limit" while memory keeps every byte and neither the browser copy nor
+the native file changes; with 64 callers waiting behind a blocked native save
+the 65th is refused with "Too many conversation saves are pending", all 64
+admitted callers resolve as saved and the next save carries the refused
+caller's edit. Over HTTP, the real host saves a history of exactly 64 MiB,
+answers 413 to a declared length one byte larger without changing the file,
+and reloads the whole 64 MiB after a restart. Snapshot failure never
 trims text or disables settings. The existing 300,000-character native transcript
 tail limit is unchanged and separate from quota-failure handling.
 
