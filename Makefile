@@ -1070,6 +1070,13 @@ test-task-graph-unit: $(TEST_TASK_GRAPH)
 test-task-graph-http: $(TEST_SERVER)
 	@bash tests/integration/task_graph_http_test.sh $(TEST_SERVER)
 
+# REAL weights: one Agent turn routed by the production automatic Task Graph;
+# the graph must succeed and the written file hold the independently computed
+# total. DSTUDIO_GRAPH_MODEL selects the model (default Qwen3.6 UD-Q6_K_XL).
+.PHONY: test-task-graph-real-turn-live
+test-task-graph-real-turn-live: $(TEST_SERVER)
+	@node tests/live/task_graph_real_turn_live.mjs $(TEST_SERVER)
+
 test-task-graph-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
 	@node extension/task-graph/bench/validate.mjs

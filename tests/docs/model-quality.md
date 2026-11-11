@@ -243,6 +243,22 @@ default for Learn (`roadmap_request_test.mjs` asserts it); an engine launch
 default of `think: off` alone does
 not override a request that explicitly enables reasoning.
 
+## A real Agent turn inside a Task Graph
+
+```sh
+make test-task-graph-real-turn-live   # DSTUDIO_GRAPH_MODEL=gguf/<model> (default Qwen3.6 UD-Q6_K_XL)
+```
+
+The production host starts the Agent on real weights in a task-owned
+workspace holding `data/order.csv`. One request to compute the order total
+and write it to `total.txt` must take the production automatic Task Graph
+route (`orchestration: automatic-task-graph` with a graph id); the graph,
+read back through `/api/task-graph` from its durable journal, must end
+`succeeded`, and `total.txt` must hold the total computed by the test from the
+same rows. The transcript, graph nodes and journal size are kept in
+`tests/.artifacts/task-graph-real-turn/run-*`. No wall-clock cutoff; refuses
+beside another engine. Not run yet.
+
 ## Qwen real host workflows
 
 ```sh
