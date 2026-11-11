@@ -843,8 +843,17 @@ The sixteen added systems require separate future generated-output qualification
    `signal-repair-queue`, `forma-project-settings`), `signal-incident-triage`
    reached the frozen 30-minute turn limit, `forma-room-reservation` was
    interrupted seconds after it started, and twelve were not run; all
-   eighteen stay in the denominator. None is audited yet (item 3), and a
-   delivered file is not a passing project.
+   eighteen stay in the denominator. A delivered file is not a passing
+   project: the independent audit of that run (`--completed-only`, November
+   12, `project-audit-*` in its folder) fails all four delivered projects on
+   the qualified oracles: `folio-field-index` (search leaves other entries
+   visible; contrast 4.35:1 for a label), `folio-reading-desk` (an empty note
+   is saved), `signal-repair-queue` (the item dialog lacks owner and status;
+   contrast 4.22:1), `forma-project-settings` (no Basics section, the review
+   omits a changed setting, the page overflows at 390 px). The same audit
+   first found a defect in the shared layout check (deliberately hidden text
+   was exempt only under one class name), corrected before these results.
+   The thirteen briefs not run are queued (queue 10).
 3. Independently audit original immutable exports: actual controls, filters,
    forms/radio buttons/dialogs, item-specific state, Back/undo/persistence;
    standalone offline and the real opaque preview iframe without weakening CSP.
