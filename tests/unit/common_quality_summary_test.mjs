@@ -35,4 +35,36 @@ for(const mutate of [r=>r.cases.pop(),r=>r.cases[1].id=r.cases[0].id,r=>r.status
   const invalid=structuredClone(report);mutate(invalid);
   assert.throws(()=>summarizeCommonQuality(invalid,digest));
 }
+// The host runner (llama.cpp, MLX, expert SSD streaming) records every weight
+// file, the engine install receipt and the host binary instead of one model file.
+const hostRuntime = {
+  engine:{identity:{dir:'/Users/private/engine',receipts:{'.dstudio-llama.json':{sha256:'e'.repeat(64),content:{commit:'f'.repeat(40)}}},
+    executables:[{name:'bin/llama-server',bytes:7,sha256:'1'.repeat(64)}]},processes:[{pid:1,command:'/Users/private/secret --port 1'}]},
+  selection:{modelFile:'gguf/secret.gguf',engine:'llama',quantization:'Q6'},
+  weights:{totalBytes:100,files:[{name:'secret.gguf',bytes:100,sha256:'2'.repeat(64)}]},
+  host:{baseUrl:'http://127.0.0.1:1234',binary:'/Users/private/host',binarySha256:'3'.repeat(64),repository:{head:'4'.repeat(40),dirty:false},patchSet:{sha256:'5'.repeat(64)}},
+  effective:{ssdStreamingEffective:false,ctx:65536}};
+const hostReport = {...structuredClone(report),runtime:hostRuntime};
+let hosted = summarizeCommonQuality(hostReport,digest);
+assert.deepEqual(hosted.model,{engine:'llama',quantization:'Q6',weightSha256:'2'.repeat(64),weightBytes:100,binarySha256:'1'.repeat(64),
+  engineReceiptSha256:'e'.repeat(64),upstreamCommit:'f'.repeat(40),enginePins:undefined,hostBinarySha256:'3'.repeat(64),hostCommit:'4'.repeat(40),
+  hostTreeDirty:false,patchSetSha256:'5'.repeat(64),ssdStreaming:false});
+assert.ok(!/secret|\/Users\/|127\.0\.0\.1/.test(JSON.stringify(hosted)));
+// A model folder is identified by one digest over its files, whatever their order.
+const folder = structuredClone(hostReport);
+folder.runtime.weights.files = [{name:'b.safetensors',bytes:60,sha256:'6'.repeat(64)},{name:'a.json',bytes:40,sha256:'7'.repeat(64)}];
+const folderModel = summarizeCommonQuality(folder,digest).model;
+assert.match(folderModel.weightSetSha256,/^[0-9a-f]{64}$/); assert.equal(folderModel.weightFiles,2); assert.equal(folderModel.weightSha256,undefined);
+folder.runtime.weights.files.reverse();
+assert.equal(summarizeCommonQuality(folder,digest).model.weightSetSha256,folderModel.weightSetSha256);
+folder.runtime.weights.files[0].sha256='8'.repeat(64);
+assert.notEqual(summarizeCommonQuality(folder,digest).model.weightSetSha256,folderModel.weightSetSha256);
+hostRuntime.effective.ssdStreamingEffective = true;
+assert.equal(summarizeCommonQuality({...hostReport,runtime:hostRuntime},digest).model.ssdStreaming,true);
+for(const mutate of [r=>r.runtime.weights.files=[],r=>delete r.runtime.weights.files[0].sha256,r=>r.runtime.engine.identity.receipts={},
+  r=>r.runtime.engine.identity.receipts.second={sha256:'9'.repeat(64),content:{}},
+  r=>{r.runtime.engine.identity.receipts['.dstudio-llama.json'].sha256='';r.runtime.engine.identity.executables=[];}]) {
+  const invalid=structuredClone(hostReport);mutate(invalid);
+  assert.throws(()=>summarizeCommonQuality(invalid,digest));
+}
 console.log('PASS aggregate validation, privacy projection and no partial-credit regrading; synthetic unit data only');

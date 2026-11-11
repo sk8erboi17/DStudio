@@ -249,7 +249,11 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    and Laguna was installed again from the bundled `448d569` sources, so its
    results can be bound to the pin. The native common-100 runner now takes the
    engine revision from DStudio's source receipt and refuses an engine without
-   one. Compiler/options and the installed app bundle are not yet bound.
+   one. Since November 11 both corpus runners store the compiler and tools
+   present when a run starts, and the llama.cpp install receipt already holds
+   its CMake version and options. Still open: the ds4 installers do not record
+   the compiler and flags that built an engine (its binary SHA-256 is the
+   identity), and the installed app bundle is not bound to a run.
 3. Complete the case-level census of unit, integration, browser, live, upstream
    and publication suites, including prerequisites and exclusions. Since
    November 10 `node tests/support/test_census.mjs` lists every test file and
@@ -266,9 +270,11 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    pin, model and memory mode, and starts the owning runner one model at a time
    ([how it counts](tests/docs/model-quality.md#common-100-answer-quality)).
    It covers the common-100 suite only: the product, numerical, vision and
-   desktop suites are not in its matrix yet, and the public report directory
-   `docs/benchmarks/quality-multihardware/` does not exist until reviewed
-   results do. A coordinator checks coverage, identities, exit states and
+   desktop suites are not in its matrix yet. The public report
+   [`docs/benchmarks/quality-multihardware/`](docs/benchmarks/quality-multihardware/README.md)
+   exists since November 11 with the reviewed common-100 aggregates and their
+   Matplotlib charts; it grows as runs are reviewed and holds no other suite
+   yet. A coordinator checks coverage, identities, exit states and
    denominators; it is not another inference implementation or application
    scheduler.
 5. Perform resource preflight before each heavy run and retain its baseline,

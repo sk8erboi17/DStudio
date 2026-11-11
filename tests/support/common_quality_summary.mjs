@@ -40,6 +40,30 @@ export function failureClass(row) {
   return 'wrong_answer_or_structure';
 }
 
+// Identity of what answered, without paths. The native runner records one
+// weight file and the engine binary. The host runner (llama.cpp, MLX, expert
+// SSD streaming) records every weight file, the engine's install receipt and
+// the host binary; an MLX model is a folder, so its identity is one digest
+// over the sorted (name, bytes, SHA-256) of its files.
+export function publicModel(runtime) {
+  if (!runtime) return null;
+  if (typeof runtime.engine === 'string') return { engine: runtime.engine, weightSha256: runtime.model?.sha256,
+    weightBytes: runtime.model?.bytes, binarySha256: runtime.binarySha256, upstreamCommit: runtime.installer?.commit,
+    memoryMode: runtime.memoryMode };
+  const files = runtime.weights?.files || [];
+  assert.ok(files.length && files.every(file => /^[0-9a-f]{64}$/.test(file.sha256) && Number.isSafeInteger(file.bytes)), 'every weight file needs its SHA-256');
+  const weights = files.length === 1 ? { weightSha256: files[0].sha256 }
+    : { weightSetSha256: sha(JSON.stringify(files.map(file => [file.name, file.bytes, file.sha256]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))), weightFiles: files.length };
+  const receipts = Object.values(runtime.engine?.identity?.receipts || {});
+  assert.equal(receipts.length, 1, 'exactly one engine install receipt');
+  const install = receipts[0].content || {};
+  return { engine: runtime.selection?.engine, quantization: runtime.selection?.quantization, ...weights, weightBytes: runtime.weights.totalBytes,
+    binarySha256: runtime.engine.identity.executables?.[0]?.sha256, engineReceiptSha256: receipts[0].sha256,
+    upstreamCommit: install.commit, enginePins: install.pins, hostBinarySha256: runtime.host?.binarySha256,
+    hostCommit: runtime.host?.repository?.head, hostTreeDirty: runtime.host?.repository?.dirty,
+    patchSetSha256: runtime.host?.patchSet?.sha256, ssdStreaming: runtime.effective?.ssdStreamingEffective === true };
+}
+
 export function summarizeCommonQuality(report, receiptSha256) {
   assert.equal(report.schema, 'dstudio.common-quality-run.v1');
   assert.equal(report.planned, 100);
@@ -77,9 +101,10 @@ export function summarizeCommonQuality(report, receiptSha256) {
   const engineRestarts = { limit: policy.maxEngineRestarts, requested: recoveries.length,
     ready: recoveries.filter(x => x.status === 'ready').length, failed: recoveries.filter(x => x.status === 'fail').length,
     failedCasesRetried: false };
+  const model = publicModel(runtime);
   if (summary.passed || summary.failed) {
-    assert.match(runtime?.model?.sha256 || '', /^[0-9a-f]{64}$/, 'model evidence is required; simulated HTTP tests are not model quality');
-    assert.match(runtime?.binarySha256 || '', /^[0-9a-f]{64}$/);
+    assert.match(model?.weightSha256 || model?.weightSetSha256 || '', /^[0-9a-f]{64}$/, 'model evidence is required; simulated HTTP tests are not model quality');
+    assert.match(model?.binarySha256 || model?.engineReceiptSha256 || '', /^[0-9a-f]{64}$/, 'engine evidence is required');
   }
   let correction;
   if(report.regrading) {
@@ -99,9 +124,7 @@ export function summarizeCommonQuality(report, receiptSha256) {
   return { schema: 'dstudio.common-quality-public.v1', corpus: report.corpus,
     sourceReceiptSha256: receiptSha256, evaluationUse: report.evaluationUse,
     summary, categories, failures, correction, engineRestarts,
-    model: runtime ? { engine: runtime.engine, weightSha256: runtime.model?.sha256,
-      weightBytes: runtime.model?.bytes, binarySha256: runtime.binarySha256,
-      upstreamCommit: runtime.installer?.commit } : null,
+    model,
     settings: { context: report.settings.context, temperature: report.settings.temperature,
       thinking: report.settings.thinking, seed: report.settings.seed, maxOutputTokens: report.settings.max_tokens },
     limitations: ['Controlled common-100 tasks, not general intelligence or numerical parity.',

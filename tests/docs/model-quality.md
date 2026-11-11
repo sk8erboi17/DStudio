@@ -174,6 +174,20 @@ HTTP receipts cannot qualify as model results. It excludes personal paths, raw
 prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
+It reads the receipts of both runners: the native one records one weight file
+and the engine binary; the host one records every weight file, the engine's
+install receipt and the host binary (an MLX model folder is identified by one
+digest over its file list). Both receipts also store the compiler and tools
+present when the run started (`toolchainAtRun`): the installers do not record
+which compiler built an engine, so the binary's SHA-256 remains its identity.
+
+The campaign's reviewed aggregates and charts are published in
+[`docs/benchmarks/quality-multihardware/`](../../docs/benchmarks/quality-multihardware/README.md).
+`python3 extension/benchmarks/qwen-quality/plot-results.py` regenerates every
+chart and refuses an aggregate that has no reviewed entry for its receipt;
+`make test-qwen-quality-chart` checks the drawn bars against the published
+numbers, that unexecuted tasks are drawn and counted, and that each reviewed
+run is published once with its own receipt digest.
 
 Patch variants, fixtures and tests for the retired Qwen Next fork
 (`test-qwen38-inspect`, `test-qwen38-snapshot-patch` and the compressed fork

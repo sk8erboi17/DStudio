@@ -147,8 +147,10 @@ function sourceFiles(dir, prefix = '') {
 }
 
 // The compilers and interpreters that build and run the engines and tests.
-// A tool that is absent is recorded as absent, not guessed.
-function toolchain() {
+// A tool that is absent is recorded as absent, not guessed. A run receipt
+// stores this as the tools present when the run started: the engine installers
+// do not record the compiler that built a binary, whose SHA-256 identifies it.
+export function toolchain() {
   const version = (command, args) => {
     try { return execFileSync(command, args, { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').find(Boolean)?.trim().slice(0, 200) || null; }
     catch { return null; }

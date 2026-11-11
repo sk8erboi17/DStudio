@@ -9,6 +9,7 @@ import {freePort, sleep} from '../support/real_harness.mjs';
 import {createCommonQuality, runCommonQuality, finishCommonQuality} from '../support/common_quality_runner.mjs';
 import {preflight} from '../support/heavy_preflight.mjs';
 import {weightIdentity} from '../support/campaign_identity.mjs';
+import {toolchain} from '../support/quality_baseline.mjs';
 
 const root = process.cwd();
 const install = process.argv.includes('--setup');
@@ -205,7 +206,7 @@ async function inference(id, entry) {
     if(commonQuality){
       entry.quality.report.runtime={engine:id,binarySha256:entry.inference.binarySha256,
         model:entry.inference.model,installer:entry.inference.installer,argv:args,
-        memoryMode:entry.inference.mode,hardware:report.host};
+        memoryMode:entry.inference.mode,hardware:report.host,toolchainAtRun:toolchain()};
       const qualityResult=await runCommonQuality(entry.quality,{base,model,
         assertAlive:()=>assert.ok(!interrupted && owned.has(child),'owned native engine exited or benchmark interrupted'),onProgress:save,
         maxEngineRestarts:restartFailedEngine?8:0,
