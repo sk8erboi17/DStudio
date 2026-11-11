@@ -31,7 +31,10 @@ export function bundledMain(repoRoot = REPO_ROOT) {
   return { commit: main.commit, repository: main.repository, files: main.files, manifestSHA256: sha256File(file) };
 }
 
+// DSTUDIO_UPSTREAM_AGENT_DIR names another build directory (a test states the
+// machine it plans for); it is verified exactly like the default one.
 export function defaultUpstreamAgentDir(repoRoot = REPO_ROOT) {
+  if (process.env.DSTUDIO_UPSTREAM_AGENT_DIR) return path.resolve(process.env.DSTUDIO_UPSTREAM_AGENT_DIR);
   return path.join(repoRoot, 'tests', '.artifacts', 'upstream-agent-clean', bundledMain(repoRoot).commit.slice(0, 12));
 }
 

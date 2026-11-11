@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { inspectUpstreamAgent } from '../../extension/task-graph/bench/build-upstream-agent.mjs';
+import { inspectUpstreamAgent, UPSTREAM_AGENT_RECEIPT, UPSTREAM_AGENT_SCHEMA } from '../../extension/task-graph/bench/build-upstream-agent.mjs';
 
 const RUNNER = path.resolve('extension/task-graph/bench/run-agent-lane.mjs');
 const frozen = JSON.parse(fs.readFileSync('extension/task-graph/bench/frozen-cases.json', 'utf8'));
@@ -44,8 +44,22 @@ const nodeOnly = path.join(scratch, 'node-only');
 fs.mkdirSync(nodeOnly);
 fs.symlinkSync(process.execPath, path.join(nodeOnly, 'node'));
 
-const machine = { HOME: home, DSTUDIO_REAL_DS4_DIR: engine, PATH: `${shims}${path.delimiter}${process.env.PATH}` };
-const bare = { HOME: home, DSTUDIO_REAL_DS4_DIR: path.join(scratch, 'no-engine'), PATH: `${nodeOnly}${path.delimiter}/usr/bin${path.delimiter}/bin` };
+// A clean upstream build as build-upstream-agent.mjs leaves it: the bundled
+// main sources (verified file by file), a stand-in ds4-agent and a receipt
+// naming its SHA-256. The plan reads files only, so nothing here runs.
+const upstreamDir = path.join(scratch, 'upstream-agent');
+fs.cpSync(path.join(process.cwd(), 'src/engines/ds4'), path.join(upstreamDir, 'ds4'), { recursive: true });
+fs.writeFileSync(path.join(upstreamDir, 'ds4', 'ds4-agent'), 'stand-in ds4-agent, never run\n', { mode: 0o755 });
+{
+  const manifestFile = path.join(process.cwd(), 'src/engines/manifest.json');
+  const main = JSON.parse(fs.readFileSync(manifestFile, 'utf8')).engines.main;
+  const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  fs.writeFileSync(path.join(upstreamDir, UPSTREAM_AGENT_RECEIPT), JSON.stringify({ schema: UPSTREAM_AGENT_SCHEMA, commit: main.commit,
+    manifestSHA256: sha(manifestFile), patchesApplied: [], binarySHA256: sha(path.join(upstreamDir, 'ds4', 'ds4-agent')) }));
+}
+const machine = { HOME: home, DSTUDIO_REAL_DS4_DIR: engine, DSTUDIO_UPSTREAM_AGENT_DIR: upstreamDir, PATH: `${shims}${path.delimiter}${process.env.PATH}` };
+const bare = { HOME: home, DSTUDIO_REAL_DS4_DIR: path.join(scratch, 'no-engine'), DSTUDIO_UPSTREAM_AGENT_DIR: path.join(scratch, 'no-upstream'),
+  PATH: `${nodeOnly}${path.delimiter}/usr/bin${path.delimiter}/bin` };
 function plan(args, env = machine) {
   const base = { ...process.env };
   for (const key of ['DS4_DIR', 'DSTUDIO_REAL_DS4_DIR', 'DSTUDIO_RELIABILITY_SET', 'DSTUDIO_TASK_GRAPH_GGUF', 'RUN_HEAVY']) delete base[key];
@@ -75,7 +89,7 @@ function check(name, fn) {
 // ---------------------------------------------------------------- a complete lane
 const full = out();
 const fullRun = plan(['--set', 'all', '--output', full, host]);
-const upstream = inspectUpstreamAgent();
+const upstream = inspectUpstreamAgent(upstreamDir);
 
 check('--plan --set all prints 70 cases x 6 agents x 3 repetitions = 1,260 attempts and says nothing was run', () => {
   assert.equal(fullRun.status, 0, fullRun.stderr);
@@ -137,11 +151,11 @@ check('availability is probed from the stated machine: what each agent needs, or
   }
   for (const agent of AGENTS)
     assert.ok(written.availability[agent].evidence.includes(`model gguf/${path.basename(gguf)} (1 bytes) in ${engine}`), agent);
-  // The clean upstream build is whatever build-upstream-agent.mjs left in this checkout.
-  assert.equal(written.availability['upstream-agent'].available, upstream.ok);
-  const upstreamRows = written.rows.filter((row) => row.agent === 'upstream-agent');
-  if (upstream.ok) assert.ok(upstreamRows.every((row) => row.status === 'PLANNED'));
-  else assert.ok(upstreamRows.every((row) => row.status === 'BLOCKED' && row.reason === upstream.reason));
+  // The stated machine holds a clean upstream build (DSTUDIO_UPSTREAM_AGENT_DIR),
+  // whatever this checkout's tests/.artifacts holds.
+  assert.equal(upstream.ok, true, upstream.reason);
+  assert.equal(written.availability['upstream-agent'].available, true);
+  assert.ok(written.rows.filter((row) => row.agent === 'upstream-agent').every((row) => row.status === 'PLANNED'));
   for (const row of written.rows.filter((item) => item.agent !== 'upstream-agent')) assert.equal(row.status, 'PLANNED', row.attemptId);
 });
 
