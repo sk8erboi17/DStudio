@@ -6,6 +6,9 @@
 //
 //   node tests/live/harness_live_test.mjs
 //   DSTUDIO_HARNESSES=pi,opencode   DSTUDIO_HARNESS_MODELS=qwen36,qwen27,deepseek
+//   further models, never run by default: qwen36mlx, laguna, next, v41
+//   (v41 is DeepSeek V4.1 1017 Q2 with expert SSD streaming, the only memory
+//   mode in the maintainer's plan; a run without it effective fails)
 //   DSTUDIO_REAL_TEST_TIMEOUT_MS=0  no wall-clock bound for model work
 //
 // Held-out data is generated per run and checked against an independent
@@ -31,6 +34,9 @@ const MODELS = {
   qwen27: { file: 'gguf/Qwen3.8-27B-UD-Q6_K_XL.gguf', engine: 'llama.cpp' },
   deepseek: { file: 'gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf', engine: 'ds4-server' },
   qwen36mlx: { file: 'mlx/Qwen3.6-35B-A3B-mxfp8', engine: 'mlx', mlx: true },
+  laguna: { file: 'gguf/laguna-s-2.1-Q4_K_M.gguf', engine: 'ds4-server' },
+  next: { file: 'gguf/Qwen3.8-Flash-Next-Q4.gguf', engine: 'ds4-server' },
+  v41: { file: 'gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf', engine: 'ds4-server', ssdStreaming: 'on' },
 };
 const list = (name, fallback) => String(process.env[name] || fallback).split(',').map((s) => s.trim()).filter(Boolean);
 const harnesses = list('DSTUDIO_HARNESSES', 'pi,opencode');
@@ -123,12 +129,16 @@ for (const harness of receipt.blocked ? [] : harnesses) for (const key of models
       : (server.ggufs || []).some((g) => g.file === spec.file);
     assert.ok(present, `${spec.file} is not installed (BLOCKED, not a pass)`);
     const launch = { mode: 'agent', harness, model: 'standard', variant: 'flash', gguf: spec.file, port: server.enginePort,
-      ctx: Number(process.env.DSTUDIO_HARNESS_CTX || 65536), power: 100, think: 'off', ssdStreaming: 'off', workdir: workspace };
+      ctx: Number(process.env.DSTUDIO_HARNESS_CTX || 65536), power: 100, think: 'off', ssdStreaming: spec.ssdStreaming || 'off', workdir: workspace };
     writeArtifact(dir, 'launch.json', launch);
     const t0 = performance.now();
     const startup = await startMode(server.baseUrl, launch);
     row.startupMs = Math.round(performance.now() - t0);
     writeArtifact(dir, 'startup.json', startup);
+    // A requested memory mode that is not the effective one is not evidence for it.
+    row.ssdStreamingEffective = (startup.config?.ssdStreamingEffective ?? startup.ssdStreamingEffective) === true;
+    assert.equal(row.ssdStreamingEffective, launch.ssdStreaming === 'on',
+      `SSD streaming requested ${launch.ssdStreaming} but the runtime reports effective=${row.ssdStreamingEffective}`);
     let since = (await pollAgent(server.baseUrl, 0)).len || 0;
 
     const fileCase = { name: 'reads a CSV, computes and writes the total to a file' };

@@ -293,6 +293,10 @@ OpenCode through the production host with Qwen3.6 and Qwen3.8-27B (llama.cpp)
 and DeepSeek V4 Flash (bridge-owned ds4-server): a CSV total written to a file,
 a code read in the same session and a file-tool read outside the workspace,
 each checked independently, plus no surviving process after the host stops.
+Since November 11 `DSTUDIO_HARNESS_MODELS` also accepts `laguna`, `next`
+(Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2, started with expert
+SSD streaming; the row fails when that mode is not the effective one). These
+three have not been run yet.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
