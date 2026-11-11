@@ -323,6 +323,15 @@ patch migrations and retired-Next removal are implemented.
    engine at its recorded pin. Before a source tranche or final release,
    explicitly recheck remote revisions and record the date/SHA; never make
    setup fetch or pull a moving upstream tree.
+   Progress, November 11: main's 300 commits `f4d03f6..890898c` are classified
+   by changed path for the nine targets that list main, against a file-by-file
+   comparison of the shipped tree with upstream
+   ([method, limits and remote revisions](docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review)):
+   243 integrated and 57 not applicable for each ds4 main and llama.cpp
+   target. Still open: Laguna's 243 commits, which need a porting review
+   against its own branch; the commits upstream added past the recorded tips
+   (116 main, 446 llama.cpp, 18 mlx-lm, 82 mlx on November 11; pins not
+   moved); and a behavioural review wherever a path rule is not enough.
 2. Resolve the missing release receipts/reviews in
    [the matrix](docs/engine-upstream.json). Since November 11 it declares ten
    macOS targets with 135 required gate slots and zero linked receipts (nine

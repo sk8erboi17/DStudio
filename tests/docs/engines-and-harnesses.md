@@ -470,6 +470,37 @@ instead of disabling animations. Each attempt keeps a separate receipt and
 screenshots; failures also capture the visible page. These layout checks do not
 claim that a simulated engine generated a correct answer.
 
+### Engine source-delta review
+
+`make test-engine-delta-review` (in `check-fast`) checks the main-track review
+recorded in `docs/engine-upstream.json`, without a clone or network:
+
+- every review's evidence file exists inside the repository, is not a link and
+  hashes to its recorded SHA-256; every review names a commit of the
+  [inventory](../../docs/upstream/main-delta-2026-11-11.json) once, in the
+  inventory's order;
+- the production generator (`scripts/engine-delta-review.mjs --check`)
+  reproduces the manifest bytes from that inventory, after checking that
+  `src/engines/` still holds the files that were compared with upstream;
+- on macOS, the generator's compiled path rules equal the preprocessor's
+  include closure of upstream's default build, taken from a dry run of the
+  shipped Makefile on a private copy (elsewhere this part prints `NOT RUN`);
+- on a synthetic Git history made by the test, a commit that touches only a
+  CUDA file or only Makefile lines of another platform is not applicable, one
+  that touches a shared file is integrated, one whose path no rule covers or
+  whose runtime file the shipped tree does not have stays unclassified, and a
+  target built from its own branch gets no decision for a runtime change; a
+  second run writes identical bytes; the real
+  admission checker accepts the generated reviews and still reports each
+  unclassified commit; a shipped tree that differs from its pin (changed,
+  extra, missing, wrong executable bit, or a runtime file declared omitted) is
+  refused without output.
+
+It does not read upstream history and reviews no commit: a PASS says the
+recorded classification is the one the rules give, not that a classification
+is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review).
+
+
 ### Codex CLI Responses protocol (scripted server)
 
 `make test-codex-protocol` (explicit, not part of `check-fast`: the broad gate

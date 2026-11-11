@@ -804,6 +804,17 @@ test-engine-upstream-manifest: $(TEST_SERVER)
 
 check-fast: test-engine-upstream-manifest
 
+# The main-track source-delta review (scripts/engine-delta-review.mjs): the
+# shipped inventory and reviews against the shipped files, the compiled path
+# rules against the macOS preprocessor, and the generator on a synthetic Git
+# history whose output goes through the real admission checker. No network,
+# no upstream history, no engine: a classification check, not a source review.
+.PHONY: test-engine-delta-review
+test-engine-delta-review:
+	@node tests/integration/engine_delta_review_test.mjs
+
+check-fast: test-engine-delta-review
+
 check-fast: test-engine-upstream test-engine-pins
 
 .PHONY: test-qwen27-download test-qwen27-download-host test-ui-qwen27-download test-qwen27-download-settings-live

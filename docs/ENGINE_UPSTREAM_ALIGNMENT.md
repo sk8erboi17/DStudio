@@ -10,7 +10,9 @@ in progress. This check never updates a user's engine or downloads weights.
 [machine-readable matrix](engine-upstream.json) deliberately contains missing
 receipts and unresolved source reviews. It must fail admission until those
 items are resolved. Its rows are requirements, not an announcement that all
-models, backends or modes work.
+models, backends or modes work. Since November 11 the main track's recorded
+delta is [classified by changed path](#main-delta-review); Laguna's porting
+review and the commits upstream has added past the recorded tips are not.
 
 Since November 11 the matrix declares ten macOS targets, **135 required gate
 slots and zero linked receipts**. These are missing bound qualification
@@ -41,7 +43,9 @@ Main's pin was updated to upstream's November 2 revision `890898c` on
 November 3, 2026 (before that, `0aaea5a`, rechecked as main's tip on
 September 29, 2026); the other recorded tips retain their
 September 12 review. `recordedTip` means observed, not qualified.
-The command rechecks each relevant branch over the network.
+The command rechecks each relevant branch over the network. On November 11
+every branch except Laguna's was ahead of its recorded tip
+([revisions read that day](#main-delta-review)); no pin was moved.
 
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
@@ -113,6 +117,134 @@ test inputs, match the earlier pin. The document links to an external
 implementation; no such runtime is imported or executed by this review.
 This classification does not settle older main-to-fork integration questions.
 
+<a id="main-delta-review"></a>
+## Source review of main's recorded delta (November 11)
+
+The 300 commits of the main track between its base `f4d03f6` and its recorded
+tip `890898c` (17 of them merges) are now classified for the nine targets that
+list that track. The result is a **classification by changed path of what
+DStudio ships**. It is not a behavioural review, it ran no engine or model, and
+it fills no gate receipt.
+
+| Targets | Integrated | Not applicable | Unclassified |
+| --- | ---: | ---: | ---: |
+| Six ds4 main targets (Flash Vision-Exp, GLM 5.3, Qwen3.8 Next Q2/Q4, V4.1 Q2/Q4), each | 243 | 57 | 0 |
+| Two llama.cpp targets (Qwen3.6, Qwen3.8-27B), each | 243 | 57 | 0 |
+| Laguna | 0 | 57 | 243 |
+
+No commit is classified `equivalent`. The matrix holds 2,457 review entries;
+each cites the [commit inventory](upstream/main-delta-2026-11-11.json) by
+SHA-256. The MLX target lists only its two MLX tracks, so it has none.
+
+### Method
+
+[`scripts/engine-delta-review.mjs`](../scripts/engine-delta-review.mjs) wrote
+the inventory and the `reviews` arrays from isolated review checkouts. Its
+rules are the `PATH_RULES` table at the top of that script, repeated in the
+inventory.
+
+1. **What is shipped.** `src/engines/ds4` was compared with upstream's tree at
+   `890898c` file by file: path, content SHA-256 and executable bit. All 498
+   shipped files are identical; none is missing, extra or different. The
+   snapshot is not the complete tree. Upstream has 3,488 files at that commit;
+   the other 2,990 are the omissions declared in the
+   [provenance manifest](../src/engines/manifest.json) (2,989 files under
+   `gguf-tools/` and `dir-steering/`, one benchmark text under `speed-bench/`),
+   and their recorded hashes match the upstream blobs. None of them is a file the macOS build
+   compiles or reads. `src/engines/ds4-laguna-s21` against `448d569`: 194
+   shipped files identical, 1,212 declared omissions out of 1,406, none
+   missing, extra or different. The script refuses to write anything when a
+   shipped file differs from its pin.
+2. **What a commit touches.** The inventory records, for every commit in the
+   checker's own order, its author date, title, parent count, changed files
+   with status, and the SHA-256 of its first-parent diff. A merge is judged by
+   its first-parent diff. Titles are provenance, not verified claims.
+3. **Integrated** means the commit changes at least one file that the macOS
+   runtime compiles or reads, and that file is shipped identical to upstream.
+   Those files are: the include closure of upstream's Darwin `all` target,
+   which DStudio's `make` builds and its Agent, Chat and Design builds link
+   (50 files; `make test-engine-delta-review` recomputes the closure with the
+   compiler); the Metal kernels in `metal/`, which `ds4_metal.m` reads into one
+   library at start; `download_model.sh`, which DStudio executes; and
+   `Makefile` lines that GNU make evaluates on macOS. The reason names the
+   files and, for a ds4 main target, the patches of its patch set that modify
+   them. Only `patch/ds4-agent-jsonl/main-qwen.patch` is apply-checked at
+   admission; the others are bound by hash.
+4. **Not applicable** means the commit changes only CUDA, ROCm or Linux-only
+   sources, upstream tests and fixtures, conversion, quantization, steering and
+   scoring tools with their data, benchmark programs, or documentation. One
+   commit (`b14bf62`) also qualifies through a guard: its `Makefile` lines all
+   sit in a branch of the `UNAME_S`/Darwin conditional that make skips on
+   macOS.
+5. **llama.cpp targets** get the same decision as the ds4 main targets,
+   because their Agent, Cowork and Design frontends are built from the main
+   checkout while llama-server serves the weights. Their reasons say that
+   whether those frontends link or execute the changed code was not analysed.
+6. **Laguna** is built entirely from its own branch, which forked before the
+   base (merge base `efdadd4`; `git cherry` finds no commit of the interval
+   with an equivalent patch on that branch). A main change reaches it only if
+   someone ports it. The 57 commits that touch nothing a macOS Metal runtime
+   compiles or reads are not applicable; the other 243 are left unclassified,
+   because whether Laguna needs each one is a source judgment no path rule can
+   make.
+
+### What this does not establish
+
+- That any change behaves correctly, or that a checkpoint executes it. All
+  main checkpoints share one build: a commit that changes only a Qwen kernel
+  is `integrated` for GLM too, because the kernel is compiled into the same
+  Metal library. Per-checkpoint reachability was not analysed.
+- That a shared file's change matters on macOS. A commit that edits `ds4.c`
+  for a CUDA code path counts as integrated; no `#if` analysis was done.
+  Ten commits are integrated only through `Makefile` lines that make parses
+  on macOS; whether they alter the default build was not analysed.
+- Anything about Laguna's 243 open commits, or about commits upstream added
+  after the recorded tips.
+- Any gate. The 135 required gate slots still have zero receipts.
+
+### Remote revisions on November 11, 2026
+
+Read with `git ls-remote` that day. No pin was moved, and no commit past a
+recorded tip was classified. Each advanced ref descends from its recorded tip.
+
+| Track | Recorded tip | Remote ref on November 11 | Commits not reviewed |
+| --- | --- | --- | ---: |
+| main (`refs/heads/main`) | `890898c` | `b3f50180ec2c7324892be1f50bc83555ccb8d5e7` | 116 |
+| laguna (`refs/heads/laguna-s2.1`) | `448d569` | `448d5695d1c86401a4e9447c440feb983b73e6de` (unchanged) | 0 |
+| llama (`refs/heads/master`) | `f5027fb` | `aa75ff3239f9cc675b081697deda9e1b112345c6` | 446 |
+| mlx-lm (`refs/heads/main`) | `93e6d4a` | `56230fa02b8ff8330daf26dc95c28480423ed5fe` | 18 |
+| mlx (`refs/heads/main`) | `36969c0` | `fc344c986c4169d99f76b5d95ae6b4a58a359a63` | 82 |
+
+The newest main commit is titled "Read half-aligned Qwen Q2 weight rows
+correctly on Metal". That title was not verified and the commit is not part of
+any DStudio build.
+
+With review checkouts at the recorded revisions and the headless test host,
+admission reported 4,875 issues before this review (`UNREVIEWED_TIP` 4,
+`MISSING_GATE` 135, `UNCLASSIFIED_COMMIT` 4,736) and 2,418 after it (4, 135,
+2,279). The remaining 2,279 are the 116 newer main commits for nine targets
+(1,044), Laguna's 243, the 446 newer llama.cpp commits for two targets (892)
+and the 100 newer MLX commits. Admission still fails, as it must.
+
+### Rebuild it
+
+```sh
+node scripts/engine-delta-review.mjs --captured 2026-11-11 \
+  --repo main=/path/to/review/main --repo laguna=/path/to/review/laguna \
+  --observed-tip b3f50180ec2c7324892be1f50bc83555ccb8d5e7
+node scripts/engine-delta-review.mjs --check
+```
+
+The first command needs checkouts of `antirez/ds4` with the history from the
+base to the tip and the Laguna tip; it reads them and never fetches. The second
+needs no checkout: it rebuilds the reviews from the committed inventory, after
+checking that `src/engines/` still holds the files that were compared, and
+fails if `docs/engine-upstream.json` would change. Run it after changing a
+patch set, because the reasons name patches. Both produce identical bytes on
+every run. Diff hashes use Git's 7-digit abbreviated blob ids, as the
+[September inventory](upstream/engine-deltas-2026-09-12.json) did; the seven
+commits the two inventories share have the same hashes.
+
 ## Run the checks
 
 The model-free regression tests exercise real local Git histories, actual patch
@@ -122,6 +254,14 @@ bundle fixture:
 ```sh
 make test-engine-upstream test-engine-pins test-engine-setup-unit
 ```
+
+`make test-engine-delta-review` (also in `check-fast`) checks the main-track
+review without a clone: every review's evidence file hashes to its record,
+names an inventoried commit once, and equals what the generator's rules give
+for the inventory and the files shipped in `src/engines/`. On macOS it also
+compares the compiled path rules with the preprocessor's include closure of
+upstream's default build, and it runs the generator on a synthetic Git history
+whose output goes through the real admission checker. It reviews no commit.
 
 To inspect the compiled installer's pins without creating a window, loading a
 profile or starting a model:
@@ -138,8 +278,13 @@ to make it pass. Each source checkout must have the expected origin and HEAD.
 ```sh
 make check-engine-upstream \
   ENGINE_UPSTREAM_APP=./dstudio \
-  ENGINE_UPSTREAM_FLAGS='--repo main=/path/to/review/main --repo laguna=/path/to/review/laguna --repo llama=/path/to/review/llama.cpp'
+  ENGINE_UPSTREAM_FLAGS='--repo main=/path/to/review/main --repo laguna=/path/to/review/laguna --repo llama=/path/to/review/llama.cpp --repo mlx-lm=/path/to/review/mlx-lm --repo mlx=/path/to/review/mlx'
 ```
+
+Every track of a selected target needs its `--repo`. The checker reads commit
+history and, for an apply-checked patch, the checked-out files; on November 11
+it accepted blobless and treeless partial clones of llama.cpp, mlx-lm and mlx
+checked out at their pins.
 
 The check prints JSON and exits nonzero on failure. Use a new ignored output
 path for each attempt; never replace a failed receipt with a successful retry.
@@ -205,7 +350,8 @@ This is admission of **declared** changes and evidence, not an answer grader,
 numerical oracle or complete build lock. It cannot establish that a source
 review's judgment is correct, that an omitted combination was intentionally
 excluded, or that arbitrary host/source changes outside the named inputs were
-tested. The full inventory, independent graders, platform/driver and weight
+tested. The main-track reviews are path classifications with
+[stated limits](#main-delta-review), not judgments about behaviour. The full inventory, independent graders, platform/driver and weight
 identities, suite revisions, final source freeze and release review are still
 required. Metal results do not qualify CUDA, ROCm or Vulkan, which are outside
 the macOS-only campaign.
