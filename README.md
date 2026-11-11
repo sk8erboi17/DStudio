@@ -1193,7 +1193,7 @@ Pi/OpenCode phase **1 h 2 min 36 s**.
 
 ```sh
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
-DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+DSTUDIO_COMPETITOR_HARNESSES=pi,opencode DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
 node extension/task-graph/bench/publish-reliability.mjs \
   tests/.artifacts/task-graph-reliability-real/result.json \
   extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json

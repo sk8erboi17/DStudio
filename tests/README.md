@@ -98,6 +98,7 @@ directly to the corresponding guide and section.
 - <a id="streaming-and-live-tool-previews"></a>[Streaming and live tool previews](docs/engines-and-harnesses.md#streaming-and-live-tool-previews)
 - <a id="app-binary-helper-modes"></a>[App-binary helper modes](docs/engines-and-harnesses.md#app-binary-helper-modes)
 - <a id="harnesses-pi-and-opencode-as-the-agent-runtime"></a>[Harnesses: pi and OpenCode as the Agent runtime](docs/engines-and-harnesses.md#harnesses-pi-and-opencode-as-the-agent-runtime)
+- <a id="codex-cli-responses-protocol-scripted-server"></a>[Codex CLI Responses protocol (scripted server)](docs/engines-and-harnesses.md#codex-cli-responses-protocol-scripted-server)
 
 ### Offline installation, inference boundaries and cleanup
 

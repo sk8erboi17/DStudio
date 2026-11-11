@@ -11,6 +11,7 @@ export const RELIABILITY_VARIANTS = Object.freeze({
   'task-graph': { slug: 'graph', marker: 'GRAPH' },
   pi: { slug: 'pi', marker: 'PI' },
   opencode: { slug: 'opencode', marker: 'OPENCODE' },
+  codex: { slug: 'codex', marker: 'CODEX' },
 });
 
 export const RELIABILITY_TASK_TYPES = Object.freeze([

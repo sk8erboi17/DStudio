@@ -994,7 +994,19 @@ test-task-graph-reliability-real: $(TEST_SERVER) $(TEST_TASK_GRAPH)
 test-task-graph-cli-competitors-real: $(TEST_SERVER)
 	@command -v pi >/dev/null 2>&1 || (echo "pi missing: install @earendil-works/pi-coding-agent" && exit 1)
 	@command -v opencode >/dev/null 2>&1 || (echo "opencode missing" && exit 1)
+	@command -v codex >/dev/null 2>&1 || (echo "codex missing: install the Codex CLI (@openai/codex)" && exit 1)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-cli-competitors.mjs $(TEST_SERVER)
+
+# The installed Codex CLI against a scripted Responses server, through the
+# competitor benchmark's own proxy, configuration, command line and parser.
+# No model and nothing outside 127.0.0.1. NOT RUN, and failing, without the CLI.
+# Explicit, like the pi and OpenCode runs: the broad gate does not depend on a
+# third-party CLI that updates on its own.
+.PHONY: test-codex-protocol
+test-codex-protocol:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: NOT RUN Codex Responses protocol test" && exit 1)
+	@command -v codex >/dev/null 2>&1 || (echo "codex missing: NOT RUN Codex Responses protocol test (install the Codex CLI, @openai/codex)" && exit 1)
+	@node tests/integration/codex_responses_protocol_test.mjs
 
 $(TEST_REMOTE_UTF8): tests/unit/remote_utf8_unit.c extension/remote/dstudio_remote_llm.c extension/remote/dstudio_remote_llm.h extension/remote/dstudio_wire_string.h
 	@mkdir -p $(TEST_BUILD)

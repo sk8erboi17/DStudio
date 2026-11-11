@@ -448,3 +448,19 @@ Send and the readable reasoning level. It waits for the real sidebar transition
 instead of disabling animations. Each attempt keeps a separate receipt and
 screenshots; failures also capture the visible page. These layout checks do not
 claim that a simulated engine generated a correct answer.
+
+### Codex CLI Responses protocol (scripted server)
+
+`make test-codex-protocol` (in `check-fast`; `NOT RUN` and failing without the
+Codex CLI) runs the installed `codex exec` against a scripted loopback server
+that speaks the Responses API as the pinned `ds4-server` source does, through
+the third-party CLI benchmark's own proxy, configuration, command line, event
+parser and grading function. It checks file contents, exit status, the CLI's
+JSON events and the exact requests received: a complete tool loop, reasoning,
+split and Unicode frames, call identifiers, resume, compaction, Stop,
+truncated/malformed/refused responses, the sandbox, isolation from the user's
+environment and three fixture tasks graded by the benchmark. Every reply is
+scripted: it proves nothing about a model, about Codex as an agent or about
+the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS;
+other versions and platforms were not run. Scope, observations and what
+remains open: [extension/task-graph/bench/README.md](../../extension/task-graph/bench/README.md).

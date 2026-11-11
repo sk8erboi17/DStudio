@@ -652,6 +652,14 @@ baseline uses DStudio patches; it is not clean upstream.
 
 1. Implement actual Codex invocation and Responses proxy validation in
    [the existing runner](extension/task-graph/bench/run-cli-competitors.mjs).
+   Since November 11 the runner has a Codex harness (isolated configuration,
+   sandboxed non-interactive run, event parsing, the same grading path) and
+   `make test-codex-protocol` drives the installed Codex CLI 0.167.0 through
+   26 cases against a scripted Responses server
+   ([what it proves](extension/task-graph/bench/README.md)). Still open: no
+   real-model Codex run exists; whether the CLI's 25 KB base request fits the
+   benchmark context is unmeasured; the publication scripts still read Pi and
+   OpenCode only.
    Inspect the installed CLI/API at implementation time; exercise tool-call →
    file/command effect → tool-result → answer, reasoning/events, partial and
    Unicode frames, IDs, stop, cache/continuation and resume. Verify native

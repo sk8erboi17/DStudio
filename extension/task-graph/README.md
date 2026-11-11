@@ -150,7 +150,12 @@ make test-task-graph-real
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
 
 # The same 50 fixtures through Pi / OpenCode on the same local model, SSD off
-DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+DSTUDIO_COMPETITOR_HARNESSES=pi,opencode DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+
+# Codex CLI: its protocol loop against a scripted server (no model). Without
+# DSTUDIO_COMPETITOR_HARNESSES the real runner above includes Codex as well;
+# no real-model Codex run has been recorded yet. See bench/README.md.
+make test-codex-protocol
 
 # Publication data and Matplotlib figures
 DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real

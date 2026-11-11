@@ -1,23 +1,27 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import {
   artifactRunDir, safeReadTail, startDStudio, startMode, writeArtifact,
 } from '../../../tests/support/real_harness.mjs';
 import { ownGitRevision } from '../../../tests/support/quality_baseline.mjs';
+import { createReliabilityFixture, RELIABILITY_SUITE_SIZE } from './reliability-fixture.mjs';
 import {
-  changeAllowed, changedFiles, createReliabilityFixture, RELIABILITY_SUITE_SIZE,
-  workspaceSnapshot,
-} from './reliability-fixture.mjs';
+  cleanEnvironment, CODEX_PREFLIGHT_ARGS, codexCommand, codexPreflight, COMPETITOR_LABELS,
+  harnessOrder, rounded, runCli, runCompetitor, selectHarnesses, startModelPinProxy,
+  writeCodexConfig,
+} from './cli-competitor-harness.mjs';
 
 if (process.env.RUN_HEAVY !== '1') {
-  console.error('Real Pi/OpenCode benchmark is disabled. Set RUN_HEAVY=1 explicitly.');
+  console.error('Real Pi/OpenCode/Codex benchmark is disabled. Set RUN_HEAVY=1 explicitly.');
   process.exit(2);
 }
+const harnesses = selectHarnesses(process.env.DSTUDIO_COMPETITOR_HARNESSES);
+const labels = harnesses.map((harness) => COMPETITOR_LABELS[harness]);
+const labelList = labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}` : labels[0];
 
 const artifacts = artifactRunDir('task-graph-cli-competitors-real');
 console.log(`Immutable benchmark run: ${artifacts}`);
@@ -31,7 +35,7 @@ const maxOutputTokens = Math.max(256, Math.min(4096,
 const fixture = createReliabilityFixture({
   workspace,
   caseCount,
-  variants: ['pi', 'opencode'],
+  variants: harnesses,
 });
 const onlyIds = new Set(String(process.env.DSTUDIO_RELIABILITY_ONLY || '')
   .split(',').map((value) => value.trim()).filter(Boolean));
@@ -47,20 +51,16 @@ execFileSync('git', ['config', 'user.email', 'benchmark@localhost'], { cwd: work
 execFileSync('git', ['add', '.'], { cwd: workspace, stdio: 'ignore' });
 execFileSync('git', ['commit', '--quiet', '-m', 'benchmark fixture'], { cwd: workspace, stdio: 'ignore' });
 
-function rounded(value, digits = 2) {
-  return Number(Number(value).toFixed(digits));
-}
-
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function commandOutput(command, args, cwd = process.cwd()) {
+function commandOutput(command, args, cwd = process.cwd(), env = process.env) {
   try {
     return execFileSync(command, args, {
-      cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
     return '';
@@ -103,18 +103,6 @@ function hardwareInfo() {
     memoryBytes: os.totalmem(),
     os: `${os.type()} ${os.release()} ${os.arch()}`,
   };
-}
-
-function cleanEnvironment(overrides) {
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (/(?:_API_KEY|_AUTH_TOKEN|_OAUTH_TOKEN)$/.test(key) ||
-        /^(?:AWS_|AZURE_|GOOGLE_APPLICATION_CREDENTIALS)/.test(key) ||
-        /^(?:OPENCODE_|PI_CODING_AGENT_|PI_OFFLINE|PI_TELEMETRY)/.test(key)) {
-      delete env[key];
-    }
-  }
-  return { ...env, ...overrides };
 }
 
 function writeCliConfigs(baseUrl, contextTokens) {
@@ -210,7 +198,13 @@ function writeCliConfigs(baseUrl, contextTokens) {
   const openCodeConfigPath = path.join(openCodeConfigDir, 'opencode.json');
   fs.writeFileSync(openCodeConfigPath, `${JSON.stringify(openCodeConfig, null, 2)}\n`);
 
+  const codex = writeCodexConfig({ home: path.join(configRoot, 'codex-home'), baseUrl, contextTokens });
+
   return {
+    codex: {
+      config: codex.config,
+      env: cleanEnvironment({ ...codex.env, PWD: workspace }),
+    },
     pi: {
       config: piConfig,
       env: cleanEnvironment({
@@ -246,206 +240,6 @@ function writeCliConfigs(baseUrl, contextTokens) {
   };
 }
 
-async function startModelPinProxy(enginePort) {
-  let activeRunId = null;
-  const observations = new Map();
-  const server = http.createServer((request, response) => {
-    const chunks = [];
-    let length = 0;
-    request.on('data', (chunk) => {
-      length += chunk.length;
-      if (length <= 16 * 1024 * 1024) chunks.push(chunk);
-    });
-    request.on('end', () => {
-      if (length > 16 * 1024 * 1024) {
-        response.writeHead(413).end('benchmark request too large');
-        return;
-      }
-      let body = Buffer.concat(chunks);
-      let payload = null;
-      if (body.length) {
-        try { payload = JSON.parse(body.toString('utf8')); } catch {}
-      }
-      const runId = activeRunId;
-      const record = {
-        path: request.url,
-        method: request.method,
-        model: typeof payload?.model === 'string' ? payload.model : null,
-        toolSchemas: Array.isArray(payload?.tools) ? payload.tools.length : 0,
-        stream: payload?.stream === true,
-      };
-      if (runId) {
-        if (!observations.has(runId)) observations.set(runId, []);
-        observations.get(runId).push(record);
-      }
-      if (request.url === '/v1/chat/completions' && record.model !== 'ds4') {
-        response.writeHead(400, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ error: { message: 'benchmark model pin rejected a non-ds4 request' } }));
-        return;
-      }
-      // Pi and OpenCode do not expose DS4's vendor-specific `think` switch.
-      // Enforce the benchmark's declared thinking=off setting at the local
-      // compatibility boundary, just as DStudio passes --no-think to its
-      // native Agent runtime.
-      if (request.url === '/v1/chat/completions' && payload && typeof payload === 'object') {
-        payload.think = false;
-        delete payload.reasoning_effort;
-        body = Buffer.from(JSON.stringify(payload));
-      }
-      const headers = { ...request.headers, host: `127.0.0.1:${enginePort}` };
-      delete headers['transfer-encoding'];
-      headers['content-length'] = String(body.length);
-      headers.connection = 'close';
-      const upstream = http.request({
-        hostname: '127.0.0.1', port: enginePort, path: request.url,
-        method: request.method, headers,
-      }, (upstreamResponse) => {
-        response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
-        upstreamResponse.pipe(response);
-      });
-      upstream.on('error', (error) => {
-        if (!response.headersSent) response.writeHead(502, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ error: { message: error.message } }));
-      });
-      request.on('aborted', () => upstream.destroy());
-      if (body.length) upstream.write(body);
-      upstream.end();
-    });
-  });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    begin(runId) {
-      assert.equal(activeRunId, null, 'competitor benchmark runs must remain sequential');
-      activeRunId = runId;
-      observations.set(runId, []);
-    },
-    end(runId) {
-      assert.equal(activeRunId, runId);
-      activeRunId = null;
-      return observations.get(runId) || [];
-    },
-    close() {
-      return new Promise((resolve) => server.close(resolve));
-    },
-  };
-}
-
-function terminateProcessTree(child, signal) {
-  if (!child.pid) return;
-  try {
-    if (process.platform !== 'win32') process.kill(-child.pid, signal);
-    else child.kill(signal);
-  } catch {}
-}
-
-async function runCli(command, args, options) {
-  const outputLimit = 32 * 1024 * 1024;
-  const startedAt = performance.now();
-  return await new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    let overflow = false;
-    let spawnError = null;
-    const append = (target, chunk) => {
-      const text = chunk.toString('utf8');
-      if (target === 'stdout') stdout += text;
-      else stderr += text;
-      if (stdout.length + stderr.length > outputLimit && !overflow) {
-        overflow = true;
-        terminateProcessTree(child, 'SIGTERM');
-      }
-    };
-    child.stdout.on('data', (chunk) => append('stdout', chunk));
-    child.stderr.on('data', (chunk) => append('stderr', chunk));
-    child.on('error', (error) => { spawnError = error.message; });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminateProcessTree(child, 'SIGTERM');
-      setTimeout(() => terminateProcessTree(child, 'SIGKILL'), 5000).unref();
-    }, options.timeoutMs);
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve({
-        code, signal, stdout, stderr, timedOut, overflow, spawnError,
-        wallClockMs: rounded(performance.now() - startedAt),
-      });
-    });
-  });
-}
-
-function parseEvents(stdout) {
-  const events = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line.trim().startsWith('{')) continue;
-    try { events.push(JSON.parse(line)); } catch {}
-  }
-  return events;
-}
-
-function canonicalToolCall(harness, event) {
-  if (harness === 'pi') {
-    return JSON.stringify({ name: event.toolName, input: event.args || {} });
-  }
-  return JSON.stringify({
-    name: event.part?.tool,
-    input: event.part?.state?.input || event.part?.state?.metadata?.input || {},
-  });
-}
-
-function eventText(harness, event) {
-  if (harness === 'opencode') return event.type === 'text' ? String(event.part?.text || '') : '';
-  if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_end')
-    return String(event.assistantMessageEvent.content || '');
-  if (event.type !== 'message_end' || event.message?.role !== 'assistant') return '';
-  if (typeof event.message.content === 'string') return event.message.content;
-  if (!Array.isArray(event.message.content)) return '';
-  return event.message.content
-    .filter((part) => part?.type === 'text')
-    .map((part) => String(part.text || ''))
-    .join('\n');
-}
-
-function analyzeEvents(harness, stdout, task) {
-  const events = parseEvents(stdout);
-  const completedTools = events
-    .map((event, index) => ({ event, index }))
-    .filter(({ event }) => harness === 'pi'
-      ? event.type === 'tool_execution_end'
-      : event.type === 'tool_use' && ['completed', 'error'].includes(event.part?.state?.status));
-  const lastToolIndex = completedTools.at(-1)?.index ?? -1;
-  const answerText = events.slice(lastToolIndex + 1)
-    .map((event) => eventText(harness, event)).join('\n');
-  const required = [task.expected, ...(task.answerMustContain || [])];
-  let previous = '';
-  let repeated = 0;
-  let maximumRepeated = 0;
-  for (const { event } of completedTools) {
-    const canonical = canonicalToolCall(harness, event);
-    repeated = canonical === previous ? repeated + 1 : 1;
-    previous = canonical;
-    maximumRepeated = Math.max(maximumRepeated, repeated);
-  }
-  return {
-    parsedEvents: events.length,
-    calls: completedTools.length,
-    maximumRepeated,
-    answerAfterTool: lastToolIndex >= 0 && required.every((value) => answerText.includes(value)),
-  };
-}
-
 function commandFor(harness, prompt, scenarioId, environments) {
   if (harness === 'pi') {
     return {
@@ -459,6 +253,7 @@ function commandFor(harness, prompt, scenarioId, environments) {
       env: environments.pi.env,
     };
   }
+  if (harness === 'codex') return codexCommand({ workspace, prompt, env: environments.codex.env });
   return {
     command: 'opencode',
     args: [
@@ -468,66 +263,6 @@ function commandFor(harness, prompt, scenarioId, environments) {
     ],
     env: environments.opencode.env,
   };
-}
-
-async function runCompetitor(proxy, environments, harness, scenario) {
-  const task = scenario.variants[harness];
-  const before = workspaceSnapshot(workspace);
-  const runId = `${harness}-${scenario.id}`;
-  const command = commandFor(harness, task.prompt, scenario.id, environments);
-  proxy.begin(runId);
-  let execution;
-  try {
-    execution = await runCli(command.command, command.args, {
-      cwd: workspace,
-      env: command.env,
-      timeoutMs: Number(process.env.DSTUDIO_COMPETITOR_TURN_TIMEOUT_MS || 1_200_000),
-    });
-  } finally {
-    // Requests have completed before the CLI exits; the proxy remains alive for the next run.
-  }
-  const modelRequests = proxy.end(runId);
-  const after = workspaceSnapshot(workspace);
-  const changed = changedFiles(before, after);
-  const unexpectedChanges = changed.filter((file) => !changeAllowed(file, task.allowedChanges));
-  const external = task.score();
-  const events = analyzeEvents(harness, execution.stdout, task);
-  const modelPinVerified = modelRequests.length > 0 &&
-    modelRequests.every((request) => request.path === '/v1/chat/completions' && request.model === 'ds4');
-  const agentClaimedDone = events.answerAfterTool;
-  const result = {
-    variant: harness,
-    scenario: scenario.id,
-    taskType: scenario.templateId,
-    taskSuccess: Boolean(execution.code === 0 && external.ok && agentClaimedDone &&
-      unexpectedChanges.length === 0),
-    expectedAnswerAfterTool: agentClaimedDone,
-    incorrectCompletionClaim: Boolean(agentClaimedDone && (!external.ok || unexpectedChanges.length)),
-    externalCheck: external,
-    changedFiles: changed,
-    unexpectedChanges,
-    toolStats: { calls: events.calls, maximumRepeated: events.maximumRepeated },
-    wallClockMs: execution.wallClockMs,
-    humanRecoveryInterventions: 0,
-    process: {
-      exitCode: execution.code,
-      signal: execution.signal,
-      timedOut: execution.timedOut,
-      outputOverflow: execution.overflow,
-      spawnError: execution.spawnError,
-    },
-    protocol: {
-      parsedEvents: events.parsedEvents,
-      modelRequests: modelRequests.length,
-      modelPinVerified,
-      requestsWithToolSchemas: modelRequests.filter((request) => request.toolSchemas > 0).length,
-      requestedModels: [...new Set(modelRequests.map((request) => request.model))],
-    },
-  };
-  writeArtifact(artifacts, `${scenario.id}-${harness}-stdout.jsonl`, execution.stdout);
-  writeArtifact(artifacts, `${scenario.id}-${harness}-stderr.txt`, execution.stderr);
-  writeArtifact(artifacts, `${scenario.id}-${harness}-result.json`, result);
-  return result;
 }
 
 function byTask(runs) {
@@ -581,65 +316,91 @@ try {
   assert.equal(startup.config?.ssdStreamingEffective, false,
     `SSD streaming remained effective: ${startup.config?.ssdStreamingReason || 'unknown'}`);
 
-  proxy = await startModelPinProxy(server.enginePort);
+  proxy = await startModelPinProxy(server.enginePort, {
+    // Pi and OpenCode send this limit themselves; Codex has no setting for it.
+    responsesMaxOutputTokens: Math.min(maxOutputTokens, Math.floor(launch.ctx / 2)),
+  });
   const environments = writeCliConfigs(proxy.baseUrl, launch.ctx);
-  const versions = {
-    pi: commandOutput('pi', ['--version']) || 'unknown',
-    opencode: commandOutput('opencode', ['--version']) || 'unknown',
-  };
+  const versions = Object.fromEntries(harnesses.map((harness) => [harness, (harness === 'codex'
+    ? commandOutput('codex', ['--version'], workspace, environments.codex.env)
+    : commandOutput(harness, ['--version'])) || 'unknown']));
   writeArtifact(artifacts, 'cli-config.json', {
     versions,
-    pi: environments.pi.config,
-    opencode: environments.opencode.config,
+    ...Object.fromEntries(harnesses.map((harness) => [harness, environments[harness].config])),
   });
 
   // Resolve each isolated provider before timing tasks. This setup check also
   // prevents OpenCode's first measured turn from including an adapter package
   // fetch while keeping model prefill and all inference inside task timing.
-  const piPreflight = await runCli('pi', ['--list-models', 'dstudio', '--offline'], {
-    cwd: workspace, env: environments.pi.env, timeoutMs: 300_000,
-  });
-  const openCodePreflight = await runCli('opencode', ['models', 'dstudio', '--pure'], {
-    cwd: workspace, env: environments.opencode.env, timeoutMs: 300_000,
-  });
-  const preflight = {
-    pi: {
-      ok: piPreflight.code === 0 && /\bdstudio\b[\s\S]*\bds4\b/i.test(piPreflight.stdout),
-      exitCode: piPreflight.code,
-      wallClockMs: piPreflight.wallClockMs,
-    },
-    opencode: {
-      ok: openCodePreflight.code === 0 && /dstudio\/ds4/i.test(openCodePreflight.stdout),
-      exitCode: openCodePreflight.code,
-      wallClockMs: openCodePreflight.wallClockMs,
-    },
-  };
-  writeArtifact(artifacts, 'pi-preflight.txt', `${piPreflight.stdout}\n${piPreflight.stderr}`);
-  writeArtifact(artifacts, 'opencode-preflight.txt', `${openCodePreflight.stdout}\n${openCodePreflight.stderr}`);
-  assert.equal(preflight.pi.ok, true, 'Pi did not resolve the pinned DStudio model');
-  assert.equal(preflight.opencode.ok, true, 'OpenCode did not resolve the pinned DStudio model');
-
-  const pi = [];
-  const opencode = [];
-  for (let index = 0; index < scenarios.length; index++) {
-    const scenario = scenarios[index];
-    const order = index % 2 === 0 ? ['pi', 'opencode'] : ['opencode', 'pi'];
-    for (const harness of order) {
-      fixture.resetScenario(scenario, harness);
-      const result = await runCompetitor(proxy, environments, harness, scenario);
-      (harness === 'pi' ? pi : opencode).push(result);
+  const preflightRuns = {};
+  if (harnesses.includes('pi')) {
+    preflightRuns.pi = await runCli('pi', ['--list-models', 'dstudio', '--offline'], {
+      cwd: workspace, env: environments.pi.env, timeoutMs: 300_000,
+    });
+  }
+  if (harnesses.includes('opencode')) {
+    preflightRuns.opencode = await runCli('opencode', ['models', 'dstudio', '--pure'], {
+      cwd: workspace, env: environments.opencode.env, timeoutMs: 300_000,
+    });
+  }
+  let codexProbe = [];
+  if (harnesses.includes('codex')) {
+    proxy.begin('codex-preflight');
+    try {
+      preflightRuns.codex = await runCli('codex', [...CODEX_PREFLIGHT_ARGS], {
+        cwd: workspace, env: environments.codex.env, timeoutMs: 300_000,
+      });
+    } finally {
+      codexProbe = proxy.end('codex-preflight');
     }
-    const piRun = pi.at(-1);
-    const openCodeRun = opencode.at(-1);
-    console.log(`cli_agents: ${index + 1}/${scenarios.length} ${scenario.id} · pi=${piRun.taskSuccess} opencode=${openCodeRun.taskSuccess}`);
+  }
+  const preflightOk = {
+    pi: (run) => run.code === 0 && /\bdstudio\b[\s\S]*\bds4\b/i.test(run.stdout),
+    opencode: (run) => run.code === 0 && /dstudio\/ds4/i.test(run.stdout),
+    // The CLI itself reports ds4 on the dstudio Responses provider, its
+    // provider probe arrived at the pin proxy, and it tried nothing else.
+    codex: (run) => run.code === 0 && codexPreflight(run.stdout).ok &&
+      codexProbe.some((request) => request.method === 'GET' && request.path === '/v1/models') &&
+      !codexProbe.some((request) => request.blocked),
+  };
+  const preflight = Object.fromEntries(harnesses.map((harness) => [harness, {
+    ok: preflightOk[harness](preflightRuns[harness]),
+    exitCode: preflightRuns[harness].code,
+    wallClockMs: preflightRuns[harness].wallClockMs,
+  }]));
+  for (const harness of harnesses) {
+    writeArtifact(artifacts, `${harness}-preflight.txt`,
+      `${preflightRuns[harness].stdout}\n${preflightRuns[harness].stderr}`);
+  }
+  for (const harness of harnesses) {
+    assert.equal(preflight[harness].ok, true,
+      `${COMPETITOR_LABELS[harness]} did not resolve the pinned DStudio model`);
   }
 
-  const piSummary = summarize(pi);
-  const openCodeSummary = summarize(opencode);
-  const allRuns = [...pi, ...opencode];
+  const runs = Object.fromEntries(harnesses.map((harness) => [harness, []]));
+  for (let index = 0; index < scenarios.length; index++) {
+    const scenario = scenarios[index];
+    for (const harness of harnessOrder(index, harnesses)) {
+      fixture.resetScenario(scenario, harness);
+      const { result, execution } = await runCompetitor({
+        proxy, harness, scenario, workspace,
+        command: commandFor(harness, scenario.variants[harness].prompt, scenario.id, environments),
+        timeoutMs: Number(process.env.DSTUDIO_COMPETITOR_TURN_TIMEOUT_MS || 1_200_000),
+      });
+      writeArtifact(artifacts, `${scenario.id}-${harness}-stdout.jsonl`, execution.stdout);
+      writeArtifact(artifacts, `${scenario.id}-${harness}-stderr.txt`, execution.stderr);
+      writeArtifact(artifacts, `${scenario.id}-${harness}-result.json`, result);
+      runs[harness].push(result);
+    }
+    console.log(`cli_agents: ${index + 1}/${scenarios.length} ${scenario.id} · ${harnesses
+      .map((harness) => `${harness}=${runs[harness].at(-1).taskSuccess}`).join(' ')}`);
+  }
+
+  const summaries = Object.fromEntries(harnesses.map((harness) => [harness, summarize(runs[harness])]));
+  const allRuns = harnesses.flatMap((harness) => runs[harness]);
   const result = {
     schemaVersion: 1,
-    ok: pi.length === scenarios.length && opencode.length === scenarios.length &&
+    ok: harnesses.every((harness) => runs[harness].length === scenarios.length) &&
       allRuns.every((run) => run.protocol.modelPinVerified) &&
       allRuns.every((run) => run.protocol.requestsWithToolSchemas > 0),
     measuredAt: new Date().toISOString(),
@@ -666,24 +427,27 @@ try {
     startupMs,
     comparison: {
       scenarios: scenarios.length,
-      pi: piSummary,
-      opencode: openCodeSummary,
-      runs: { pi, opencode },
+      ...summaries,
+      runs,
     },
     humanRecoveryInterventions: 0,
     wallClockMs: rounded(performance.now() - benchmarkStartedAt),
     limitations: [
       `${scenarios.length} matched cases draw from ${fixture.templates.length} local-agent task families with five different fixtures per family in the complete suite.`,
       `Out of scope: ${fixture.metadata.coverage.excluded.join('; ')}.`,
-      'Pi and OpenCode ran in alternating order with a fresh non-interactive session for every task.',
-      'Both CLIs used the same continuously loaded DStudio server model; a local proxy rejected any model id other than ds4.',
+      `${labelList} ran ${['', 'in alternating order ', 'in rotating order (all six orders in turn) '][harnesses.length - 1]}with a fresh non-interactive session for every task.`,
+      `${['The CLI', 'Both CLIs', 'All three CLIs'][harnesses.length - 1]} used the same continuously loaded DStudio server model; a local proxy rejected any model id other than ds4.`,
+      ...(harnesses.includes('codex') ? [
+        'Codex used the engine\'s Responses endpoint, Pi and OpenCode its chat-completions endpoint. Thinking off was enforced for every CLI at the proxy (each Codex run records the reasoning effort the CLI sent itself); the proxy also applied the declared output limit to Codex requests because the CLI has no setting for one.',
+      ] : []),
       'The DStudio Native Agent and automatic checked Agent results are produced in a separate load because ds4 prevents the large Agent and server runtimes from owning the model simultaneously.',
       'CLI process startup is included in task time; reliability, not speed, is the primary comparison.',
     ],
   };
   writeArtifact(artifacts, 'result.json', result);
-  assert.equal(result.ok, true, `Pi/OpenCode benchmark protocol failed: ${JSON.stringify(result, null, 2)}`);
-  console.log(`task_graph_cli_competitors_real: ok · Pi ${piSummary.successes}/${pi.length} · OpenCode ${openCodeSummary.successes}/${opencode.length} · SSD streaming off`);
+  assert.equal(result.ok, true, `${labels.join('/')} benchmark protocol failed: ${JSON.stringify(result, null, 2)}`);
+  console.log(`task_graph_cli_competitors_real: ok · ${harnesses
+    .map((harness) => `${COMPETITOR_LABELS[harness]} ${summaries[harness].successes}/${runs[harness].length}`).join(' · ')} · SSD streaming off`);
 } catch (error) {
   writeArtifact(artifacts, 'failure.txt', `${error?.stack || error}\n\n${safeReadTail(server?.logPath)}`);
   throw error;
