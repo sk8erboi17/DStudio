@@ -31,6 +31,21 @@ static void setup_capture_append(char *out, size_t *used, size_t outsz, const ch
     out[*used] = '\0';
 }
 
+/* Owner of a background installation child (the host that forked it); 0 for
+ * every other caller, which keeps the plain blocking read. While a captured
+ * command runs for such a child, a vanished owner cancels the command: SIGTERM
+ * within SETUP_OWNER_POLL_MS, SIGKILL SETUP_OWNER_KILL_MS later. The signals
+ * go to the child's whole process group, as Stop sends them: SIGTERM to the
+ * installer alone stops only its direct command, and a real `cmake --build`
+ * leaves its make and compilers running. The child leads that group and
+ * ignores its own SIGTERM; the final SIGKILL also ends it, which is all that
+ * remains for an ownerless child to do. An engine installation started for a
+ * model download therefore never outlives its host beyond that bound, as one
+ * started for a launch never did. */
+static pid_t g_setup_cmd_owner = 0;
+#define SETUP_OWNER_POLL_MS 500
+#define SETUP_OWNER_KILL_MS 5000
+
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz) {
     if (out && outsz) out[0] = '\0';
 #ifdef _WIN32
@@ -134,7 +149,23 @@ static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out,
     close(pp[1]);
     size_t used = 0;
     char buf[2048];
+    long long kill_at = 0;
     for (;;) {
+        if (g_setup_cmd_owner > 0) {
+            struct pollfd ready = {.fd = pp[0], .events = POLLIN};
+            int waiting = poll(&ready, 1, SETUP_OWNER_POLL_MS);
+            const int leader = getpgrp() == getpid();
+            if (!kill_at && getppid() != g_setup_cmd_owner) {
+                if (leader) { signal(SIGTERM, SIG_IGN); kill(0, SIGTERM); }
+                else kill(pid, SIGTERM);
+                kill_at = dstudio_now_ms() + SETUP_OWNER_KILL_MS;
+            } else if (kill_at > 0 && dstudio_now_ms() >= kill_at) {
+                if (leader) kill(0, SIGKILL);
+                else kill(pid, SIGKILL);
+                kill_at = -1;
+            }
+            if (waiting <= 0) continue;
+        }
         ssize_t n = read(pp[0], buf, sizeof buf);
         if (n > 0) setup_capture_append(out, &used, outsz, buf, (size_t)n);
         else if (n == 0) break;

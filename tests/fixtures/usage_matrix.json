@@ -9459,6 +9459,18 @@
               "target": "test-llama-install-profile",
               "evidence": "model-free",
               "covers": "The exclusive install lock is refused while a shared server lease is held and the reverse."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "With one installer parked mid-build a second is refused at once and stages nothing; the leader publishes once; installations in two roots overlap."
+            },
+            {
+              "file": "tests/integration/install_recovery_host_test.mjs",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "Real host: a second download request is refused (409) and a second installer exits busy while the first holds the lease."
             }
           ]
         },
@@ -9502,6 +9514,18 @@
               "file": "tests/unit/engine_setup_unit.c",
               "evidence": "model-free",
               "covers": "On termination the host leaves an external server alive and stops only the child it owns (make test-engine-setup-unit)."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "An upgrade attempt while the earlier server runs is refused and the server keeps running; it proceeds once the model stops."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "The same for a running MLX server."
             }
           ]
         },
@@ -9559,6 +9583,18 @@
               "target": "test-mlx-install-unit",
               "evidence": "model-free",
               "covers": "Changed wheel bytes, an extra wheel and a wheel replaced by a link are rejected by wheel verification."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "A truncated, altered, missing or extra file in the bundled llama.cpp snapshot fails the upgrade with nothing published and no stage kept; network denied."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "An altered, truncated, missing or extra bundled wheel fails the upgrade before any stage; the earlier runtime is byte-identical."
             }
           ]
         },
@@ -9650,6 +9686,12 @@
               "target": "test-pld-build",
               "evidence": "model-free",
               "covers": "A failed make with partial output keeps the previous working binary and no version stamp; invalid linker outputs are refused."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "Configure failure, build failure with a half-linked server, no server produced, or a server reporting another build keep the earlier runtime and only the build log (at most two)."
             }
           ]
         },
@@ -9685,6 +9727,18 @@
               "file": "tests/integration/steering_patch_test.c",
               "evidence": "model-free",
               "covers": "Production Agent patcher on copies of the installed sources: a second apply and a drifted anchor are rejected with the file unchanged and an unrelated comment survives (make test-steering-patch)."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "A drifted mlx-lm patch fails real git apply --check; the earlier runtime stays selected and usable."
+            },
+            {
+              "file": "tests/integration/engine_source_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "The host refuses a main checkout at the earlier pin as drift before any build; models, settings and the built server are byte-identical."
             }
           ]
         },
@@ -9733,6 +9787,18 @@
               "target": "test-mlx-install-unit",
               "evidence": "model-free",
               "covers": "With no supported interpreter the finder raises \"needs Python\"."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "No CMake anywhere fails before staging with the earlier runtime kept; the host CLI names a missing python3."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "No supported Python and no git fail with the earlier runtime kept; only a log is retained when a command ran."
             }
           ]
         },
@@ -9758,6 +9824,18 @@
               "target": "test-design-build-freshness",
               "evidence": "model-free",
               "covers": "Bytes appended to the built Design binary make status report \"needs rebuild\"."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "A tampered server, a receipt with a missing binary or another pin is rebuilt; a receipt naming another engine or format, a truncated receipt or a linked directory is preserved and refused."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "A tampered or missing interpreter, a changed base Python or another wheel set is rebuilt; another engine, format, truncated receipt or link is preserved and refused."
             }
           ]
         },
@@ -9851,6 +9929,18 @@
               "target": "test-mlx-install-unit",
               "evidence": "model-free",
               "covers": "An older MLX receipt (no base interpreter, another manifest or patch set) is not current, and the three patches apply, refuse a repeat and reverse exactly."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "An installation with the earlier patch set and mlx-lm wheel is replaced atomically by the current set; the guard starts the new interpreter and refuses the old identity."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "The b11371 installation is replaced by the bundled pin; settings, projects, sessions, models and KV bytes are identical and the guard refuses the old binary identity."
             }
           ]
         },
@@ -9882,6 +9972,12 @@
               "target": "test-agent-native-build",
               "evidence": "simulated",
               "covers": "A repeat build of the real runtimes exits 0."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "A current installation is verified and reused without a second publication, also beside a running server."
             }
           ]
         },
@@ -9895,6 +9991,24 @@
               "target": "test-engine-sources",
               "evidence": "model-free",
               "covers": "A failed folder sync after publication is reported as published with bytes and receipt present; two failed preparations are retained and a third attempt is refused."
+            },
+            {
+              "file": "tests/integration/llama_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "Stand-in cmake: the installer killed (SIGKILL) or canceled (group SIGTERM) at six barriers from source copy to after publication leaves the earlier runtime or the complete new one, frees the lease, and the next run completes; three killed builds do not block a fourth."
+            },
+            {
+              "file": "tests/integration/mlx_install_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "Stand-in CPython: the same six points including wheel verification; a stage left by a killed installer is removed by the next one and an installation moved aside is put back."
+            },
+            {
+              "file": "tests/integration/engine_source_recovery_test.py",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "Real main/Laguna snapshots: a source installer killed mid-copy or terminated before publication publishes nothing; the next run completes and keeps one retained candidate."
             }
           ]
         },
@@ -9914,6 +10028,12 @@
               "target": "test-design-build-freshness",
               "evidence": "model-free",
               "covers": "Parent-only and whole-group kills publish nothing and a retry succeeds."
+            },
+            {
+              "file": "tests/integration/llama_upgrade_real_build_test.py",
+              "target": "test-llama-upgrade-real",
+              "evidence": "model-free",
+              "covers": "Real offline CMake build over an earlier installation, killed with its process group after 25 objects: the earlier runtime stays; the next run removes the stage and publishes the pinned server."
             }
           ]
         },
@@ -9964,6 +10084,12 @@
               "target": "test-first-launch-e2e",
               "evidence": "model-free",
               "covers": "After a browser reload both checkouts are listed with their servers, there are no page errors and the relocated app still passes signature verification."
+            },
+            {
+              "file": "tests/integration/install_recovery_host_test.mjs",
+              "target": "test-install-recovery",
+              "evidence": "model-free",
+              "covers": "After the host is killed mid-installation, a reopened host reports nothing running, downloading or paused and the earlier runtime installed; the next request upgrades and then downloads."
             }
           ]
         },

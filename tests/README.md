@@ -132,6 +132,7 @@ directly to the corresponding guide and section.
 
 - <a id="clean-installation-and-real-inference"></a>[Clean installation and real inference](docs/installation.md#clean-installation-and-real-inference)
 - <a id="bundled-offline-engine-sources-september-30-2026"></a>[Bundled offline engine sources (September 30, 2026)](docs/installation.md#bundled-offline-engine-sources-september-30-2026)
+- <a id="upgrade-interruption-and-recovery-november-11-2026"></a>[Upgrade, interruption and recovery (November 11, 2026)](docs/installation.md#upgrade-interruption-and-recovery-november-11-2026)
 - <a id="test-cleanup-october-25-2026"></a>[Test cleanup (October 25, 2026)](docs/installation.md#test-cleanup-october-25-2026)
 
 ### Downloads, native regression gates, documents and LAN

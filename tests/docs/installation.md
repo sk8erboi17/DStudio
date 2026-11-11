@@ -140,6 +140,70 @@ inference. Packaging and source installation are separate
 from the operator's full model-quality rerun. See
 [provenance, source omissions and refresh workflow](../../docs/BUNDLED_ENGINES.md).
 
+## Upgrade, interruption and recovery (November 11, 2026)
+
+```sh
+make test-install-recovery      # check-fast: simulated toolchains, about two minutes, no model
+make test-llama-upgrade-real    # explicit: real offline CMake build over an earlier install (minutes of CPU)
+make test-mlx-upgrade-real      # explicit: real venv + bundled wheels over an earlier patch set
+```
+
+`test-install-recovery` runs the production installers
+(`scripts/install-llama.py`, `scripts/install-mlx.py`,
+`scripts/bundled_engine_sources.py`), the host's `--install-engine`,
+`--prepare-launch` worker and `--resident-guard`, and the HTTP host, as real
+processes with outbound network denied by `sandbox-exec`, in task-owned
+profiles whose paths contain spaces. Each profile holds settings, a project,
+saved sessions, stand-in model files and a model-keyed KV file; every case
+checks they are byte-identical afterwards. **Simulated:** `cmake` (a shell
+stand-in whose build step runs in a child "make", as the real one does) and
+the stand-in `llama-server` it emits; CPython 3.14 for MLX (venv, a pip that
+enforces the required hashes and unpacks the real bundled mlx-lm wheel, so the
+real patches are applied by real `git apply`, and the Metal probe); `make` for
+main, which records any call and fails; the weight downloader. Nothing is
+compiled and no model or MLX code is loaded. Receipts:
+`tests/.artifacts/{engine-source-recovery,llama-install-recovery,mlx-install-recovery,install-recovery-host}/`.
+
+The earlier installations are produced by the production installers driven at
+the earlier identity: llama.cpp b11371 (`99b9548`, the receipt build identity
+real b11371 installs carry, over a small fixture snapshot), MLX with the patch
+set before tool streaming and a relabelled mlx-lm wheel, and main `0aaea5a`
+taken from this repository's history. Deterministic points are reached through
+the stand-ins' barriers and one failpoint,
+`DSTUDIO_INSTALL_FAILPOINT=<name>[,<name>...]:<directory>`
+(`scripts/bundled_engine_sources.py`: `source-copy`, `source-publish`,
+`wheels`, `publish`, `published`), inert unless that variable is set.
+
+November 11 results on an M2 Max (macOS 26): `engine_source_recovery_test`
+9/9, `llama_install_recovery_test` 47/47, `mlx_install_recovery_test` 45/45,
+`install_recovery_host_test` 6/6. Failing receipts retained from before the
+fixes: `llama-install-recovery/run-vv203g6b` (28/46), `mlx-install-recovery/run-5huhx4jp`
+(33/45), `install-recovery-host/run-4RqjcD` and `run-kIKlKc` (the host-death
+case). `test-llama-upgrade-real` passed 3/3 once (`llama-upgrade-real/run-dakjc0mv`,
+129 s build, killed first after 25 compiled objects), before the final rebase
+and stand-in change; `test-mlx-upgrade-real` has **not been run**.
+
+Coverage by PLAN.MD P5 item (`ESR` engine_source_recovery_test, `LIR`
+llama_install_recovery_test, `MIR` mlx_install_recovery_test, `IRH`
+install_recovery_host_test; "none" means no test exercises it):
+
+| P5 item | main | Laguna | llama.cpp | MLX |
+| --- | --- | --- | --- | --- |
+| 1 bundled sources, empty profile, network denied, no remote fallback | `test-first-launch-e2e` (relocated app, real build); `test-engine-sources` missing/extra/altered; ESR copy/publish cases (spaces) | same as main | `test-first-launch-e2e` (`--install-engine llama`); LIR "bundled source truncated/altered/missing/extra" | `test-mlx-install` (real, no spaces); MIR "bundled wheel altered/truncated/missing/extra"; final relocated bundle: none |
+| 2 model stores reused, launched identity bound | `test-setup-live` (Laguna shares the main store); `test-first-launch-e2e` (shared store after reload) | same as main | LIR "upgrade ...", "launch worker: the identity it reports is the upgraded binary the guard starts"; IRH "the next request completes the upgrade ..." (downloaded is not selected or running) | MIR "upgrade ...", "launch worker: ... interpreter the guard starts"; component/settings binding: not mapped here |
+| 4 upgrade from an earlier install, user bytes kept | ESR "an installation of the earlier pin is refused as drift before any build" (documented: no in-place upgrade) | none (no earlier Laguna pin) | LIR "upgrade from the b11371 installation ..."; IRH; `test-llama-upgrade-real` | MIR "upgrade from the earlier wheel and patch set ..."; `test-mlx-upgrade-real` (not run) |
+| 5 interruption, corrupt state, missing tools, failures, concurrency, owner death, cancellation, reopen | ESR killed while copying / terminated before publication / two installers / bounded candidates; build interruption, missing make, owner death of the build: none | same as main | LIR: SIGKILL and group SIGTERM at six points, failures at each step, missing CMake/python3, state cases, stale lease, two installers, launch-worker owner death; IRH: Stop, host death, reopen, update check and status answered beside a parked installation | MIR: SIGKILL and SIGTERM at six points incl. wheel verification, failures at each step, missing Python/git, patch drift, no Metal, a tool slow to stop, state cases, two installers, owner death; reopen through HTTP: none |
+| 6 bounded staging, revalidation, single publication, durable commit | `test-engine-sources` (target/parent races, lease replacement, durability acknowledgement); ESR | same as main | LIR "failed builds keep only their log, at most two", "a lease replaced ... cannot publish", "an installation directory replaced ... is preserved", "one leader publishes once"; crash durability: none | MIR same cases; crash durability: none |
+
+Not covered, and why: the final relocated bundle for MLX and the repeat of
+these cases against the final build (P5 items 1 and 6); real compiler
+cancellation (only SIGKILL of the whole group runs in the real build);
+Linux/Windows (macOS only); power-loss durability; main/Laguna build
+interruption and owner death (the host builds those checkouts in place, with
+no stage). Retained defect: a main checkout at an earlier pin is refused, but
+the four managed adaptations that precede the refusing one stay applied (ESR
+records them; their `restore` returns the checkout byte for byte).
+
 ## Test cleanup (October 25, 2026)
 
 Tests that existed but no target ran are now wired, each verified on this Mac:

@@ -8,18 +8,39 @@ publishes source-only installations exclusively; it never replaces local data.
 """
 import argparse
 import ctypes
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shutil
 import stat
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 
 FILE_LIMIT = 8192
 BYTE_LIMIT = 256 * 1024 * 1024
 MANIFEST_LIMIT = 4 * 1024 * 1024
+FAILPOINT_WAIT = 120  # seconds a test barrier may hold an installer
+
+
+def failpoint(name):
+    """Deterministic barrier for the installation recovery tests; inert in normal
+    runs. With DSTUDIO_INSTALL_FAILPOINT=<name>[,<name>...]:<directory> the caller
+    writes <directory>/<name>.reached and waits for <directory>/<name>.release.
+    A test kills, signals or releases the parked installer there; a barrier
+    nobody releases within FAILPOINT_WAIT fails the installation."""
+    names, _, directory = os.environ.get('DSTUDIO_INSTALL_FAILPOINT', '').partition(':')
+    if not directory or name not in names.split(','):
+        return
+    Path(directory, name + '.reached').write_text(str(os.getpid()))
+    deadline = time.monotonic() + FAILPOINT_WAIT
+    while not Path(directory, name + '.release').exists():
+        if time.monotonic() > deadline:
+            raise RuntimeError(f'Installation failpoint {name} was not released')
+        time.sleep(0.01)
 
 
 def read_regular(path, limit, sink=None, root=None):
@@ -158,6 +179,7 @@ def transfer(assets, engine, revision, target=None, catalog=ENGINES):
                 sink.flush()
                 os.fsync(sink.fileno())
             output.chmod(0o755 if metadata['executable'] else 0o644)
+            failpoint('source-copy')
         else:
             digest, size, _ = read_regular(source, metadata['bytes'], root=assets)
         if (digest, size) != (metadata['sha256'], metadata['bytes']):
@@ -178,14 +200,11 @@ def verify_sources(assets, engine, revision, expected, catalog=ENGINES):
         raise RuntimeError('Bundled engine source identity changed; no candidate published')
 
 
-def publish(source, target, parent_fd):
-    # Linux/macOS rename with exclusive destination semantics also protects an
-    # empty directory created by a racing owner. Windows rename is exclusive.
-    if os.name == 'nt':
-        os.rename(source, target)
-        return
+def _rename(source, target, parent_fd, exclusive):
     library = ctypes.CDLL(None, use_errno=True)
-    rename, flag = (library.renameatx_np, 4) if sys.platform == 'darwin' else (library.renameat2, 1)
+    # macOS RENAME_EXCL 4 / RENAME_SWAP 2; Linux RENAME_NOREPLACE 1 / RENAME_EXCHANGE 2.
+    rename, flag = (library.renameatx_np, 4 if exclusive else 2) if sys.platform == 'darwin' \
+        else (library.renameat2, 1 if exclusive else 2)
     rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
     stage_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -195,6 +214,100 @@ def publish(source, target, parent_fd):
     if result:
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error))
+
+
+def publish(source, target, parent_fd):
+    # Linux/macOS rename with exclusive destination semantics also protects an
+    # empty directory created by a racing owner. Windows rename is exclusive.
+    if os.name == 'nt':
+        os.rename(source, target)
+        return
+    _rename(source, target, parent_fd, exclusive=True)
+
+
+def replace(candidate, target, parent_fd):
+    """Publish `candidate` in place of the existing directory `target` and
+    return where the replaced tree now is (inside the candidate's stage).
+
+    macOS and Linux exchange the two names atomically: `target` is a complete
+    tree at every instant, the old one or the new one. Where no exchange exists
+    (Windows, a file system without it; NOT TESTED) the old tree is moved to
+    <stage>/previous and put back if the publication fails; a process killed
+    between the two renames is repaired by discard_stage() under the next
+    exclusive lease."""
+    if os.name != 'nt':
+        try:
+            _rename(candidate, target, parent_fd, exclusive=False)
+            return candidate
+        except (AttributeError, OSError) as error:
+            if isinstance(error, OSError) and error.errno not in (errno.ENOTSUP, errno.EINVAL, errno.ENOSYS):
+                raise
+    aside = candidate.parent / 'previous'
+    os.rename(target, aside)
+    try:
+        publish(candidate, target, parent_fd)
+    except BaseException:
+        os.rename(aside, target)
+        raise
+    return aside
+
+
+def discard_stage(stage, target, ours):
+    """Remove one private stage of a runtime installer. An installation that a
+    two-step replacement had moved aside goes back first while the target is
+    absent; if it cannot be put back the stage is left untouched (OSError)."""
+    aside = stage / 'previous'
+    if aside.is_dir() and not aside.is_symlink() and not os.path.lexists(target):
+        if not ours(aside):
+            return  # never delete a tree this installer cannot identify
+        os.rename(aside, target)
+    shutil.rmtree(stage, ignore_errors=True)
+
+
+def recover_stages(root, prefix, target, retained, ours):
+    """Call only while holding the engine's exclusive installation lease: no
+    installer and no server of that engine is alive, so every stage that holds
+    more than a failed attempt's retained files (its log) was abandoned by a
+    killed or canceled installer. Abandoned stages are discarded, restoring an
+    installation moved aside; failed attempts stay for review. Returns how many
+    stages remain. Work is bounded by the entries of `root` and of its stages."""
+    left = 0
+    for stage in sorted(root.iterdir()):
+        if not stage.name.startswith(prefix):
+            continue
+        if not stage.is_symlink() and stage.is_dir():
+            names = {entry.name for entry in stage.iterdir()}
+            if not names or not names <= set(retained):
+                discard_stage(stage, target, ours)
+        if os.path.lexists(stage):
+            left += 1
+    return left
+
+
+def revalidate_publication(root, anchor, lease, lease_path, target, inspected, label):
+    """A runtime installation may have taken minutes. Publish only into the
+    root (`anchor`: its stat at the start), under the lease still named by
+    `lease_path`, and over the target as it was inspected (`inspected`: its
+    lstat, or None when it was absent)."""
+    try:
+        held, named = os.fstat(lease), lease_path.lstat()
+    except OSError:
+        held = named = None
+    if held is None or held.st_nlink != 1 or (held.st_dev, held.st_ino) != (named.st_dev, named.st_ino):
+        raise RuntimeError(f'The {label} installation lease changed; no candidate published')
+    try:
+        now = root.stat()
+    except OSError:
+        now = None
+    if now is None or (now.st_dev, now.st_ino) != (anchor.st_dev, anchor.st_ino):
+        raise RuntimeError('The engine root changed during the installation; no candidate published')
+    try:
+        present = target.lstat()
+    except FileNotFoundError:
+        present = None
+    if (present is None) != (inspected is None) or \
+            (present is not None and (present.st_dev, present.st_ino) != (inspected.st_dev, inspected.st_ino)):
+        raise RuntimeError(f'{target} changed during the installation; it is preserved')
 
 
 @contextmanager
@@ -274,6 +387,7 @@ def install_owned(assets, engine, revision, target, lease):
         target.rmdir()  # An added file also makes this operation fail safely.
     parent_fd = None if os.name == 'nt' else os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
+        failpoint('source-publish')
         publish(candidate, target, parent_fd)
         try:
             sync_directory(target.parent)

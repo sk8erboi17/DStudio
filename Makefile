@@ -758,6 +758,29 @@ test-mlx-model-ui:
 
 check-fast: test-mlx-install-unit test-mlx-download-host test-mlx-model-ui
 
+# Upgrade, interruption and recovery of the engine installations (PLAN.MD P5):
+# the production installers, host CLI, launch worker, guard and HTTP host as
+# real processes in task-owned profiles with spaces, network denied. Toolchains
+# are SIMULATED (stand-in cmake, make and CPython); nothing is compiled, no
+# model. About two minutes in all on an M2 Max; macOS 26 on Apple Silicon.
+.PHONY: test-install-recovery
+test-install-recovery: $(TEST_SERVER)
+	@python3 tests/integration/engine_source_recovery_test.py "$(TEST_SERVER)"
+	@python3 tests/integration/llama_install_recovery_test.py "$(TEST_SERVER)"
+	@python3 tests/integration/mlx_install_recovery_test.py "$(TEST_SERVER)"
+	@node tests/integration/install_recovery_host_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-install-recovery
+
+# REAL offline upgrades over an earlier installation, network denied, no model.
+# Explicit, outside check-fast: llama.cpp compiles for a few minutes of CPU;
+# MLX creates a real virtual environment and installs the bundled wheels.
+.PHONY: test-llama-upgrade-real test-mlx-upgrade-real
+test-llama-upgrade-real:
+	@python3 tests/integration/llama_upgrade_real_build_test.py
+test-mlx-upgrade-real:
+	@python3 tests/integration/mlx_upgrade_real_test.py
+
 # Real offline build of the dynamic (Linux/Windows) layout on macOS: every CPU
 # variant and Metal as loadable modules. Explicit; a few minutes of CPU. Add
 # LLAMA_DYNAMIC_INFER=gguf/MODEL.gguf to also load existing weights once.

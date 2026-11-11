@@ -548,6 +548,33 @@ cross-version cache-preserving upgrade was verified before q36 was retired and
 does not cover llama.cpp or MLX. Extend this evidence rather than scheduling
 those as new features.
 
+November 11 progress (model-free part, not release qualification):
+`make test-install-recovery` (check-fast, simulated toolchains, network denied,
+profiles with spaces) passes 9/9 main/Laguna source, 47/47 llama.cpp, 45/45
+MLX and 6/6 host HTTP cases: upgrade from an earlier llama.cpp (b11371) and
+MLX (earlier patch set) installation with user bytes identical, failures at
+each step keeping the earlier runtime, SIGKILL/SIGTERM at six deterministic
+points, corrupt/partial state, missing CMake/Python/git, concurrent installers,
+owner death, Stop and reopen. Fixed with failing receipts retained: stages of
+killed installers blocked later installs (two counted as failed builds), an
+installation moved aside by a killed two-step replacement was not restored
+(publication is now an atomic exchange), a receipt naming another engine was
+replaced, a lease or target replaced during the build did not stop
+publication, a missing python3 was reported as an empty `(127)`, and an
+installation started for a download outlived its dead host and went on to
+transfer weights; signalling only the installer then left its build tool
+running (a SIGTERM to the real `cmake --build` alone leaves its `make`
+building), so the whole group is now signalled. The launch error now carries the
+installer's reason instead of its first echoed command (by inspection; no
+failing receipt was kept).
+The real offline llama.cpp upgrade (`make test-llama-upgrade-real`) passed once
+before the final rebase; `make test-mlx-upgrade-real` has not run. Still open:
+item 3, the final relocated bundle for MLX and the repeat against the final
+build (items 1 and 6), Laguna upgrade (no earlier pin), main/Laguna build
+interruption and owner death, and the partially applied managed adaptations
+left on a refused earlier main checkout. Map:
+[installation guide](tests/docs/installation.md#upgrade-interruption-and-recovery-november-11-2026).
+
 1. Complete the final-bundle matrix using task-owned empty profiles and paths
    with spaces. Setup must verify pinned bundled sources with external source
    network denied; missing/altered sources fail without remote fallback.

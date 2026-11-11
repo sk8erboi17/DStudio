@@ -56,6 +56,32 @@ static int setup_mlx_assets(char *out, size_t cap) {
     return 0;
 }
 
+/* A runtime installer echoes every command it runs and ends with one
+ * "<engine> installation failed: <reason>" message. Report that reason, never
+ * the head of the echo: a launch error holds 255 bytes and showed only the
+ * first command. When the reason does not fit, its first line and its last
+ * line (the retained log) are kept. Exit 127 without output means python3
+ * itself could not be started. */
+static void setup_installer_failure(const char *label, int rc, const char *output, char *err, size_t errsz) {
+    char marker[64];
+    int marked = snprintf(marker, sizeof marker, "%s installation failed: ", label);
+    const char *reason = marked > 0 && (size_t)marked < sizeof marker ? strstr(output, marker) : NULL;
+    reason = reason ? reason + marked : output;
+    if (rc == 127 && !output[0])
+        reason = "python3 was not found on PATH; Python 3 is required to install this engine";
+    int head = snprintf(err, errsz, "%s installation failed (%d): ", label, rc);
+    if (head < 0 || (size_t)head + 1 >= errsz) return;
+    size_t room = errsz - (size_t)head - 1, len = strlen(reason);
+    while (len && (reason[len - 1] == '\n' || reason[len - 1] == '\r')) len--;
+    const char *line_end = memchr(reason, '\n', len), *last = reason + len;
+    while (last > reason && last[-1] != '\n') last--;
+    size_t first = line_end ? (size_t)(line_end - reason) : len, tail = (size_t)(reason + len - last);
+    if (len <= room) snprintf(err + head, room + 1, "%.*s", (int)len, reason);
+    else if (line_end && last > line_end && first + tail + 5 <= room)
+        snprintf(err + head, room + 1, "%.*s\n...\n%.*s", (int)first, reason, (int)tail, last);
+    else snprintf(err + head, room + 1, "%.*s", (int)room, reason);
+}
+
 /* MLX is a verified offline wheel installation, not a source snapshot: it has
  * no entry in the engine-pin table. Background preparation only. */
 static int setup_install_mlx(const char *root, char *target, size_t targetsz, int *downloaded,
@@ -75,7 +101,7 @@ static int setup_install_mlx(const char *root, char *target, size_t targetsz, in
     int before_rc = lstat(target, &before), absent = before_rc != 0 && errno == ENOENT;
     char *args[] = {"python3", script, "--root", (char *)root, "--assets", assets, NULL};
     int rc = setup_run_cmd_capture(NULL, args, output, sizeof output);
-    if (rc) { snprintf(err, errsz, "MLX installation failed (%d): %.7000s", rc, output); return 0; }
+    if (rc) { setup_installer_failure("MLX", rc, output, err, errsz); return 0; }
     if (lstat(target, &after) || !S_ISDIR(after.st_mode)) { snprintf(err, errsz, "MLX installation disappeared after verification"); return 0; }
     *downloaded = absent || before.st_dev != after.st_dev || before.st_ino != after.st_ino;
     printf("%s", output);
@@ -112,7 +138,7 @@ static int setup_install_engine(const char *engine, const char *root,
         }
         char *args[] = {"python3", script, "--root", (char *)root, "--revision", (char *)commit, NULL};
         int rc = setup_run_cmd_capture(NULL, args, output, sizeof output);
-        if (rc) { snprintf(err, errsz, "llama.cpp installation failed (%d): %.7000s", rc, output); return 0; }
+        if (rc) { setup_installer_failure("llama.cpp", rc, output, err, errsz); return 0; }
         if (lstat(target, &after) || !S_ISDIR(after.st_mode)) {
             snprintf(err, errsz, "llama.cpp installation disappeared after verification"); return 0;
         }

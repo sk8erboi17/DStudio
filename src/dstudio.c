@@ -1488,6 +1488,7 @@ static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+static pid_t g_setup_cmd_owner; /* dstudio_setup.c: owner of a background installation child */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz);
 static int run_ext_script(const char *script, const char *action);
 static int run_build_server_pld(void);
@@ -6889,10 +6890,13 @@ static int model_download_begin(const char *target, unsigned long long *task_out
             char installed[DSTUDIO_PATH_MAX], error[8600] = ""; int downloaded = 0;
             /* The engine that serves these weights is installed now (llama.cpp
              * build, or the bundled offline MLX wheels) so the first launch does
-             * not wait for it. */
-            if (!setup_install_engine(mlx ? "mlx" : "llama", install_root, installed, sizeof installed,
-                                      &downloaded, error, sizeof error)) {
-                fprintf(stderr, "%s\n", error); _exit(1);
+             * not wait for it. The installation is canceled if this host dies,
+             * and an ownerless child never goes on to transfer weights. */
+            g_setup_cmd_owner = getppid();
+            if (g_setup_cmd_owner <= 1 ||
+                !setup_install_engine(mlx ? "mlx" : "llama", install_root, installed, sizeof installed,
+                                      &downloaded, error, sizeof error) || getppid() != g_setup_cmd_owner) {
+                fprintf(stderr, "%s\n", error[0] ? error : "the DStudio host that started this download is gone"); _exit(1);
             }
             char helper[DSTUDIO_PATH_MAX + 64], store[DSTUDIO_PATH_MAX + 160];
             snprintf(helper, sizeof helper, "%s/scripts/download-qwen-variant.py", g_web_dir);

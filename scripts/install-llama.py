@@ -22,6 +22,13 @@ Ownership: <root>/.dstudio-llama-install.lock. Installation takes it
 exclusively without waiting; every running DStudio llama-server holds it
 shared, so an engine in use is never replaced. Files this installer did not
 publish are never removed. At most two failed stages are kept for review.
+
+Publication: the lease, the root and the inspected target are revalidated
+after the build. A new installation is published with an exclusive rename; an
+existing one is exchanged with the candidate atomically, so <root>/llama.cpp is
+the complete earlier or the complete new runtime at every instant. A canceled
+build removes its stage; a stage left by a killed installer is removed by the
+next installation that holds the exclusive lease.
 """
 import argparse
 import hashlib
@@ -228,19 +235,37 @@ class Child:
     group on cancellation; SIGTERM to this installer also stops the command."""
     current = None
     stage = None
+    target = None
+
+
+def ours(receipt):
+    """A receipt this installer wrote: the only directories it ever replaces."""
+    return bool(receipt) and receipt.get('schema') == 'dstudio.llama-install.v1' and receipt.get('engine') == ENGINE
+
+
+def installed_here(directory):
+    return ours(read_receipt(directory))
 
 
 def stop(_signal, _frame):
+    # SIGTERM to this installer alone stops its direct command; the build
+    # tools that command started (make, compilers) stop only when the owner
+    # signals the whole process group, as every DStudio owner does.
     if Child.current and Child.current.poll() is None:
         Child.current.terminate()
         try:
             Child.current.wait(timeout=3)
         except subprocess.TimeoutExpired:
             Child.current.kill()
+            Child.current.wait()
     # A canceled build has nothing to review: never leave it counting toward
-    # the retained-failure limit.
+    # the retained-failure limit. An installation that a two-step replacement
+    # had moved aside is put back, never deleted with the stage.
     if Child.stage is not None:
-        shutil.rmtree(Child.stage, ignore_errors=True)
+        try:
+            bundled.discard_stage(Child.stage, Child.target, installed_here)
+        except OSError:
+            pass
     raise SystemExit(130)
 
 
@@ -367,24 +392,28 @@ def lock(root, exclusive):
     return fd
 
 
-def build_candidate(root, cmake, profile):
-    stages = [p for p in root.iterdir() if p.name.startswith(STAGE_PREFIX)]
-    if len(stages) >= 2:
+def build_candidate(root, cmake, profile, retained):
+    if retained >= 2:
         raise RuntimeError('Two failed llama.cpp builds are retained in ' + str(root) +
                            '; inspect or remove them before retrying')
     stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=root))
-    Child.stage = stage
+    Child.stage, Child.target = stage, root / DIRECTORY
     try:
         return stage, build_in_stage(root, cmake, stage, profile)
     except BaseException as error:
         if isinstance(error, SystemExit):
             raise
         # Keep only the build log of a failed attempt; sources and objects
-        # are reproducible from the bundled snapshot.
+        # are reproducible from the bundled snapshot. A failure before any
+        # command ran (the bundled sources did not verify) has no log and
+        # nothing to review: its stage is not retained as a failed build.
         for name in (DIRECTORY, 'build'):
             shutil.rmtree(stage / name, ignore_errors=True)
         Child.stage = None
-        raise RuntimeError(f'{error}\nBuild log retained: {stage / "build.log"}') from error
+        if (stage / 'build.log').is_file():
+            raise RuntimeError(f'{error}\nBuild log retained: {stage / "build.log"}') from error
+        shutil.rmtree(stage, ignore_errors=True)
+        raise RuntimeError(str(error)) from error
 
 
 def built_outputs(build, profile):
@@ -458,6 +487,7 @@ def install(root, profile=None):
     if not stat.S_ISDIR(info.st_mode):
         raise RuntimeError('The engine root is not a directory')
     root = root.resolve()
+    anchor = root.stat()
     target = root / DIRECTORY
     profile = profile or default_profile()
     # Exclusive: may build or replace. Shared (a DStudio llama-server is
@@ -468,33 +498,47 @@ def install(root, profile=None):
         lease, exclusive = lock(root, exclusive=False), False
         in_use = str(busy)
     try:
-        previous = None
+        # With the exclusive lease no installer and no DStudio llama-server is
+        # alive: a stage holding more than a failed build's log was abandoned
+        # by a killed installer. It is removed here, so interrupted
+        # installations neither accumulate nor count as failed builds.
+        retained = bundled.recover_stages(root, STAGE_PREFIX, target, ('build.log',), installed_here) if exclusive else 0
+        previous = inspected = None
         if target.exists() or target.is_symlink():
             if target.is_symlink() or not target.is_dir():
                 raise RuntimeError(f'{target} is not a directory DStudio installed; it is preserved')
             receipt = read_receipt(target)
+            if not ours(receipt):
+                raise RuntimeError(f'{target} contains files DStudio did not install; it is preserved')
             if receipt_current(target, receipt, profile):
                 return {'ok': True, 'engine': ENGINE, 'commit': PIN, 'dir': str(target), 'layout': profile.layout,
                         'backends': list(profile.backends), 'binary': str(target / profile.binary),
                         'built': False, 'reused': True}
-            if not receipt or receipt.get('schema') != 'dstudio.llama-install.v1':
-                raise RuntimeError(f'{target} contains files DStudio did not install; it is preserved')
-            previous = receipt
+            previous, inspected = receipt, target.lstat()
         if not exclusive:
             raise RuntimeError(in_use)
         cmake = find_cmake()
-        stage, candidate = build_candidate(root, cmake, profile)
+        stage, candidate = build_candidate(root, cmake, profile, retained)
         parent_fd = None if os.name == 'nt' else os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            if previous is not None:
+            bundled.failpoint('publish')
+            bundled.revalidate_publication(root, anchor, lease, root / LOCK, target, inspected, 'llama.cpp')
+            if previous is None:
+                bundled.publish(candidate, target, parent_fd)
+            else:
                 # Only an installation with our receipt is replaced, while the
                 # exclusive lease proves no DStudio llama-server is using it.
-                os.rename(target, stage / 'previous')
-            bundled.publish(candidate, target, parent_fd)
-            bundled.sync_directory(root)
+                bundled.replace(candidate, target, parent_fd)
+        except BaseException:
+            # Nothing was published: the candidate is discarded, not retained.
+            bundled.discard_stage(stage, target, installed_here)
+            Child.stage = None
+            raise
         finally:
             if parent_fd is not None:
                 os.close(parent_fd)
+        bundled.sync_directory(root)
+        bundled.failpoint('published')
         shutil.rmtree(stage)
         Child.stage = None
         bundled.sync_directory(root)
