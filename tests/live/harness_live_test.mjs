@@ -98,7 +98,9 @@ if (await listening(28000)) {
   receipt.failures.push('BLOCKED: another engine listens on 127.0.0.1:28000; close it and rerun');
   receipt.blocked = true;
 }
-const harnessRoot = path.resolve('harness');
+// Harnesses are installed beside the engine store, where the host looks for
+// them; a frozen source tree elsewhere runs against that installation.
+const harnessRoot = path.join(path.dirname(path.resolve(process.env.DSTUDIO_REAL_DS4_DIR || 'ds4')), 'harness');
 for (const harness of receipt.blocked ? [] : harnesses) for (const key of models) {
   const spec = MODELS[key];
   const row = { harness, model: key, engine: spec?.engine, cases: [] };
