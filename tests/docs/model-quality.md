@@ -394,6 +394,15 @@ wall time including model startup/shutdown. PNG sanity checks are separate from
 visual prompt-adherence review. Public charts use Matplotlib; see
 [image preset results](../../extension/benchmarks/image-presets/README.md).
 
+`make test-media-image-live` generates one image through the app: the
+production host's `/api/image/generate` runs the installed Ideogram 4
+(`~/.dstudio/ideogram4`, through `DSTUDIO_IDEOGRAM4_HOME`; the job runs in the
+test host's private HOME), and a real browser decodes and draws the PNG served
+by `/api/image/file`. It must be a PNG of at least 256 pixels per side in the
+requested 1:1 ratio whose pixels are not uniform; it says nothing about prompt
+adherence. A Chat model's image directive, the Chat message rendering and
+video are not part of it. Not run yet.
+
 Current main compatibility, native Metal fixtures and empty-directory setup:
 [September 7 update](../../docs/history/ds4-main-update-2026-09-07.md).
 `node tests/integration/upstream_agent_prompt_test.mjs ds4` requires the already

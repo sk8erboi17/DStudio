@@ -1070,6 +1070,12 @@ test-task-graph-unit: $(TEST_TASK_GRAPH)
 test-task-graph-http: $(TEST_SERVER)
 	@bash tests/integration/task_graph_http_test.sh $(TEST_SERVER)
 
+# REAL local image model (Ideogram 4 under ~/.dstudio/ideogram4): one image
+# through the host's /api/image/generate, decoded and drawn by a browser.
+.PHONY: test-media-image-live
+test-media-image-live: $(TEST_SERVER)
+	@node tests/live/media_image_live.mjs $(TEST_SERVER)
+
 # REAL weights: one Agent turn routed by the production automatic Task Graph;
 # the graph must succeed and the written file hold the independently computed
 # total. DSTUDIO_GRAPH_MODEL selects the model (default Qwen3.6 UD-Q6_K_XL).
