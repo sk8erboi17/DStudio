@@ -160,9 +160,8 @@ slow turn is the model's speed, not a hang.
 Every inference path reaches every harness: DStudio Agent, Cowork and Design
 run on ds4 models, llama.cpp models, the MLX model and remote endpoints; pi and
 OpenCode run in Agent mode on the same four. The cells above are the ones executed with
-real weights. Not run with pi/OpenCode: GLM 5.3, Qwen3.8-Flash-Next, Laguna and
-DeepSeek V4.1 (they use the same bridge-owned `ds4-server` path as DeepSeek V4
-Flash), and cloud endpoints (the same model RPC path as llama.cpp). Linux,
+real weights. Not run with pi/OpenCode: GLM 5.3 (it uses the same
+bridge-owned `ds4-server` path as DeepSeek V4 Flash), and cloud endpoints (the same model RPC path as llama.cpp). Linux,
 Windows, CUDA, ROCm and Vulkan are not run; the harness launch is rejected on
 Windows. pi and OpenCode do not run Cowork or Design, which keep DStudio's own
 tools. These are development regressions, not a quality benchmark.
@@ -185,5 +184,9 @@ external harnesses.
   (Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2 with expert SSD
   streaming). On Next and V4.1 both harnesses completed the file and recall
   cases; the confinement case was exercised once and passed (three times the
-  model attempted no read). Laguna is to be run again after a runner fix
-  ([details](../tests/docs/engines-and-harnesses.md)).
+  model attempted no read). On Laguna (November 12, after the runner selects
+  Laguna's checkout and on the patched engine; `harness-live/run-mzSRwo`) pi
+  passed the file and recall cases and OpenCode the recall case; OpenCode
+  wrote a wrong total (1520.25 for 1261.10, an answer failure), and in both
+  confinement cases the model attempted no read, so confinement was not
+  exercised (BLOCKED) ([details](../tests/docs/engines-and-harnesses.md)).

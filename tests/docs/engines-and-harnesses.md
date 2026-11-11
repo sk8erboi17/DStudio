@@ -389,7 +389,11 @@ no read, so confinement was not exercised there (not a pass and not an
 escape). Both Laguna rows failed at startup: the runner did not select
 Laguna's checkout before the launch as the app does, so the bridge started
 main's `ds4-server` on Laguna's weights and it exited. The runner now selects
-the checkout the host's model catalog names; Laguna is to be run again.
+the checkout the host's model catalog names. Rerun on November 12 on the
+patched Laguna engine (`run-mzSRwo`): 3/6 pass. pi passed the file and recall
+cases, OpenCode the recall case; OpenCode wrote 1520.25 where the total is
+1261.10 (an answer failure); both confinement cases are BLOCKED, the model
+attempting no read.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
