@@ -523,7 +523,19 @@ results. `make test-design-tool-stream` runs the same loop and checks the live
 `tool_call_begin` / `tool_call_param` / `tool_body_delta` events used by Open
 IDE: the streamed write body equals the saved bytes, deltas are capped,
 cut on UTF-8 boundaries and never contain DSML markup, edits stream old then
-new, and an unclosed stanza is previewed but never executed. `make test-design-archive-build` compiles a real local source archive
+new, and an unclosed stanza is previewed but never executed.
+`make test-design-turn-gates` runs the same native loop in remote mode with
+simulated model frames: `question()` emits its event, defers a write in the same
+batch and ends the turn with no further model request, and the user's
+`§QUESTION_ANSWER` turn then reaches the model and the write runs; `propose()`
+refuses a direction whose file does not exist and ends the turn on a valid
+proposal; `artifact()` on a page wider than the tablet and phone widths is
+rendered in the installed headless Chrome, refused with the measured
+overflow, and no manifest is written, while the same page made to fit has no
+layout finding. Without Chrome the test is NOT RUN and fails. The remote loop
+used to send one more model request after `question()`, `propose()` or a
+registered artifact, where the local loop stops; it now stops too.
+`make test-design-archive-build` compiles a real local source archive
 without engine Git metadata and checks rebuilds after source changes. Neither
 test loads a model; the archive test does not download its fixture.
 `make test-design-build-freshness` executes the production native builder and

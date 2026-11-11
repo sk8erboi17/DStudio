@@ -165,6 +165,25 @@ plan mode sends nothing and the next request is planned into its own file;
 Implement plan turns Plan off and sends the execution turn for that file; Chat
 about this turns Plan off and the next message is a plain turn.
 
+`make test-ui-design-flow` runs `tests/browser/ui_design_flow_playwright_test.mjs`
+in WebKit and Chromium against the same host in Design mode, with the real
+`/api/design/files`, `/api/design/file` and `/api/design/preview/` handlers. The
+Design stream is **simulated** with the events `ds4-design` emits for
+`question()`, `propose()` and `write` (the shapes `make test-design-turn-gates`
+receives from the real runtime), and the test performs the writes. It checks that the designer's
+questions appear numbered above the composer, that **Continue** is held while
+the turn still runs and then sends the exact `§QUESTION_ANSWER` turn once, that
+the form closes, the reply after it renders and a reload does not ask again;
+that three proposed directions render side by side as sandboxed live previews
+of the host-served files, open full size and step between screens, and that
+**Use this** sends the lock prompt for the chosen one and marks only it chosen;
+and that the canvas **Export** saves every project file (nested folders, binary
+bytes, a non-ASCII name) in `project.zip`, which Python's `zipfile` verifies CRC
+by CRC and byte for byte. A file the host refuses to serve (larger than its
+8 MiB limit) stops the export with a message instead of being archived as the
+error text, which the page used to do. Receipts go to
+`tests/.artifacts/ui-design-flow/`; no model or design engine runs.
+
 `make test-ui-native-titlebar` runs WebKit and Chromium with the 28px
 title-bar inset that DStudio.app injects (`--native-titlebar-height`, top frame
 only). It checks that no operable control in the main window or the Learn study
@@ -187,7 +206,9 @@ overlapping nodes and every node inside its lane; the SVG escapes every author
 string; the prompt names the file, schema and evidence contract; the Design
 hand-off lists every part and relationship and stays under 26k characters for
 the largest spec the schema keeps; the implement prompt follows the blueprint
-basis.
+basis; Workflow, Data flow and Lifecycle each get their own prompt and node
+types, a node-type fallback, a default relationship type (control, data,
+event) and their layout direction.
 
 `make test-ui-blueprint` runs WebKit and Chromium against the real host
 workspace handlers and the real `/api/fs/mkdir` on a task-owned workspace. The
@@ -197,12 +218,24 @@ path, the diagram building from the streamed JSON, verification of each kind of
 citation outcome against the workspace bytes, node evidence, upstream and
 downstream trace, routes (including none), lens, find, opening a citation in the
 IDE at its lines and returning, the standalone HTML export opened in a fresh
-page, the new-blueprint card, a sequence diagram, an invalid file, reopening
-the last blueprint after a reload, **Implement code** (the implement prompt in
-the same conversation, on the running engine, without a new session) and
-**Send to Design** (Design starts on `design/` inside the project, the blueprint
-card waits for the user's brief and goes with the first message only). Design
-startup is simulated too: no design engine or model runs.
+page, the SVG export opened from disk (same parts, verification marks and its
+own styles; no script or external reference) and the JSON export reopened with
+the same evidence (a blueprint shown as its group overview still exports every
+part, not the overview boxes, which it used to do), **Refresh** after the cited
+code changed (the rewritten quote is reported as not found, the shifted ones at
+their new lines, the file untouched), the new-blueprint card, Workflow, Data
+flow and Lifecycle maps requested from it and drawn with their node and
+relationship types, a sequence diagram, an invalid file, a map turn that ends
+without saving its file (the panel reports it instead of returning to a blank
+form, which it used to do) or saves one with no nodes, reopening the last
+blueprint after a reload, **Implement code** (the implement prompt in the same
+conversation, on the running engine, without a new session) and **Send to
+Design** while the Agent still works (the engine switch is confirmed first:
+Cancel starts and interrupts nothing; then Design starts on `design/` inside
+the project, the blueprint card waits for the user's brief and goes with the
+first message only). The simulated host replies to each send with the turn's
+real `from`/`at` offsets, as `api_agent_send` does. Design startup is simulated
+too: no design engine or model runs.
 
 `make test-blueprint-live` is **real inference**: an isolated DStudio host
 starts the Agent with actual DeepSeek V4 Flash weights (one instance; run it

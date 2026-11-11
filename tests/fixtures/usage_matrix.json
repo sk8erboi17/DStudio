@@ -2396,19 +2396,52 @@
           "id": "answer-designer-questions",
           "use": "The designer asks questions above the composer; the user answers and the work continues.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "simulated",
+              "covers": "A question event in the Design stream shows numbered questions above the composer; Continue is held while the turn runs, then sends the exact §QUESTION_ANSWER turn once, the form closes, the following reply renders and a reload does not ask again."
+            },
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime in remote mode: question() emits the event, defers the write in the same batch and ends the turn without another model request; the §QUESTION_ANSWER turn reaches the model and the write then runs."
+            }
+          ]
         },
         {
           "id": "compare-proposals",
           "use": "The user compares several proposed directions side by side and picks one.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "simulated",
+              "covers": "Three proposed directions render side by side as sandboxed live previews of the host-served files, open full size and step between screens; Use this sends the lock prompt for B and marks only B chosen."
+            },
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime: propose() refuses a direction whose file does not exist, emits the proposal with the written directions and ends the turn; the user's pick reaches the next model request."
+            }
+          ]
         },
         {
           "id": "export-project-as-zip",
           "use": "The user exports the accepted screens as a zip archive.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "model-free",
+              "covers": "Canvas Export on the real host project handlers: project.zip holds every listed file (nested, binary and non-ASCII names) and Python's zipfile verifies each CRC and byte; a file the host refuses to serve stops the export with no download."
+            }
+          ]
         },
         {
           "id": "revise-page-in-same-session",
@@ -2593,7 +2626,13 @@
           "id": "output-limit-continuations",
           "use": "The model keeps hitting its output limit; Design continues a bounded number of times and then reports the turn as incomplete.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/design_generation_limit_test.mjs",
+              "evidence": "real-model",
+              "covers": "Real DS4 weights with a one-token round bound (hand-run, documented in tests/docs/regression.md): three bounded automatic continuations, then the run is recorded as generation_limit, the runtime returns to its input loop and the previously saved file is kept."
+            }
+          ]
         },
         {
           "id": "invalid-start-request",
@@ -2783,7 +2822,14 @@
           "id": "layout-check-rejects-broken-page",
           "use": "A generated page overflows or overlaps at a checked width; it is not registered as a finished artifact.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime with the installed headless Chrome: artifact() on a page 1124 px wide is refused with rendered-layout findings at 768 and 390 px, no artifact event and no manifest; the same page made to fit has no layout finding."
+            }
+          ]
         },
         {
           "id": "retry-after-truncated-write",
@@ -8517,7 +8563,14 @@
           "id": "export-blueprint-as-svg-or-json",
           "use": "The user exports the blueprint as SVG or JSON.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "The SVG opened from disk shows the four parts, their verification marks and its own styles with no script or external reference; the JSON reopens with 5 of 8 verified, and a blueprint shown as its group overview still exports all twelve parts."
+            }
+          ]
         },
         {
           "id": "sequence-diagram",
@@ -8542,7 +8595,20 @@
           "id": "workflow-dataflow-and-lifecycle-diagrams",
           "use": "The user maps and opens the Workflow, Data flow or Lifecycle diagram kinds.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "Each kind is chosen on the New card and mapped: the production prompt names the kind and its node types, and the written file is drawn with those node types, the kind's default relationship type and its verified-claims count."
+            },
+            {
+              "file": "tests/unit/blueprint_core_test.mjs",
+              "target": "test-blueprint-core",
+              "evidence": "model-free",
+              "covers": "Prompt, node-type fallback, default relationship type and layout direction of Workflow, Data flow and Lifecycle."
+            }
+          ]
         },
         {
           "id": "implement-code-from-blueprint",
@@ -8721,13 +8787,27 @@
           "id": "model-writes-no-usable-blueprint",
           "use": "The Agent ends its turn without writing a usable blueprint file; the panel reports that instead of showing an empty map.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "A map turn that ends without writing its file reports \"ended its turn without saving\" the path, with no pending map and no blank form; a written file with no nodes reports \"the diagram has no nodes\"; nothing is drawn."
+            }
+          ]
         },
         {
           "id": "send-to-design-while-agent-is-working",
           "use": "The user presses Send to Design while the Agent is still working; the engine switch must be confirmed first.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "With the Agent still working, Send to Design asks \"Interrupt the current generation?\"; Cancel starts and interrupts nothing and keeps the Agent conversation, Switch anyway starts Design on design/."
+            }
+          ]
         },
         {
           "id": "reopen-last-blueprint-after-reload",
@@ -8759,7 +8839,14 @@
           "id": "reverify-after-code-changes",
           "use": "The cited code changes after the map was made; the user re-checks and outdated citations are flagged.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "After the cited code is edited, Refresh re-reads the files: 4 of 8 verified, the rewritten call not found, the shifted quotes flagged at their new lines and the blueprint file unchanged; restoring the code restores 5 of 8."
+            }
+          ]
         }
       ]
     },

@@ -1323,6 +1323,13 @@ test-design-archive-build: $(TEST_SERVER)
 test-design-tool-recovery: test-design-self
 	@node tests/integration/design_tool_recovery_test.mjs
 
+# question(), propose() and the artifact layout gate in the real runtime
+# (remote mode, simulated model frames; the installed Chrome renders the page).
+.PHONY: test-design-turn-gates
+test-design-turn-gates: test-design-self
+	@node tests/integration/design_turn_gates_test.mjs
+test-design-runtime: test-design-turn-gates
+
 # Live tool-stanza events (Open IDE preview): real runtime, simulated model.
 .PHONY: test-design-tool-stream
 test-design-tool-stream: test-design-self
@@ -1642,6 +1649,13 @@ test-ui-blueprint: $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 test-ui-browser: test-ui-blueprint
+# Design after the brief (questions above the composer, proposals, zip export):
+# real browser + real host project handlers; simulated Design stream.
+.PHONY: test-ui-design-flow
+test-ui-design-flow: $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_flow_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_flow_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+test-ui-browser: test-ui-design-flow
 # REAL inference (DeepSeek weights, one instance): explicit and sequential.
 .PHONY: test-blueprint-live
 test-blueprint-live: $(BIN)
