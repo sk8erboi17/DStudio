@@ -7,6 +7,7 @@ import {
   createWebPipeline,
   modelJudge,
   startDStudio,
+  ensureChatModel,
   waitForModel,
   writeArtifact,
 } from '../support/real_harness.mjs';
@@ -34,6 +35,7 @@ function assertDStudioGrounding(answer, label) {
 }
 
 try {
+  await ensureChatModel(server);
   await waitForModel(server.baseUrl);
   const pipeline = createWebPipeline(server.baseUrl);
   const settings = {

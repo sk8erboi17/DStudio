@@ -9,6 +9,12 @@ repository root; generated receipts stay in ignored `tests/.artifacts/`.
 
 - `make check-fast` is the broad model-free gate, not a dependency-free check.
 - `make check-real` runs real-model scenarios; `make check` includes both sets.
+  Its three suites (ASCII diagrams, Search/Research, remote) start Chat on
+  their own host with explicit weights: `DSTUDIO_REAL_GGUF`, else the
+  installed DeepSeek V4 Flash Vision-Exp IQ2XXS; without either they stop as
+  BLOCKED. Until November 11, 2026 they waited for the host to start a
+  default model that a fresh profile no longer selects, and failed after 30
+  minutes (`campaign/queue-logs/q5-real-*.log`, retained).
   Those heavy runs require the owner's scope and installed weights.
 - Browser fixtures with simulated model replies verify UI behavior, not inference
   quality. Real extraction, native processes or Metal kernels are identified

@@ -400,6 +400,31 @@ export function safeReadTail(file, max = 12000) {
   }
 }
 
+// A host started with an empty profile selects no model: its built-in default
+// file need not be installed ("engine: no model in DIR - start it from the
+// page"). Tests that need Chat start it explicitly with known weights:
+// DSTUDIO_REAL_GGUF, else the first installed of CHAT_MODEL_PREFERENCE. A
+// missing model is BLOCKED, never a silent fallback to another model.
+export const CHAT_MODEL_PREFERENCE = ['gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf'];
+export function chooseChatModel(installed, requested = process.env.DSTUDIO_REAL_GGUF) {
+  const files = new Set((installed || []).map((g) => g.file));
+  if (requested) {
+    if (!files.has(requested)) throw new Error(`BLOCKED, not a pass: DSTUDIO_REAL_GGUF=${requested} is not installed`);
+    return requested;
+  }
+  const chosen = CHAT_MODEL_PREFERENCE.find((file) => files.has(file));
+  if (!chosen) throw new Error(`BLOCKED, not a pass: none of ${CHAT_MODEL_PREFERENCE.join(', ')} is installed; set DSTUDIO_REAL_GGUF`);
+  return chosen;
+}
+export async function ensureChatModel(server, { gguf, timeoutMs = 0 } = {}) {
+  if (server.external) return null;
+  const st = await jsonFetch(server.baseUrl, '/api/status', { timeoutMs: 5000 });
+  if (st.mode === 'server' && st.running) return st;
+  const file = chooseChatModel(server.ggufs, gguf);
+  return startMode(server.baseUrl, { mode: 'server', model: 'standard', variant: 'flash', gguf: file,
+    ctx: Number(process.env.DSTUDIO_REAL_CTX || 65536), power: 100, think: 'off', ssdStreaming: 'off', workdir: '' }, timeoutMs);
+}
+
 export async function waitForModel(baseUrl, timeoutMs = Number(process.env.DSTUDIO_REAL_TEST_TIMEOUT_MS || 1_800_000)) {
   const deadline = Date.now() + timeoutMs;
   let last = '';
