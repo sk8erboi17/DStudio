@@ -513,10 +513,25 @@ representation; it does not qualify a model's pixel path.
    282 questions of which 60 are unanswerable. `make test-vision-corpus`
    proves on the committed files that each of the 81 pixel-only facts is
    absent from what the production PDF reader extracts without OCR
-   ([what it checks](tests/docs/regression.md#frozen-vision-corpus)). Still
-   open: no model has seen it and no runner or grader for its expected-answer
-   types exists; on macOS the OCR helper can read the image-only pages, so a
-   pixel-path run must disable it or report those pages separately; a
+   ([what it checks](tests/docs/regression.md#frozen-vision-corpus)). Since
+   November 11 a grader exists for its five expected-answer types (pass or
+   fail plus a class, no partial credit). In `make test-vision-corpus` it
+   grades 217 authored English and Italian answers as intended. On the whole
+   manifest, authored correct answers pass 282/282 questions, and answers
+   shifted to another question fail 282/282. A run loop through the production
+   page also exists
+   ([grader and run loop](tests/docs/regression.md#vision-corpus-grader-and-run-loop)).
+   Its SIMULATED check (`make test-vision-corpus-runner`: scripted engine,
+   real test host and page) has one Chat scenario that passes 9/9. That
+   check is unfinished and in no broad gate. Still open: no model has seen
+   the corpus. The real runner (`tests/live/vision_corpus_live.mjs`: model
+   launch, identities, `--ocr off`, `--expect text-only`, `--switch-sequence`)
+   is not written. The simulated scenarios for OCR, `evidence_page_not_sent`,
+   hallucination, engine error, Stop and text-only isolation are not written
+   either. Agent, Cowork and Learn have never run through the loop.
+   `tests/live/ui_live_vision_playwright_test.mjs` still attaches no image and
+   grades no reply. On macOS the OCR helper can read the image-only pages, so
+   a pixel-path run must disable it or report those pages separately. A
    whole-document read hands at most four rendered pages to native vision, so
    some pixel-only facts on later pages need a page-directed question.
 4. Run real answer checks with the actual selected model/component in all four

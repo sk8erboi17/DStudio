@@ -191,8 +191,8 @@ question it records the prompt, the expected result and the evidence:
 - `expected.type` is `exact` (the answer states this value), `number` (within
   the absolute `tolerance`, zero when absent), `one-of` (any listed value),
   `all-of` (every listed value) or `unanswerable` (the answer says that the
-  input does not contain it and gives no value). No grader exists yet; one has
-  to be written and tested before these types are scored.
+  input does not contain it and gives no value). The grader is described
+  [below](#vision-corpus-grader-and-run-loop).
 - `evidence.fact` is the literal the answer rests on, on physical page
   `evidence.page` (or image `evidence.image` of a set). `pixelOnly: false`
   means it is in that page's text layer. `pixelOnly: true` means it is drawn
@@ -279,6 +279,63 @@ What the corpus and its test do not establish:
 - The absence proof covers extracted text and the information fields. The
   PDFs were generated untagged, without outline, form or XMP stream; the test
   does not look for such channels.
+
+<a id="vision-corpus-grader-and-run-loop"></a>
+**Vision corpus grader and run loop (model-free; the real runner is not
+written).** `tests/support/vision_corpus_grader.mjs`
+(`dstudio.vision-corpus-grader.v1`) grades one final answer against one
+question. A grade is pass or fail plus a diagnostic class, never partial
+credit. Its header states the exact rules. In short:
+
+- `number`: exactly one candidate number equal to `value` within `tolerance`.
+  `49,10` and `49.10` are the same number. `2.500` is read in the item's
+  language. Numbers from the question and from the evidence operands are
+  context, so "318 + 440 = 758" passes. "Alder 318, Birch 472 … together 758"
+  fails as `value_among_others`.
+- `exact`: case, whitespace, dashes, quotes and accents of the value are
+  normalised. Times, dates, weekdays, months, colours, ordinals, shapes and
+  compass points are compared by meaning in English and Italian, and another
+  member of the same family is a competitor. A name or code given as one
+  entry of a list of same-shaped guesses ("Marenka Dolvich, Petra Novak",
+  "BR-6093, BR-6039") fails as `value_among_others`. "X or Y" fails as
+  `hedged`.
+- `one-of`: any listed value under the `exact` rule; the other listed values
+  are synonyms.
+- `all-of`: every listed value, with no competitor. `partial` when some are
+  missing.
+- `unanswerable`: the answer says, in English or Italian, that the input does
+  not contain or show the thing. It passes as `honest_refusal`. It fails as
+  `refused_then_guessed` when a guess follows, as `refused_but_value_asserted`
+  when a clause affirms a value absent from the question and the known input,
+  and as `no_refusal` otherwise.
+
+`node tests/unit/vision_corpus_grader_test.mjs` (in `make test-vision-corpus`)
+grades 217 authored answers, English and Italian. They cover accepted forms,
+near-misses, hedged lists, hallucinated values and empty answers. On the
+whole manifest it checks that an answer built from each `expected` passes all
+282 questions, and that the answer to the next question with a different
+expectation fails all 282. The answers are written by hand and prove nothing
+about a model. Limit: a name elsewhere in a sentence, not listed beside the
+value, is not detected as a competitor. The raw answer stays in every receipt.
+
+`tests/support/vision_corpus_runner.mjs` is the run loop through the
+production page. It attaches the item's files by their opaque names, asks the
+question and reads the final answer from the persisted conversation. For each
+question it records the `/v1/chat/completions` bodies the page sent (image
+parts with SHA-256 matched to corpus files or rendered PDF pages, text-layer
+versus OCR page blocks, any vision payload), the PDF reads and which sent
+representation could carry the fact. It classifies `evidence_page_not_sent`
+and `answerable-from-ocr`. Simulated only, `make test-vision-corpus-runner`
+runs it against the real test host and its page in headless Chromium, with a
+scripted engine behind the host's `/v1` relay and a status overlay as
+launcher. Its single scenario passes 9/9 rows (Chat, `p01` and `i21`, authored
+correct answers): the files are attached in order under their opaque names,
+the image part is the corpus file byte for byte, the PDF fact travels in the
+text layer, and no item id reaches the engine. It is unfinished and in no
+broad gate. Not yet written: the real runner `tests/live/vision_corpus_live.mjs`;
+the simulated scenarios for OCR on and off, `evidence_page_not_sent`,
+hallucination, engine error, Stop, text-only isolation and vision → text →
+vision; Agent, Cowork and Learn (their code paths have never run).
 
 Run `node tests/browser/ui_model_picker_playwright_test.mjs` (also with
 `DSTUDIO_TEST_BROWSER=webkit`) for the composer picker. This uses a simulated

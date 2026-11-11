@@ -145,4 +145,5 @@ directly to the corresponding guide and section.
 - <a id="small-ssd-prefill-batches-real-metal-128k-context"></a>[Small SSD prefill batches (real Metal, 128k context)](docs/regression.md#small-ssd-prefill-batches-real-metal-128k-context)
 - <a id="model-free-checks"></a>[Model-free checks](docs/regression.md#model-free-checks)
 - <a id="frozen-vision-corpus"></a>[Frozen vision corpus (PDFs and images)](docs/regression.md#frozen-vision-corpus)
+- <a id="vision-corpus-grader-and-run-loop"></a>[Vision corpus grader and run loop](docs/regression.md#vision-corpus-grader-and-run-loop)
 - <a id="lan-sessions-ocr-and-cowork-limits-october-3-2026"></a>[LAN, sessions, OCR and Cowork limits (October 3, 2026)](docs/regression.md#lan-sessions-ocr-and-cowork-limits-october-3-2026)

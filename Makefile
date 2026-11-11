@@ -1413,13 +1413,23 @@ check-fast: test-pdf-benchmark-tools
 
 # Frozen public vision corpus (PLAN.MD P4 item 3): recorded bytes, page counts
 # and the proof that pixel-only facts are absent from the text the PDF reader
-# extracts (model-free host, OCR disabled, plus Poppler directly). Needs
-# Poppler, like the reader. No model, browser or network; it qualifies no model.
+# extracts (model-free host, OCR disabled, plus Poppler directly), then the
+# grader of its expected-answer types on authored answers and on the whole
+# manifest. Needs Poppler, like the reader. No model, browser or network; it
+# qualifies no model.
 .PHONY: test-vision-corpus
 test-vision-corpus: $(TEST_SERVER)
 	@node tests/integration/vision_corpus_test.mjs $(TEST_SERVER)
+	@node tests/unit/vision_corpus_grader_test.mjs
 
 check-fast: test-vision-corpus
+
+# SIMULATED and unfinished: the corpus run loop against the real test host and
+# its page in headless Chromium, with a scripted engine and status overlay.
+# One Chat scenario so far; not in a broad gate.
+.PHONY: test-vision-corpus-runner
+test-vision-corpus-runner: $(TEST_SERVER)
+	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER)
 
 # Real helper and Vision OCR on generated scans; no model. macOS only.
 test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)
