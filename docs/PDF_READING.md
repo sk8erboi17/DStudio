@@ -72,6 +72,18 @@ Vision's confidence is not a reliable error signal: on a generated test scan
 it read "Applied" as "AppLiea" at confidence 1.0. Treat OCR figures and names
 as readings to check.
 
+## Password-protected and very long PDFs
+
+- A PDF that needs a password to open cannot be read. Its attachment tile
+  says so as soon as it is added and Send stays blocked until it is removed;
+  nothing is planned or sent to the model. A PDF that is encrypted only to
+  restrict printing or copying opens without a password and is read normally.
+- Very long PDFs are never sent whole: the reader keeps per-page bookkeeping
+  for the first 2,000 pages. A page range past that ceiling, or past the end,
+  is refused with the document's real size so the planner can choose again.
+
+`make test-pdf-limits` checks both with PDFs generated at run time.
+
 ## Verification
 
 Run `make test-pdf-complete` with Poppler, Node, Playwright and WebKit installed

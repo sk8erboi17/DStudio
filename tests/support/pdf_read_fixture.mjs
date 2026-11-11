@@ -1,6 +1,7 @@
 // Deterministic PDF inputs for reader tests, not user-facing authored files.
 // Each line is placed explicitly; Poppler supplies the independent extraction.
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,6 +53,63 @@ export function pdfFixture(pages) {
   });
   const xref = Buffer.byteLength(pdf, 'latin1');
   pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+// Text pages encrypted with the PDF Standard security handler (RC4, 128-bit
+// key, revision 3; ISO 32000-1 algorithms 1, 2, 3 and 5). A non-empty user
+// password is required to open the document; with only an owner password it
+// opens without one. Poppler, given the password, is the independent check.
+const PDF_PASSWORD_PAD = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex');
+const md5 = (...parts) => { const h = crypto.createHash('md5'); for (const part of parts) h.update(part); return h.digest(); };
+function rc4(key, data) {
+  const s = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 0, j = 0; i < 256; i++) { j = (j + s[i] + key[i % key.length]) & 255; [s[i], s[j]] = [s[j], s[i]]; }
+  const out = Buffer.alloc(data.length);
+  for (let k = 0, i = 0, j = 0; k < data.length; k++) {
+    i = (i + 1) & 255; j = (j + s[i]) & 255; [s[i], s[j]] = [s[j], s[i]];
+    out[k] = data[k] ^ s[(s[i] + s[j]) & 255];
+  }
+  return out;
+}
+const padPassword = (password) => Buffer.concat([Buffer.from(password, 'latin1'), PDF_PASSWORD_PAD]).subarray(0, 32);
+const rc4Rounds = (key, data) => {
+  let out = rc4(key, data);
+  for (let i = 1; i <= 19; i++) out = rc4(Buffer.from(key.map((byte) => byte ^ i)), out);
+  return out;
+};
+
+export function encryptedPdfFixture(pages, { userPassword = '', ownerPassword = 'owner-secret', permissions = -3904 } = {}) {
+  const id = md5(Buffer.from(`dstudio-fixture:${userPassword}:${ownerPassword}:${pages.length}`));
+  let ownerKey = md5(padPassword(ownerPassword || userPassword));
+  for (let i = 0; i < 50; i++) ownerKey = md5(ownerKey);
+  const O = rc4Rounds(ownerKey, padPassword(userPassword));
+  const P = Buffer.alloc(4); P.writeInt32LE(permissions);
+  let key = md5(padPassword(userPassword), O, P, id);
+  for (let i = 0; i < 50; i++) key = md5(key);
+  const U = Buffer.concat([rc4Rounds(key, md5(PDF_PASSWORD_PAD, id)), Buffer.alloc(16)]);
+  const objectKey = (num) => md5(key, Buffer.from([num & 255, (num >> 8) & 255, (num >> 16) & 255, 0, 0])).subarray(0, 16);
+  const objects = ['', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'];
+  const kids = [];
+  for (const page of pages) {
+    const pageId = objects.length + 1;
+    kids.push(`${pageId} 0 R`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId + 1} 0 R >>`);
+    const size = page.size || 9;
+    const plain = Buffer.from(page.lines.map((line, i) => `BT /F1 ${size} Tf 30 ${760 - i * (size + 3)} Td (${line.replace(/([\\()])/g, '\\$1')}) Tj ET`).join('\n'), 'latin1');
+    const sealed = rc4(objectKey(pageId + 1), plain);
+    objects.push(`<< /Length ${sealed.length} >>\nstream\n${sealed.toString('latin1')}\nendstream`);
+  }
+  objects[0] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+  objects.push(`<< /Filter /Standard /V 2 /R 3 /Length 128 /P ${permissions} /O <${O.toString('hex')}> /U <${U.toString('hex')}> >>`);
+  const encryptId = objects.length;
+  let pdf = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((o, i) => { offsets.push(Buffer.byteLength(pdf, 'latin1')); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}` +
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Encrypt ${encryptId} 0 R /ID [<${id.toString('hex')}> <${id.toString('hex')}>] >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(pdf, 'latin1');
 }
 

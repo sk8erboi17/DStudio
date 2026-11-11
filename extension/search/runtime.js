@@ -2123,7 +2123,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const sources = researchAnswerSources(state, facts);
         const limitation = state.stopReason ? `Research limitation: ${state.stopReason}\nDo not present this evidence as a complete investigation.\n\n` : '';
         if (options.research && options.report) return limitation + buildFinalResearchContext(query, sources, facts, options.report, options.synthesisError || '');
-        return limitation + buildFactsContext(query, sources, facts, options);
+        // No extracted fact means no web evidence: an empty context makes the
+        // caller report the failure instead of letting the model answer from
+        // memory under a bare limitation note.
+        const evidence = buildFactsContext(query, sources, facts, options);
+        return evidence ? limitation + evidence : '';
       }
 
       function addSourceToState(state, source) {
@@ -2477,6 +2481,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
         }
         researchAdmissionOpen(state);
+        // Nothing could be searched or read (offline, blocked, unreachable):
+        // that, not a generic budget or stall, is why there is no evidence.
+        const webFailures = state.trace.filter(step => step.state === 'error' && (step.label === 'Search' || step.label === 'Read URL'));
+        const webReached = state.trace.some(step => step.state === 'done' && step.label === 'Search') ||
+          [...state.byUrl.values()].some(source => source.read && !source.unusable);
+        if (!state.facts.length && webFailures.length && !webReached)
+          state.stopReason = `No web page could be searched or read. ${webFailures.at(-1).detail}`;
         if (state.judge.decision !== 'enough') state.stopReason ||= state.limitReason || 'Read evidence did not resolve every requested detail.';
         if (!state.facts.length) state.stopReason ||= 'no extracted facts';
         if (state.stopReason) state.judge = { ...state.judge, decision: 'incomplete',

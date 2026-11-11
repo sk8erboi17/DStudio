@@ -192,6 +192,20 @@ source highlights. Only the browser's engine response is simulated; no model
 is loaded. Reports/screenshots are kept in ignored `tests/.artifacts/pdf-complete-*`.
 See [the reading design and limits](../../docs/PDF_READING.md).
 
+`make test-pdf-limits` (in `check-fast`; Poppler and Playwright required)
+generates two PDFs at run time instead of committing binaries: one encrypted
+with a user password (RC4-128, checked with Poppler and the password) and one
+with 2,500 pages. Against the real host it checks that the password-protected
+file is refused by every read and by the preview with a `password-protected`
+message and no text, while an owner-password-only file is read; that the long
+file is never sent whole, its overview stays within the character budget, a
+late page is read exactly and a page past the 2,000-page ceiling or past the
+end is refused with the document size; and, with a FIFO holding one read open,
+that status and another PDF read are still served. In WebKit and Chromium the
+page served by the host marks the protected file's tile as not read and blocks
+Send, and sends the long file to a simulated model as a bounded, labelled
+excerpt. Receipts go to ignored `tests/.artifacts/pdf-limits-*`.
+
 For PDF evidence, run `make test-pdf-evidence`, also with
 `DSTUDIO_TEST_BROWSER=webkit`: each invocation runs one browser (installed
 Chrome by default), and the target is explicit, not part of `check-fast`. It
@@ -856,6 +870,22 @@ isolation, Stop, fragmented UTF-8 SSE, visible incomplete outcomes and retained
 failed receipts on retry. Screenshots and receipts go to ignored
 `tests/.artifacts/research-progress-browser/`. This is model-free browser/runtime
 coverage; it does not start the quality corpus or assess a real research answer.
+
+`make test-web-research-host` (in `check-fast`) runs
+`tests/integration/web_research_host_test.mjs` in Chromium and WebKit against
+the real test host and the page it serves. The page reads, the host's search
+and the store are real; model replies and the launcher are simulated, and in
+the first scenario search results list pages the test serves on loopback. Every
+proxy variable of the host points at a closed local port with loopback exempt,
+so nothing leaves the machine and anything beyond loopback fails as it does
+offline. It checks that a 403 page, a dropped connection and a refused port
+come back as failed reads named in the trace and never reach the extractor or
+the saved evidence; that the delivered answer's `[S1]` citation and source
+card open the read page and `[F1]` stays in the answer; and that with the
+network unreachable both Deep Research and Web Search end with a visible
+failure saying no search provider could be reached, without asking the model
+to write an answer. Receipts and screenshots go to ignored
+`tests/.artifacts/web-research-host/`.
 
 For a new measured replay, `--before COMMIT` records the intended historical
 runtime; `--variants after` keeps all four questions without re-running that

@@ -3910,7 +3910,14 @@
           "id": "answer-shows-clickable-citations",
           "use": "The delivered answer shows clickable citations and source cards the user can open.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "Deep Research in the production page served by the real host with authored model replies: the delivered answer's [S1] citation and its source card open the read page in a new window, and [F1] links to an anchor inside the answer."
+            }
+          ]
         },
         {
           "id": "page-and-source-limits-respected",
@@ -4228,7 +4235,14 @@
           "id": "page-cannot-be-read",
           "use": "A selected page cannot be loaded (blocked, timed out, offline); it does not count as evidence and the run goes on or says what is missing.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "The real host reads four loopback pages (one readable, one HTTP 403, one dropped connection, one refused port): the three failures come back as failed reads named in the visible trace, only the readable page reaches the extractor and the saved evidence, and the answer is still delivered."
+            }
+          ]
         },
         {
           "id": "instructions-hidden-in-a-web-page",
@@ -4240,7 +4254,14 @@
           "id": "no-internet-connection",
           "use": "The computer is offline when Web Search or Deep Research starts; the user gets a clear failure rather than an invented answer.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "The host's network path fails beyond loopback: its real /api/web-search reports that no provider could be reached, and Deep Research and Web Search both end with a visible failure saying so, without a writer or answer request to the model."
+            }
+          ]
         },
         {
           "id": "stop-research",
@@ -4808,13 +4829,39 @@
           "id": "password-protected-pdf",
           "use": "The user attaches an encrypted or password-protected PDF; the app says it cannot be read.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "model-free",
+              "covers": "A PDF generated at run time with a user password: every describe profile, the text format and the preview of the real host answer 422 encrypted with a password-protected message and no text; an owner-password-only PDF is still read."
+            },
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "simulated",
+              "covers": "Attaching that PDF in the production page served by the real host marks its tile not read with the reason, shows a toast, blocks Send without any model request, and removing it restores Send."
+            }
+          ]
         },
         {
           "id": "very-long-pdf",
           "use": "The user attaches a PDF with hundreds or thousands of pages; reading stays bounded and responsive.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "model-free",
+              "covers": "A 2,500-page PDF generated at run time: the complete probe asks for a read plan, the overview stays within its character budget and page sample, a late page is read exactly, pages past the 2,000-page ceiling or the end are refused with the document size, and a held read does not delay status or another PDF read."
+            },
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "simulated",
+              "covers": "Attaching the 2,500-page PDF in the production page sends one planner request and an answer request carrying a bounded excerpt labelled with the sampled share of the 2,500 pages."
+            }
+          ]
         },
         {
           "id": "corrupt-image",

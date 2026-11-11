@@ -20205,7 +20205,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const nativeImages = nativeModelImagesForHistory(chat, nativeModelVision);
         const msgs = chat.messages
           .filter((m) => !m.streaming && (m.role === 'user' || (m.role === 'assistant' && m.content &&
-            (chat.mode !== 'roadmap' || !m.roadmapVerification || !!roadmapForMessage(m)))))
+            (chat.mode !== 'roadmap' || !m.roadmapVerification || m.roadmapVerification.status === 'verified'))))
           .map((m) => ({ role: m.role, content: msgContentForModel(m, nativeImages) }));
         const hasDeepResearchContext = msgs.some((m) => m.role === 'user' && String(m.content || '').includes('[Deep research context]'));
         const hasSynthesizedResearchReport = msgs.some((m) => m.role === 'user' && String(m.content || '').includes('[Synthesized research report]'));
@@ -22216,7 +22216,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         const sources = researchAnswerSources(state, facts);
         const limitation = state.stopReason ? `Research limitation: ${state.stopReason}\nDo not present this evidence as a complete investigation.\n\n` : '';
         if (options.research && options.report) return limitation + buildFinalResearchContext(query, sources, facts, options.report, options.synthesisError || '');
-        return limitation + buildFactsContext(query, sources, facts, options);
+        // No extracted fact means no web evidence: an empty context makes the
+        // caller report the failure instead of letting the model answer from
+        // memory under a bare limitation note.
+        const evidence = buildFactsContext(query, sources, facts, options);
+        return evidence ? limitation + evidence : '';
       }
 
       function addSourceToState(state, source) {
@@ -22570,6 +22574,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           }
         }
         researchAdmissionOpen(state);
+        // Nothing could be searched or read (offline, blocked, unreachable):
+        // that, not a generic budget or stall, is why there is no evidence.
+        const webFailures = state.trace.filter(step => step.state === 'error' && (step.label === 'Search' || step.label === 'Read URL'));
+        const webReached = state.trace.some(step => step.state === 'done' && step.label === 'Search') ||
+          [...state.byUrl.values()].some(source => source.read && !source.unusable);
+        if (!state.facts.length && webFailures.length && !webReached)
+          state.stopReason = `No web page could be searched or read. ${webFailures.at(-1).detail}`;
         if (state.judge.decision !== 'enough') state.stopReason ||= state.limitReason || 'Read evidence did not resolve every requested detail.';
         if (!state.facts.length) state.stopReason ||= 'no extracted facts';
         if (state.stopReason) state.judge = { ...state.judge, decision: 'incomplete',
@@ -23984,7 +23995,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
           : buildWebContext(query, sources, webResult.plan));
         if (!context) {
           const msg = Store.mkMessage('assistant', '');
-          msg.content = webMode === 'research' ? 'Deep Research returned no usable evidence.' : 'Web search returned no usable sources.';
+          const why = String(webResult.stopReason || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+          msg.content = (webMode === 'research' ? 'Deep Research returned no usable evidence.' : 'Web search returned no usable sources.') +
+            (why ? ` ${why}` : '');
           msg.finishReason = 'error';
           msg.error = { message: msg.content };
           Store.appendMessage(chat.id, msg);
@@ -26454,6 +26467,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             body: JSON.stringify({ data_uri: pdfBytes }),
           }).then(response => response.json()).catch(() => ({}));
           assertCurrent();
+          // Without its password no page can be read: say so now, on the tile,
+          // instead of planning and sending a document nobody can open.
+          if (r?.encrypted === true) throw new Error(r.error || 'This PDF is password-protected.');
           candidate.thumb = r?.ok && r.thumb ? await shrinkDataUri(r.thumb, 640, .82) : '';
           assertCurrent(); entry.dataUri = r?.thumb || candidate.thumb; entry.pdfBytes = pdfBytes;
         } else {

@@ -713,10 +713,24 @@ static char *web_curl_capture(char *const argv[], int timeout_ms, int *exit_stat
 #endif
 }
 
+/* curl -sS writes its own failure ("curl: (6) Could not resolve host: …") into
+ * the captured stream. A transfer that failed (offline, refused, reset, timed
+ * out) is a failed request, never page text or an empty result list. */
+static int web_curl_failed(const char *raw, int st, const char *what, char *err, size_t err_len) {
+    if (st == 0) return 0;
+    if (st == 124) { snprintf(err, err_len, "%s timed out", what); return 1; }
+    const char *line = raw ? strstr(raw, "curl: (") : NULL;
+    int n = line ? (int)strcspn(line, "\r\n") : 0;
+    if (n > 200) n = 200;
+    if (line) snprintf(err, err_len, "%s could not be reached (%.*s)", what, n, line);
+    else snprintf(err, err_len, "%s could not be reached (curl exit %d)", what, st);
+    return 1;
+}
+
 static int web_duckduckgo_search(const char *query, web_source_list *sources,
-                                 char *err, size_t err_len) {
+                                 char *err, size_t err_len, int *unreachable) {
 #ifdef _WIN32
-    (void)query; (void)sources;
+    (void)query; (void)sources; (void)unreachable;
     snprintf(err, err_len, "DuckDuckGo fallback is not available in the Windows build yet");
     return 0;
 #else
@@ -734,8 +748,13 @@ static int web_duckduckgo_search(const char *query, web_source_list *sources,
     int st = 0;
     char *html = web_curl_capture(argv, 60000, &st);
     free(qarg);
+    if (web_curl_failed(html, st, "DuckDuckGo fallback", err, err_len)) {
+        *unreachable = 1;
+        free(html);
+        return 0;
+    }
     if (!html || !html[0]) {
-        snprintf(err, err_len, "%s", st == 124 ? "DuckDuckGo fallback timed out" : "DuckDuckGo fallback returned no data");
+        snprintf(err, err_len, "%s", "DuckDuckGo fallback returned no data");
         free(html);
         return 0;
     }
@@ -810,9 +829,9 @@ static int web_sources_parse_brave(const char *html, web_source_list *sources) {
 }
 
 static int web_brave_search(const char *query, web_source_list *sources,
-                            char *err, size_t err_len) {
+                            char *err, size_t err_len, int *unreachable) {
 #ifdef _WIN32
-    (void)query; (void)sources;
+    (void)query; (void)sources; (void)unreachable;
     snprintf(err, err_len, "Brave fallback is not available in the Windows build yet");
     return 0;
 #else
@@ -830,8 +849,13 @@ static int web_brave_search(const char *query, web_source_list *sources,
     int st = 0;
     char *html = web_curl_capture(argv, 60000, &st);
     free(qarg);
+    if (web_curl_failed(html, st, "Brave fallback", err, err_len)) {
+        *unreachable = 1;
+        free(html);
+        return 0;
+    }
     if (!html || !html[0]) {
-        snprintf(err, err_len, "%s", st == 124 ? "Brave fallback timed out" : "Brave fallback returned no data");
+        snprintf(err, err_len, "%s", "Brave fallback returned no data");
         free(html);
         return 0;
     }
@@ -887,9 +911,9 @@ static int web_sources_parse_bing_rss(const char *xml, web_source_list *sources)
 }
 
 static int web_bing_rss_search(const char *query, web_source_list *sources,
-                               char *err, size_t err_len) {
+                               char *err, size_t err_len, int *unreachable) {
 #ifdef _WIN32
-    (void)query; (void)sources;
+    (void)query; (void)sources; (void)unreachable;
     snprintf(err, err_len, "Bing RSS fallback is not available in the Windows build yet");
     return 0;
 #else
@@ -907,8 +931,13 @@ static int web_bing_rss_search(const char *query, web_source_list *sources,
     int st = 0;
     char *xml = web_curl_capture(argv, 60000, &st);
     free(qarg);
+    if (web_curl_failed(xml, st, "Bing RSS fallback", err, err_len)) {
+        *unreachable = 1;
+        free(xml);
+        return 0;
+    }
     if (!xml || !xml[0]) {
-        snprintf(err, err_len, "%s", st == 124 ? "Bing RSS fallback timed out" : "Bing RSS fallback returned no data");
+        snprintf(err, err_len, "%s", "Bing RSS fallback returned no data");
         free(xml);
         return 0;
     }
@@ -969,6 +998,10 @@ static char *web_curl_visit_page(const char *url, char *err, size_t err_len) {
         snprintf(err, err_len, "curl failed to start");
         return NULL;
     }
+    if (web_curl_failed(raw, st, "the page", err, err_len)) {
+        free(raw);
+        return NULL;
+    }
     int status = 0;
     char final_url[2048] = "";
     char *marker = strstr(raw, "\n__DSTUDIO_CURL_META__");
@@ -985,11 +1018,18 @@ static char *web_curl_visit_page(const char *url, char *err, size_t err_len) {
             memcpy(final_url, end, fl); final_url[fl] = '\0';
         }
     }
+    /* A blocked, missing or failing page (403, 404, 429, 5xx) is not evidence:
+     * its body is an error page, not the requested content. */
+    if (status >= 400 || status == 0) {
+        free(raw);
+        if (status) snprintf(err, err_len, "the page answered HTTP %d", status);
+        else snprintf(err, err_len, "the page sent no HTTP response");
+        return NULL;
+    }
     char *text = web_html_text_excerpt(raw, 24000);
     free(raw);
     if (!text || strlen(text) < 24) {
-        snprintf(err, err_len, "%s", st == 124 ? "curl timed out" :
-                 st != 0 ? "curl returned no readable text" : "page returned no readable text");
+        snprintf(err, err_len, "%s", "page returned no readable text");
         free(text);
         return NULL;
     }
@@ -1049,6 +1089,11 @@ static char *web_lan_visit_page(const char *start, int *forbidden, char *err, si
             if (!moved) { snprintf(err, err_len, "redirect without a usable Location"); return NULL; }
             snprintf(url, sizeof url, "%s", next);
             continue;
+        }
+        if (status >= 400) {   /* an error page is not the requested content */
+            free(raw);
+            snprintf(err, err_len, "the page answered HTTP %d", status);
+            return NULL;
         }
         char *text = web_html_text_excerpt(raw, 24000);
         free(raw);

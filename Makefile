@@ -1062,6 +1062,15 @@ test-ui-research-progress:
 
 check-fast: test-ui-research-progress
 
+# Real test host serving the page, real page reads of loopback pages and a
+# network path that fails beyond loopback; simulated model and launcher.
+.PHONY: test-web-research-host
+test-web-research-host: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/integration/web_research_host_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/integration/web_research_host_test.mjs $(TEST_SERVER)
+
+check-fast: test-web-research-host
+
 .PHONY: test-search-publication test-remote-agent-workspace
 test-search-publication:
 	@node tests/unit/search_publication_test.mjs
@@ -1567,6 +1576,15 @@ test-pdf-evidence: $(TEST_SERVER) $(OCR_HELPER)
 .PHONY: test-pdf-complete
 test-pdf-complete: $(TEST_SERVER) test-pdf-ocr
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
+
+# Real reader and Poppler on run-time generated password-protected and
+# 2,500-page PDFs, then the page's attach flow; simulated model replies.
+.PHONY: test-pdf-limits
+test-pdf-limits: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/integration/pdf_limits_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/integration/pdf_limits_test.mjs $(TEST_SERVER)
+
+check-fast: test-pdf-limits
 
 # PDF library benchmark tooling: the benchmark HTTP client, the report builder
 # and the published Matplotlib charts, on controlled inputs. No model or network.

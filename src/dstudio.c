@@ -11222,30 +11222,35 @@ static void api_web_search_run(int fd, const char *body) {
     /* Google occasionally serves an anti-bot page to the browser helper. A
      * successful helper response with zero links is not a successful search:
      * transparently use DuckDuckGo HTML and merge its result links. */
-    int google_blocked = prefer_fallback || !search_md ||
+    int google_blocked = search_md && (
         web_find_ci(search_md, "google.com/sorry/") ||
         web_find_ci(search_md, "unusual traffic") ||
-        web_find_ci(search_md, "detected unusual traffic");
-    int fallback_used = google_blocked || sources.len < 3;
+        web_find_ci(search_md, "detected unusual traffic"));
+    int fallback_used = prefer_fallback || !search_md || google_blocked || sources.len < 3;
     char primary_err[256] = "";
     char fallback_err[256] = "";
     char secondary_err[256] = "";
+    int brave_down = 0, duck_down = 0, bing_down = 0;
     const char *fallback_provider = "Brave fallback";
     if (fallback_used) {
-        int brave_ok = web_brave_search(query, &sources, primary_err, sizeof primary_err);
+        int brave_ok = web_brave_search(query, &sources, primary_err, sizeof primary_err, &brave_down);
         if (!brave_ok || sources.len < 3) {
-            int duck_ok = web_duckduckgo_search(query, &sources, fallback_err, sizeof fallback_err);
+            int duck_ok = web_duckduckgo_search(query, &sources, fallback_err, sizeof fallback_err, &duck_down);
             if (duck_ok) fallback_provider = brave_ok ? "Brave + DuckDuckGo fallback" : "DuckDuckGo fallback";
         }
         if (sources.len < 3) {
-            if (web_bing_rss_search(query, &sources, secondary_err, sizeof secondary_err)) {
+            if (web_bing_rss_search(query, &sources, secondary_err, sizeof secondary_err, &bing_down)) {
                 fallback_provider = sources.len > 10 ? "Multi-provider fallback" : "Bing RSS fallback";
             }
         }
     }
     if (sources.len == 0) {
-        char msg[768];
-        snprintf(msg, sizeof msg, "%s%s%s%s%s%s%s%s%s",
+        /* Every provider failed at the transfer itself (offline, DNS, proxy,
+         * refused): say so first instead of reporting an empty result list. */
+        int offline = brave_down && duck_down && bing_down;
+        char msg[1024];
+        snprintf(msg, sizeof msg, "%s%s%s%s%s%s%s%s%s%s",
+                 offline ? "No web search provider could be reached; check the internet connection. Details: " : "",
                  search_err && search_err[0] ? search_err :
                  (!search_json || !search_json[0] ? "web search helper failed to start" : "browser search returned no links"),
                  primary_err[0] ? "; primary fallback failed: " : "",
@@ -11352,12 +11357,14 @@ static void api_web_read_run(int fd, const char *body) {
         if (visit_md) {
             fallback_used = 1;
         } else {
+            /* The page's own failure (unreachable, HTTP 403/404/5xx) leads;
+             * the browser reader's reason follows as context. */
             char msg[768];
             snprintf(msg, sizeof msg, "%s%s%s",
+                     curl_err[0] ? curl_err : "the page could not be read",
+                     "; browser reader: ",
                      visit_err && visit_err[0] ? visit_err :
-                     (visit_json && visit_json[0] ? "visit_page returned no markdown" : "web read helper failed to start"),
-                     curl_err[0] ? "; curl fallback failed: " : "",
-                     curl_err[0] ? curl_err : "");
+                     (visit_json && visit_json[0] ? "visit_page returned no markdown" : "web read helper failed to start"));
             free(visit_json); free(visit_err);
             web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
             return;
