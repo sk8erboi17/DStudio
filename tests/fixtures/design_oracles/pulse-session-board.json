@@ -1,6 +1,6 @@
 {
   "case": "pulse-session-board",
-  "steps": 2,
+  "steps": 3,
   "faults": [
     {
       "name": "conflict-replaces",
@@ -14,7 +14,7 @@
     },
     {
       "name": "silent-rejection",
-      "caughtAs": "did not match the regular expression /conflict\\|same time",
+      "caughtAs": "Adding Poster room to the taken 10:00 slot produced no explanation of the conflict",
       "flags": ""
     },
     {
@@ -29,18 +29,83 @@
     },
     {
       "name": "filter-drops-choices",
-      "caughtAs": "Expected one accessible Remove on Sound walks",
+      "caughtAs": "The Afternoon filter dropped the saved choice Sound walks",
       "flags": ""
     },
     {
       "name": "missing-empty-review",
-      "caughtAs": "Missing visible content: /empty\\|no sessions/",
+      "caughtAs": "Review my day shows no empty message that appears when no session is selected",
       "flags": ""
     },
     {
       "name": "false-reservation",
-      "caughtAs": "Missing visible content: /No tickets were reserved/",
+      "caughtAs": "Finish demo did not state that No tickets were reserved",
       "flags": ""
+    },
+    {
+      "name": "morning-filter-broken",
+      "caughtAs": "Morning filter still lists Light studies",
+      "flags": ""
+    },
+    {
+      "name": "chosen-rows-ignore-filter",
+      "caughtAs": "Afternoon filter still lists the chosen 10:00 session Sound walks in the programme",
+      "flags": ""
+    },
+    {
+      "name": "silent-rejection-beside-conflict-note",
+      "caughtAs": "Adding Poster room to the taken 10:00 slot produced no explanation of the conflict",
+      "flags": ""
+    },
+    {
+      "name": "empty-message-always-shown",
+      "caughtAs": "Review my day shows no empty message that appears when no session is selected",
+      "flags": ""
+    },
+    {
+      "name": "finish-states-nothing",
+      "caughtAs": "Finish demo did not state that No tickets were reserved",
+      "flags": ""
+    },
+    {
+      "name": "plain-review-insertion-order",
+      "caughtAs": "Rendered order mismatch: Poster room → Light studies",
+      "flags": ""
+    },
+    {
+      "name": "counted-opener-review-insertion-order",
+      "caughtAs": "Rendered order mismatch: Poster room → Light studies",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "chosen-list",
+      "why": "My day also lists the chosen sessions, each with its own Remove, so a chosen title is rendered twice and stays visible under a filter that hides its programme row."
+    },
+    {
+      "name": "conflict-disabled-with-note",
+      "why": "A session whose slot is taken cannot be clicked: its control is disabled and renamed Unavailable, and its row explains the conflict."
+    },
+    {
+      "name": "filter-select",
+      "why": "All, Morning and Afternoon are the options of one select instead of three buttons."
+    },
+    {
+      "name": "title-inside-action-names",
+      "why": "The accessible names put the title inside the action: Add Sound walks to my day."
+    },
+    {
+      "name": "dialog-plain-lines",
+      "why": "Each entry of the dialog is one text, 10:00 — Sound walks, so no element holds the bare title."
+    },
+    {
+      "name": "other-wording",
+      "why": "The dialog button carries the number of chosen sessions, Review my day (2); the refusal says 10:00 is already taken by Sound walks, the empty day Nothing chosen yet, and the finish line starts with Demo finished."
+    },
+    {
+      "name": "titles-in-button-text",
+      "why": "The buttons end with the title in a visually hidden element (Add to my day <span>Sound walks</span>), and each entry of the dialog has its own Remove, so the bare title is rendered twice in a row."
     }
   ]
 }

@@ -8,6 +8,9 @@
 //   node tests/live/host_common_quality.mjs --model gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf --ssd-streaming on
 //     [--quality-use first-exposure|development-replay]   default development-replay
 //     [--ready-timeout-ms N]                              0 = wait for the load without a bound
+//     [--restart-failed-engine]                           after a case whose HTTP exchange did not complete,
+//                                                         stop the host and its engine, start them again and
+//                                                         go on with the next case (at most eight times)
 //
 // The corpus, grader, per-case deadlines and request fields are the frozen ones
 // of tests/support/common_quality_runner.mjs. This runner adds only what the
@@ -15,6 +18,11 @@
 // chat_template_kwargs, as the app's own Chat request does) and records it.
 // A requested SSD-streaming mode that the runtime does not report as effective
 // stops the run before the first case: it is not evidence for that mode.
+// A case that exceeds its frozen deadline leaves the engine generating, so no
+// further request is sent to it. Without --restart-failed-engine the remaining
+// cases stay not run. With it this runner, which owns the host, reaps the host
+// and the engine and starts both again; the failed case is never retried and
+// its receipt is never replaced.
 // Receipts stay in ignored tests/.artifacts/host-common-quality/run-*/.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,6 +33,7 @@ import { artifactRunDir, csrfHeaders, jsonFetch, resolveDStudioBinary, safeReadT
 import { createCommonQuality, finishCommonQuality, runCommonQuality } from '../support/common_quality_runner.mjs';
 import { contamination, isEngineProcess, parsePs, preflight } from '../support/heavy_preflight.mjs';
 import { engineIdentity, patchSetHash, repoIdentity, sha256File, weightIdentity } from '../support/campaign_identity.mjs';
+import { toolchain } from '../support/quality_baseline.mjs';
 
 const root = process.cwd();
 const option = (name, fallback) => { const i = process.argv.indexOf(name); return i < 0 ? fallback : process.argv[i + 1]; };
@@ -32,6 +41,7 @@ const modelFile = option('--model', '');
 const ssdStreaming = option('--ssd-streaming', 'off');
 const qualityUse = option('--quality-use', 'development-replay');
 const readyTimeoutMs = Number(option('--ready-timeout-ms', '0'));
+const restartFailedEngine = process.argv.includes('--restart-failed-engine');
 assert.ok(modelFile && !path.isAbsolute(modelFile) && !modelFile.split('/').includes('..'), '--model is a path inside the model store, for example gguf/NAME.gguf');
 assert.ok(['on', 'off'].includes(ssdStreaming), '--ssd-streaming is on or off');
 assert.ok(['first-exposure', 'development-replay'].includes(qualityUse), '--quality-use must distinguish first exposure from development replay');
@@ -50,7 +60,7 @@ const run = artifactRunDir('host-common-quality');
 const report = { schema: 'dstudio.host-common-quality.v1', started: new Date().toISOString(), status: 'running',
   scope: 'REAL inference through the production host: frozen common-100 answers with an independent grader. Not numerical parity, vision, tool-loop or desktop qualification.',
   selection: { modelFile, engine, catalogId: variant?.id || null, quantization: variant?.quant || null }, qualityUse,
-  requested: { ssdStreaming, think: 'off' }, runner: { sha256: await sha256File(new URL(import.meta.url)) } };
+  requested: { ssdStreaming, think: 'off', restartFailedEngine }, runner: { sha256: await sha256File(new URL(import.meta.url)) } };
 const save = () => writeArtifact(run, 'results.json', report);
 console.log(`Evidence: ${run}`); save();
 
@@ -100,37 +110,44 @@ try {
   if (variant) assert.ok(report.weights.verified, 'the installed weights do not match the pinned catalog (BLOCKED, not a pass)');
 
   const settings = quality.manifest.settings;
-  const launch = { mode: 'server', model: 'standard', variant: 'flash', gguf: modelFile, port: server.enginePort,
-    ctx: settings.context, power: 100, think: 'off', ssdStreaming, dspark: false, workdir: '' };
-  report.launch = launch; save();
-  const loadStarted = performance.now();
-  const started = await jsonFetch(server.baseUrl, '/api/start', { method: 'POST', headers: csrfHeaders, body: JSON.stringify(launch), timeoutMs: readyTimeoutMs });
-  assert.ok(started.ok, `launch refused: ${JSON.stringify(started)}`);
-  let status;
-  for (;;) {
-    status = await jsonFetch(server.baseUrl, '/api/status', { timeoutMs: 10000 });
-    if (status.ready && status.mode === 'server') break;
-    if (status.running === false && status.engineError) throw new Error(`engine stopped during startup: ${status.engineError}`);
-    assert.ok(server.child.exitCode === null, 'the host exited during startup');
-    if (readyTimeoutMs > 0 && performance.now() - loadStarted > readyTimeoutMs) throw new Error('the model did not become ready (BLOCKED, not a pass)');
-    await sleep(1000);
-  }
-  report.loadSeconds = (performance.now() - loadStarted) / 1000;
-  report.effective = { modelFile: status.modelFile, ssdStreaming: status.config?.ssdStreaming ?? status.ssdStreaming,
-    ssdStreamingEffective: status.config?.ssdStreamingEffective ?? status.ssdStreamingEffective,
-    ssdStreamingReason: status.config?.ssdStreamingReason ?? status.ssdStreamingReason,
-    ctx: status.config?.ctx, residentPid: status.residentPid, status };
+  // Ask the host to launch the model and wait until it reports it ready, in
+  // the requested memory mode. Used for the first start and for a restart.
+  const launchModel = async () => {
+    const launch = { mode: 'server', model: 'standard', variant: 'flash', gguf: modelFile, port: server.enginePort,
+      ctx: settings.context, power: 100, think: 'off', ssdStreaming, dspark: false, workdir: '' };
+    const loadStarted = performance.now();
+    const started = await jsonFetch(server.baseUrl, '/api/start', { method: 'POST', headers: csrfHeaders, body: JSON.stringify(launch), timeoutMs: readyTimeoutMs });
+    assert.ok(started.ok, `launch refused: ${JSON.stringify(started)}`);
+    let status;
+    for (;;) {
+      status = await jsonFetch(server.baseUrl, '/api/status', { timeoutMs: 10000 });
+      if (status.ready && status.mode === 'server') break;
+      if (status.running === false && status.engineError) throw new Error(`engine stopped during startup: ${status.engineError}`);
+      assert.ok(server.child.exitCode === null, 'the host exited during startup');
+      if (readyTimeoutMs > 0 && performance.now() - loadStarted > readyTimeoutMs) throw new Error('the model did not become ready (BLOCKED, not a pass)');
+      await sleep(1000);
+    }
+    const effective = { modelFile: status.modelFile, ssdStreaming: status.config?.ssdStreaming ?? status.ssdStreaming,
+      ssdStreamingEffective: status.config?.ssdStreamingEffective ?? status.ssdStreamingEffective,
+      ssdStreamingReason: status.config?.ssdStreamingReason ?? status.ssdStreamingReason,
+      ctx: status.config?.ctx, residentPid: status.residentPid, status };
+    assert.equal(status.modelFile, modelFile, 'the host loaded another model');
+    assert.equal(effective.ssdStreamingEffective, ssdStreaming === 'on',
+      `SSD streaming requested ${ssdStreaming} but the runtime reports effective=${effective.ssdStreamingEffective} (${effective.ssdStreamingReason || 'no reason'}): not evidence for this memory mode`);
+    return { launch, effective, loadSeconds: (performance.now() - loadStarted) / 1000 };
+  };
+  // Engine processes started under this run's host.
+  const discoverOwnedEngines = () => {
+    const table = parsePs(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,rss=,command='], { encoding: 'utf8', timeout: 10000, maxBuffer: 16 * 1024 ** 2 }));
+    const under = new Set([server.child.pid]);
+    for (let grew = true; grew;) { grew = false; for (const row of table) if (under.has(row.ppid) && !under.has(row.pid)) { under.add(row.pid); grew = true; } }
+    return table.filter((row) => under.has(row.pid) && row.pid !== server.child.pid && isEngineProcess(row))
+      .map((row) => ({ pid: row.pid, command: row.command }));
+  };
+  const first = await launchModel();
+  report.launch = first.launch; report.loadSeconds = first.loadSeconds; report.effective = first.effective;
   save();
-  assert.equal(status.modelFile, modelFile, 'the host loaded another model');
-  assert.equal(report.effective.ssdStreamingEffective, ssdStreaming === 'on',
-    `SSD streaming requested ${ssdStreaming} but the runtime reports effective=${report.effective.ssdStreamingEffective} (${report.effective.ssdStreamingReason || 'no reason'}): not evidence for this memory mode`);
-
-  // Engine processes started under this run's host, and what they report.
-  const table = parsePs(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,rss=,command='], { encoding: 'utf8', timeout: 10000, maxBuffer: 16 * 1024 ** 2 }));
-  const under = new Set([server.child.pid]);
-  for (let grew = true; grew;) { grew = false; for (const row of table) if (under.has(row.ppid) && !under.has(row.pid)) { under.add(row.pid); grew = true; } }
-  ownedEngines = table.filter((row) => under.has(row.pid) && row.pid !== server.child.pid && isEngineProcess(row))
-    .map((row) => ({ pid: row.pid, command: row.command }));
+  ownedEngines = discoverOwnedEngines();
   const enginePort = `http://127.0.0.1:${server.enginePort}`;
   // llama.cpp and MLX are installed beside the ds4 store, which need not be
   // inside this source tree (a frozen worktree runs against the installed engines).
@@ -159,10 +176,31 @@ try {
 
   quality.report.runtime = { engine, selection: report.selection, weights: { totalBytes: report.weights.totalBytes,
     files: report.weights.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })) },
-    host: report.host, launch, effective: { ssdStreamingEffective: report.effective.ssdStreamingEffective, ctx: report.effective.ctx },
-    engine: report.engine, hardware: before.host, memoryBytes: before.memory.totalBytes };
+    host: report.host, launch: report.launch, effective: { ssdStreamingEffective: report.effective.ssdStreamingEffective, ctx: report.effective.ctx },
+    engine: report.engine, hardware: before.host, memoryBytes: before.memory.totalBytes, toolchainAtRun: toolchain() };
   const requestExtras = engine === 'ds4' ? {} : { chat_template_kwargs: { enable_thinking: false } };
+  const restart = async ({ afterCaseId }) => {
+    assert.ok(!interrupted, 'the run was interrupted; no engine restart');
+    const row = { afterCaseId, started: new Date().toISOString(), previousHostPid: server.child.pid, previousEngines: ownedEngines.map((e) => e.pid) };
+    (report.restarts ??= []).push(row); save();
+    await shutdown();
+    assert.deepEqual(report.teardown.leftRunning, [], 'the previous engine must be gone before its replacement starts');
+    row.reaped = new Date().toISOString(); save();
+    assert.ok(!interrupted, 'the run was interrupted during engine teardown');
+    // The same bytes that were verified at the start (a cache hit unless the file changed).
+    const again = await weightIdentity(target, { cacheFile: path.join(root, 'tests/.artifacts/campaign/weight-sha256.json'), pinned });
+    assert.deepEqual(again.files.map((f) => [f.name, f.sha256]), report.weights.files.map((f) => [f.name, f.sha256]), 'the weights changed before the restart');
+    assert.equal(await sha256File(hostBinary), report.host.binarySha256, 'the host binary changed during the evaluation');
+    server = await startDStudio({ label: 'host-common', isolatedEnginePort: true, ignoreExternal: true });
+    const next = await launchModel();
+    ownedEngines = discoverOwnedEngines();
+    Object.assign(row, { ready: new Date().toISOString(), loadSeconds: next.loadSeconds, hostPid: server.child.pid,
+      engines: ownedEngines.map((e) => e.pid), ssdStreamingEffective: next.effective.ssdStreamingEffective });
+    save();
+    return { base: server.baseUrl, model };
+  };
   const result = await runCommonQuality(quality, { base: server.baseUrl, model, requestExtras, onProgress: save,
+    maxEngineRestarts: restartFailedEngine ? 8 : 0, restartFailedEngine: restartFailedEngine ? restart : undefined,
     assertAlive: () => assert.ok(!interrupted && server.child.exitCode === null, 'the owned host exited or the run was interrupted') });
   report.summary = result.summary;
   const after = preflight({ dir: root });

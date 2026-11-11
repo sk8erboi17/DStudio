@@ -6,65 +6,108 @@
 :root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
 button{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:6px;max-width:100%}
-button:focus-visible{outline:3px solid #3874e6;outline-offset:2px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 ul,ol{list-style:none;margin:0;padding:0}li{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;border-top:1px solid #8c96a2}
 .track{flex:1 1 8rem;font-weight:700;text-align:left}li[aria-current=true]{border-left:8px solid;padding-left:8px}
+.caps strong{text-transform:uppercase;letter-spacing:.06em}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pick{display:flex;gap:6px;align-items:center}.pick input{flex:none;width:20px;height:20px;margin:0}
 dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 @media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
 </style>
 <h1>SIDE A</h1><p>Build a listening queue</p><p>Sample data. No audio playback in this demo.</p>
 <section aria-labelledby="library-title"><h2 id="library-title">Library</h2><ul id="library"></ul><p id="message" role="status"></p></section>
 <section aria-labelledby="queue-title"><h2 id="queue-title">Queue</h2><p id="current"></p><ol id="queue"></ol>
-  <p id="empty">The queue is empty. Add a track from the library.</p>
-  <div class="bar"><button onclick="clearQueue()">Clear queue</button><button onclick="details(this)">Queue details</button></div></section>
-<dialog aria-labelledby="details-title"><h2 id="details-title">Current order</h2><ol></ol><p id="none">The queue is empty.</p>
+  <p id="empty"></p>
+  <div class="bar"><button onclick="clearQueue()">Clear queue</button><button id="open" onclick="details(this)">Queue details</button></div></section>
+<dialog aria-labelledby="details-title"><h2 id="details-title">Current order</h2><p id="now" hidden></p><ol></ol><p id="none"></p>
   <button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant switches to another correct rendering:
+//   current-title-repeated      the Current line holds the title in its own element, in the queue and in the dialog
+//   make-current-controls       rows are selected with a Make current button that turns into the Current mark,
+//                               and the library control of a queued track is disabled and renamed
+//   current-radio               every row has a radio labelled Current; the checked one is the only mark
+//   title-inside-action-names   the accessible names put the title inside the action: "Move Night lines up"
+//   uppercase-current-mark      the Current mark is set in capitals by the style sheet
+//   titles-in-button-text       the row buttons end with the title in a visually hidden element, and a row is
+//                               selected by clicking it
+//   dialog-plain-lines          each dialog entry is one text: "1. Paper satellites — Current"
+//   other-names-and-wording     the heading and the dialog button carry the number of tracks, and the empty
+//                               states say "Nothing ..." instead of "empty"
+window.fault='';window.variant='';
 const tracks=['Night lines','Paper satellites','Second sunrise'];
 // queue holds track numbers in listening order; current is a track number, never a position.
 let queue=[],current=null,message='';
-const el=id=>document.getElementById(id);
+const el=id=>document.getElementById(id),fault=name=>window.fault===name,variant=name=>window.variant===name;
 for(const [track,title] of tracks.entries())
-  el('library').insertAdjacentHTML('beforeend',`<li><span class="track">${title}</span><button onclick="add(${track})" aria-label="Add to queue: ${title}">Add to queue</button></li>`);
-const isCurrent=(track,position)=>current===(window.fault==='current-by-position'?position:track);
-// The list is rebuilt, so keyboard focus returns to the same control (button n) of the row acted on.
-function render(position,n){
+  el('library').insertAdjacentHTML('beforeend',`<li><span class="track">${title}</span><button onclick="add(${track})"></button></li>`);
+const isCurrent=(track,position)=>current!==null&&(fault('current-on-every-row')||current===(fault('current-by-position')?position:track));
+const currentTrack=()=>fault('current-by-position')?queue[current]:current;
+const currentLine=now=>now==null?'Current: none':variant('current-title-repeated')?`Current: <strong>${tracks[now]}</strong>`:'Current: '+tracks[now];
+// The list is rebuilt, so keyboard focus returns to the same control (data-act) of the row acted on.
+function render(position,act){
+  // One fault is the title-inside-action-names rendering with every row's buttons named after the row above.
+  const shifted=fault('inside-names-on-wrong-rows');
+  const inside=variant('title-inside-action-names')||shifted,worded=variant('other-names-and-wording'),hidden=variant('titles-in-button-text');
+  document.body.classList.toggle('caps',variant('uppercase-current-mark'));
+  [...el('library').querySelectorAll('button')].forEach((button,track)=>{
+    const queued=variant('make-current-controls')&&queue.includes(track),title=tracks[track];
+    button.disabled=queued;button.textContent=queued?'Queued':'Add to queue';
+    button.setAttribute('aria-label',queued?`${title} is queued`:inside?`Add ${title} to queue`:`Add to queue: ${title}`);});
   el('queue').replaceChildren();
   queue.forEach((track,at)=>{
-    const title=tracks[track],on=isCurrent(track,at);
-    el('queue').insertAdjacentHTML('beforeend',`<li${on?' aria-current="true"':''}><button class="track" aria-pressed="${on}" onclick="choose(${at})">${title}</button>
-      ${on?'<strong>Current</strong>':''}<button onclick="move(${at},-1)" aria-label="Move up ${title}"${at?'':' disabled'}>Move up</button>
-      <button onclick="move(${at},1)" aria-label="Move down ${title}"${at<queue.length-1?'':' disabled'}>Move down</button>
-      <button onclick="removeAt(${at})" aria-label="Remove ${title}">Remove</button></li>`);});
-  const now=window.fault==='current-by-position'?queue[current]:current;
-  el('current').textContent='Current: '+(now==null?'none':tracks[now]);
-  el('empty').hidden=queue.length>0;el('message').textContent=message;
-  const row=el('queue').children[position]||el('queue').lastElementChild,button=row?.querySelectorAll('button')[n];
-  if(position!==undefined)(button&&!button.disabled?button:row?.querySelector('button'))?.focus();
+    const title=tracks[track],on=isCurrent(track,at),radio=variant('current-radio')||fault('radio-current-moves-to-next');
+    const named=shifted?tracks[queue[(at||queue.length)-1]]:title;
+    // One fault keeps the Current mark in the markup of the row without rendering it.
+    const mark=on?`<strong${fault('current-mark-not-rendered')?' hidden':''}>Current</strong>`:'';
+    const said=(action,name)=>hidden?`>${action}<span class="sr"> ${title}</span>`:` aria-label="${name}">${action}`;
+    const pick=hidden?`<span class="track">${title}</span>${on?'<strong>Current</strong>':''}`
+      :variant('make-current-controls')
+      ?`<span class="track">${title}</span>${on?'<strong>Current</strong>':`<button data-act="pick" onclick="choose(${at})" aria-label="Make ${title} current">Make current</button>`}`
+      :radio?`<span class="track">${title}</span><label class="pick"><input type="radio" name="current" data-act="pick"${on?' checked':''}
+        onchange="choose(${at})" aria-label="Make ${title} current"><span>Current</span></label>`
+      :`<button class="track" data-act="pick" aria-pressed="${on}" onclick="choose(${at})">${title}</button>${mark}`;
+    el('queue').insertAdjacentHTML('beforeend',`<li${on&&!radio?' aria-current="true"':''}${hidden?` onclick="if(!event.target.closest('button'))choose(${at})"`:''}>${pick}
+      <button data-act="up" onclick="move(${at},-1)"${at?'':' disabled'}${said('Move up',inside?`Move ${named} up`:`Move up ${title}`)}</button>
+      <button data-act="down" onclick="move(${at},1)"${at<queue.length-1?'':' disabled'}${said('Move down',inside?`Move ${named} down`:`Move down ${title}`)}</button>
+      <button data-act="remove" onclick="removeAt(${at})"${said('Remove',inside?`Remove ${named} from queue`:`Remove ${title}`)}</button></li>`);});
+  el('current').innerHTML=currentLine(currentTrack());
+  el('queue-title').textContent=worded?`Your queue (${queue.length})`:'Queue';
+  el('open').textContent=worded?`Queue details (${queue.length})`:'Queue details';
+  el('empty').textContent=worded?'Nothing queued yet. Add a track from the library.':'The queue is empty. Add a track from the library.';
+  el('empty').hidden=fault('queue-empty-note-missing')||queue.length>0&&!fault('queue-empty-note-static');el('message').textContent=message;
+  const row=el('queue').children[position]||el('queue').lastElementChild,control=row?.querySelector(`[data-act="${act}"]`);
+  if(position!==undefined)(control&&!control.disabled?control:row?.querySelector('button:not(:disabled)'))?.focus();
 }
 function add(track){
-  if(queue.includes(track))message=`${tracks[track]} is queued once; it was not added again.`;
+  if(queue.includes(track)&&!fault('duplicate-tracks'))message=`${tracks[track]} is queued once; it was not added again.`;
   else{queue.push(track);message=`${tracks[track]} added to the queue.`;}
   render();
 }
-function choose(position){current=window.fault==='current-by-position'?position:queue[position];render(position,0);}
+function choose(position){current=fault('current-by-position')?position:queue[position];render(position,'pick');}
 function move(position,step){
   const to=position+step;if(to<0||to>=queue.length)return;
-  if(window.fault==='move-overwrites')queue[to]=queue[position];else[queue[position],queue[to]]=[queue[to],queue[position]];
-  render(to,step<0?1:2);
+  if(fault('move-overwrites'))queue[to]=queue[position];else[queue[position],queue[to]]=[queue[to],queue[position]];
+  if(fault('move-down-drops-current')&&step>0&&queue[to]===current)current=null;
+  render(to,step<0?'up':'down');
 }
 function removeAt(position){
-  const [track]=queue.splice(window.fault==='remove-shared-index'?queue.length-1:position,1);
-  if(track===current&&window.fault!=='remove-keeps-current')current=null;
-  message=`${tracks[track]} removed from the queue.`;render(position,3);
+  const [track]=queue.splice(fault('remove-shared-index')?queue.length-1:position,1);
+  // Removing the current track clears Current; it never passes to the track that takes its place.
+  if(track===current&&!fault('remove-keeps-current'))current=fault('current-moves-to-next')||fault('radio-current-moves-to-next')?queue[position]??null:null;
+  message=`${tracks[track]} removed from the queue.`;render(position,'remove');
 }
 function clearQueue(){queue=[];current=null;message='Queue cleared.';render();}
 function details(button){
   button.focus();const list=document.querySelector('dialog ol');list.replaceChildren();
-  const order=window.fault==='details-library-order'?queue.slice().sort():queue;
-  for(const track of order)list.insertAdjacentHTML('beforeend',`<li><span>${tracks[track]}</span>${isCurrent(track,queue.indexOf(track))?' <strong>Current</strong>':''}</li>`);
-  el('none').hidden=queue.length>0||window.fault==='missing-empty-state';document.querySelector('dialog').showModal();
+  const sorted=fault('details-library-order')||fault('plain-details-library-order'),order=sorted?queue.slice().sort():queue;
+  const plain=variant('dialog-plain-lines')||fault('plain-details-library-order');
+  order.forEach((track,n)=>{
+    const on=isCurrent(track,queue.indexOf(track));
+    list.insertAdjacentHTML('beforeend',plain?`<li>${n+1}. ${tracks[track]}${on?' — Current':''}</li>`:`<li><span>${tracks[track]}</span>${on?' <strong>Current</strong>':''}</li>`);});
+  el('now').hidden=!variant('current-title-repeated');el('now').innerHTML=currentLine(currentTrack());
+  el('none').textContent=variant('other-names-and-wording')?'Nothing is queued.':'The queue is empty.';
+  el('none').hidden=queue.length>0||fault('missing-empty-state');document.querySelector('dialog').showModal();
 }
 render();
 </script></html>

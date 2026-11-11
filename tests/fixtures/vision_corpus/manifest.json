@@ -1,0 +1,5583 @@
+{
+  "schema": "dstudio.vision-corpus.v1",
+  "description": "Synthetic, fictional PDFs and images with questions whose expected answers follow from the generator data. No model has produced or checked any of it.",
+  "generator": {
+    "script": "tests/support/vision_corpus_build.mjs",
+    "browser": "Chromium 148.0.7778.96"
+  },
+  "items": [
+    {
+      "id": "p01-marina-notice",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p01.pdf",
+          "bytes": 92579,
+          "sha256": "c21f7f3820fca3d1f3c43c3d44e992fc3986a16b8c071a27af68ee6dd46bfc03"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p01-marina-notice-q1",
+          "prompt": "What is the seasonal berth fee per quarter for boats up to eight metres, in EUR?",
+          "expected": {
+            "type": "number",
+            "value": 412
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "412 EUR per quarter"
+          }
+        },
+        {
+          "id": "p01-marina-notice-q2",
+          "prompt": "At what time does the fuel pontoon close?",
+          "expected": {
+            "type": "exact",
+            "value": "19:45"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "closes at 19:45"
+          }
+        },
+        {
+          "id": "p01-marina-notice-q3",
+          "prompt": "Who is the deputy harbour master?",
+          "expected": {
+            "type": "exact",
+            "value": "Marenka Dolvich"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Deputy: Marenka Dolvich"
+          }
+        },
+        {
+          "id": "p01-marina-notice-q4",
+          "prompt": "What is the seasonal berth fee for boats longer than twelve metres?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Only the fee for boats up to eight metres is stated.",
+            "absentTerms": [
+              "twelve"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p02-verbale-orti",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p02.pdf",
+          "bytes": 110106,
+          "sha256": "821bc7e5d7ee85278e3165b10ee22aedce8ee05d18ec2c22556f3a3d239d4070"
+        }
+      ],
+      "pages": 2,
+      "categories": [
+        "native-text",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p02-verbale-orti-q1",
+          "prompt": "Quanti soci erano presenti all'assemblea?",
+          "expected": {
+            "type": "number",
+            "value": 23
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Presenti 23 soci su 41 iscritti"
+          }
+        },
+        {
+          "id": "p02-verbale-orti-q2",
+          "prompt": "Quanti voti contrari ha ricevuto il bilancio consuntivo?",
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "3 contrari"
+          }
+        },
+        {
+          "id": "p02-verbale-orti-q3",
+          "prompt": "Qual è la capacità della nuova cisterna, in litri?",
+          "expected": {
+            "type": "number",
+            "value": 2500
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "2.500 litri"
+          }
+        },
+        {
+          "id": "p02-verbale-orti-q4",
+          "prompt": "Quanti minuti è durata l'assemblea, dall'inizio alla chiusura della seduta?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 100
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "alle ore 18:30",
+            "also": [
+              {
+                "page": 2,
+                "pixelOnly": false,
+                "fact": "tolta alle ore 20:10"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p02-verbale-orti-q5",
+          "prompt": "Chi è il tesoriere dell'associazione?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il verbale nomina chi presiede e chi verbalizza, non un tesoriere.",
+            "absentTerms": [
+              "tesoriere"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p03-invoice-table",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p03.pdf",
+          "bytes": 17435,
+          "sha256": "ef1d5f8f9070f15d518de4c5792c1dabdae4556bf856ab3bf774ac33fef239f1"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "table",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p03-invoice-table-q1",
+          "prompt": "What is the total due on the invoice?",
+          "expected": {
+            "type": "number",
+            "value": 465.5
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Total due 465.50"
+          }
+        },
+        {
+          "id": "p03-invoice-table-q2",
+          "prompt": "How many laminated wall maps were ordered?",
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Wall map, laminated 3 31.00 93.00"
+          }
+        },
+        {
+          "id": "p03-invoice-table-q3",
+          "prompt": "What is the unit price of the tide tables booklet?",
+          "expected": {
+            "type": "number",
+            "value": 2.25
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Tide tables booklet 40 2.25 90.00"
+          }
+        },
+        {
+          "id": "p03-invoice-table-q4",
+          "prompt": "What do the field atlases and the index cards cost together (sum of their two line totals)?",
+          "expected": {
+            "type": "number",
+            "value": 268.5
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Field atlas, hardback 12 18.50 222.00",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "Index cards, box of 500 6 7.75 46.50"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p03-invoice-table-q5",
+          "prompt": "What is the VAT registration number of Quillfeather Press?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The invoice shows no VAT or tax number.",
+            "absentTerms": [
+              "VAT"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p04-turni-tabella",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p04.pdf",
+          "bytes": 17055,
+          "sha256": "f2271862e32077fa2e442600a15ee00da5dcfc4a913627c5c1771c81b1fefad8"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "table",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p04-turni-tabella-q1",
+          "prompt": "Quanti prestiti sono stati registrati in totale nella settimana?",
+          "expected": {
+            "type": "number",
+            "value": 261
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Totale settimana 261"
+          }
+        },
+        {
+          "id": "p04-turni-tabella-q2",
+          "prompt": "Chi era al banco prestiti martedì pomeriggio?",
+          "expected": {
+            "type": "exact",
+            "value": "Tullio Ardenghi"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Pomeriggio Tullio Ardenghi 47"
+          }
+        },
+        {
+          "id": "p04-turni-tabella-q3",
+          "prompt": "In quale giorno la biblioteca era chiusa per inventario?",
+          "expected": {
+            "type": "exact",
+            "value": "Mercoledì"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Chiuso per inventario"
+          }
+        },
+        {
+          "id": "p04-turni-tabella-q4",
+          "prompt": "Quanti prestiti ha registrato Nives Quaranta in tutta la settimana?",
+          "expected": {
+            "type": "number",
+            "value": 141
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Pomeriggio Nives Quaranta 51",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "Mattina Nives Quaranta 28"
+              },
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "Pomeriggio Nives Quaranta 62"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p04-turni-tabella-q5",
+          "prompt": "Quanti prestiti sono stati registrati venerdì?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La tabella arriva a giovedì; venerdì non compare.",
+            "absentTerms": [
+              "Venerdì"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p05-spec-small-text",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p05.pdf",
+          "bytes": 155060,
+          "sha256": "158d935c2baf4bfe9958ea744f30a67a497781995653c11927ceaa9d32a1e889"
+        }
+      ],
+      "pages": 1,
+      "smallestTextPt": 7,
+      "categories": [
+        "native-text",
+        "small-text",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p05-spec-small-text-q1",
+          "prompt": "According to the notes in small print, after how many operating hours must the worm gear be lubricated?",
+          "expected": {
+            "type": "number",
+            "value": 180
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "every 180 operating hours"
+          }
+        },
+        {
+          "id": "p05-spec-small-text-q2",
+          "prompt": "What is the part number of the replacement brush set?",
+          "expected": {
+            "type": "exact",
+            "value": "BR-6093"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "part number BR-6093"
+          }
+        },
+        {
+          "id": "p05-spec-small-text-q3",
+          "prompt": "What is the slew rate of the drive unit, in degrees per second?",
+          "expected": {
+            "type": "number",
+            "value": 3.2
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Slew rate 3.2 degrees per second"
+          }
+        },
+        {
+          "id": "p05-spec-small-text-q4",
+          "prompt": "What is the warranty period of the drive unit?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The sheet states no warranty.",
+            "absentTerms": [
+              "warranty"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p06-rotated-native",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p06.pdf",
+          "bytes": 135702,
+          "sha256": "a3cb1fa697e9e45fb9db777319d42a058e3c71122e590c16e05dc29cabbc5f5e"
+        }
+      ],
+      "pages": 3,
+      "pageRotations": [
+        0,
+        0,
+        90
+      ],
+      "contentRotations": [
+        270,
+        180,
+        0
+      ],
+      "categories": [
+        "native-text",
+        "rotated",
+        "table",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p06-rotated-native-q1",
+          "prompt": "Which archive box was moved to bay C on 12 May?",
+          "expected": {
+            "type": "exact",
+            "value": "6641"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Archive box 6641 moved to bay C on 12 May"
+          }
+        },
+        {
+          "id": "p06-rotated-native-q2",
+          "prompt": "According to the return slip, which room does crate 7793 belong to?",
+          "expected": {
+            "type": "exact",
+            "value": "204"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "crate 7793 belongs to room 204"
+          }
+        },
+        {
+          "id": "p06-rotated-native-q3",
+          "prompt": "How many boxes are on shelf C-2?",
+          "expected": {
+            "type": "number",
+            "value": 27
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "C-2 Ledgers 27 9 February"
+          }
+        },
+        {
+          "id": "p06-rotated-native-q4",
+          "prompt": "Who carried out the audit of shelf C-3?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The audit table gives dates, not names."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p07-statuto-romani",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p07.pdf",
+          "bytes": 120357,
+          "sha256": "d7e5c98d59c053170c357865b18fc1127b9b36e64d7a7641dd3151f37b9d82d8"
+        }
+      ],
+      "pages": 6,
+      "pageLabels": [
+        "iii",
+        "iv",
+        "v",
+        "vi",
+        "1",
+        "2"
+      ],
+      "categories": [
+        "native-text",
+        "multipage",
+        "page-labels",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p07-statuto-romani-q1",
+          "prompt": "Quale numero di pagina è stampato sulla terza pagina fisica del file?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "v"
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "Consorzio Valfrasca · v"
+          }
+        },
+        {
+          "id": "p07-statuto-romani-q2",
+          "prompt": "Su quale pagina fisica del file (contando da 1 la prima) si trova la pagina con numero stampato 1?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 5
+          },
+          "evidence": {
+            "page": 5,
+            "pixelOnly": false,
+            "fact": "Consorzio Valfrasca · 1"
+          }
+        },
+        {
+          "id": "p07-statuto-romani-q3",
+          "prompt": "Quante copie indica la tiratura riportata nella seconda pagina fisica del file?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 350
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Tiratura: 350 copie"
+          }
+        },
+        {
+          "id": "p07-statuto-romani-q4",
+          "prompt": "Quanto incassa il consorzio in un anno se tutte le aziende pagano la quota annuale? Rispondi in euro.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 7680
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "64 aziende agricole",
+            "also": [
+              {
+                "page": 6,
+                "pixelOnly": false,
+                "fact": "120 euro per azienda"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p07-statuto-romani-q5",
+          "prompt": "Secondo l'indice, a quale pagina stampata inizia la Premessa?",
+          "tags": [
+            "printed-label"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "v"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Premessa v"
+          }
+        },
+        {
+          "id": "p07-statuto-romani-q6",
+          "prompt": "Qual è il numero di partita IVA del consorzio?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Lo statuto non riporta alcuna partita IVA.",
+            "absentTerms": [
+              "partita IVA"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p08-handbook-47",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p08.pdf",
+          "bytes": 20423,
+          "sha256": "96e12141e2568f67e6051b5bf5629850643890ae693f3e54c92039384068d623"
+        }
+      ],
+      "pages": 5,
+      "pageLabels": [
+        "47",
+        "48",
+        "49",
+        "50",
+        "51"
+      ],
+      "categories": [
+        "native-text",
+        "multipage",
+        "page-labels",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p08-handbook-47-q1",
+          "prompt": "What page number is printed on the second physical page of this file?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "48"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Operations Handbook · 48"
+          }
+        },
+        {
+          "id": "p08-handbook-47-q2",
+          "prompt": "On which physical page of the file (counting the first page as 1) is printed page 50?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": false,
+            "fact": "Operations Handbook · 50"
+          }
+        },
+        {
+          "id": "p08-handbook-47-q3",
+          "prompt": "On the third physical page, how many buses per hour does the wash bay handle?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 9
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "9 buses per hour"
+          }
+        },
+        {
+          "id": "p08-handbook-47-q4",
+          "prompt": "Gate 2 is unlocked in the morning and locked again after midnight. How long is it unlocked? Answer in hours and minutes.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "19",
+              "40"
+            ]
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "unlocks gate 2 at 04:40",
+            "also": [
+              {
+                "page": 5,
+                "pixelOnly": false,
+                "fact": "Gate 2 is locked at 00:20"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p08-handbook-47-q5",
+          "prompt": "Which form is used to record defects?",
+          "expected": {
+            "type": "exact",
+            "value": "D-7"
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": false,
+            "fact": "form D-7"
+          }
+        },
+        {
+          "id": "p08-handbook-47-q6",
+          "prompt": "What does printed page 46 of the handbook say?",
+          "tags": [
+            "printed-label"
+          ],
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The file starts at printed page 47."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p09-annual-report",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p09.pdf",
+          "bytes": 171347,
+          "sha256": "34601530dc81647c0167230bdac46f89589feff2e51a0470bfd0860bf4512f92"
+        }
+      ],
+      "pages": 7,
+      "categories": [
+        "native-text",
+        "multipage",
+        "table",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p09-annual-report-q1",
+          "prompt": "On the fifth physical page, what is the total income in EUR?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 37106
+          },
+          "evidence": {
+            "page": 5,
+            "pixelOnly": false,
+            "fact": "Total income 37,106"
+          }
+        },
+        {
+          "id": "p09-annual-report-q2",
+          "prompt": "How many late returns were recorded for hand tools?",
+          "expected": {
+            "type": "number",
+            "value": 318
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "Hand tools 5,960 318"
+          }
+        },
+        {
+          "id": "p09-annual-report-q3",
+          "prompt": "How many loans were made per member at season end? Divide the total number of loans by the number of members and round to one decimal.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 9.6,
+            "tolerance": 0.05
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "Total 12,351 662",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "Members at season end: 1,286"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p09-annual-report-q4",
+          "prompt": "Who signed the chair's letter, and who is the longest-serving volunteer?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "Tobias Quellwater",
+              "Odalys Fernbrook"
+            ]
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Tobias Quellwater, Chair",
+            "also": [
+              {
+                "page": 6,
+                "pixelOnly": false,
+                "fact": "Longest-serving volunteer: Odalys Fernbrook"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p09-annual-report-q5",
+          "prompt": "According to the last physical page, until what time will Saturday hours be extended?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "17:00"
+          },
+          "evidence": {
+            "page": 7,
+            "pixelOnly": false,
+            "fact": "extended to 17:00"
+          }
+        },
+        {
+          "id": "p09-annual-report-q6",
+          "prompt": "How many tools does the library own in total?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The report counts loans, members and volunteers, never the tools owned."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p10-chart-bar",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p10.pdf",
+          "bytes": 127033,
+          "sha256": "cca6f238d4fe1752523c8367db9a09689be25bdcea77fe2b0b3c2f425fa2630e"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p10-chart-bar-q1",
+          "prompt": "How many loaves did the Cedar oven bake?",
+          "expected": {
+            "type": "number",
+            "value": 256
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "256"
+          }
+        },
+        {
+          "id": "p10-chart-bar-q2",
+          "prompt": "Which oven baked the most loaves?",
+          "expected": {
+            "type": "exact",
+            "value": "Birch"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "472",
+            "visual": "The tallest bar is labelled Birch and carries the value 472."
+          }
+        },
+        {
+          "id": "p10-chart-bar-q3",
+          "prompt": "How many loaves did the Alder and Elm ovens bake together?",
+          "expected": {
+            "type": "number",
+            "value": 758
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "318",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": true,
+                "fact": "440"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p10-chart-bar-q4",
+          "prompt": "Who recorded the figures?",
+          "expected": {
+            "type": "exact",
+            "value": "Corwin Ashdale"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Corwin Ashdale"
+          }
+        },
+        {
+          "id": "p10-chart-bar-q5",
+          "prompt": "How many loaves were baked in week 24?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Only week 23 is reported."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p11-grafico-linea",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p11.pdf",
+          "bytes": 128848,
+          "sha256": "67780f55b1453aa1596dcedc6add8d60da5cb35b6d4594d8fec2e60cf45591db"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p11-grafico-linea-q1",
+          "prompt": "Qual era il livello del serbatoio a marzo, in centimetri?",
+          "expected": {
+            "type": "number",
+            "value": 465
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "465"
+          }
+        },
+        {
+          "id": "p11-grafico-linea-q2",
+          "prompt": "In quale mese il livello è stato più basso?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "giugno",
+              "Giu"
+            ]
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "356",
+            "visual": "Il punto più basso della linea è Giu, con etichetta 356."
+          }
+        },
+        {
+          "id": "p11-grafico-linea-q3",
+          "prompt": "Di quanti centimetri è sceso il livello tra aprile e maggio?",
+          "expected": {
+            "type": "number",
+            "value": 54
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "451",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": true,
+                "fact": "397"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p11-grafico-linea-q4",
+          "prompt": "Chi ha curato le rilevazioni?",
+          "expected": {
+            "type": "exact",
+            "value": "Bruna Selvatici"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Bruna Selvatici"
+          }
+        },
+        {
+          "id": "p11-grafico-linea-q5",
+          "prompt": "Qual è la capacità massima del serbatoio, in metri cubi?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il documento riporta livelli in centimetri, non la capacità.",
+            "absentTerms": [
+              "metri cubi"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p12-chart-pie",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p12.pdf",
+          "bytes": 141237,
+          "sha256": "4a3c0b769724518415411d463362422c3e618eb0035db19f2406a09268f93023"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p12-chart-pie-q1",
+          "prompt": "What percentage of pupils travel by bicycle?",
+          "expected": {
+            "type": "number",
+            "value": 20
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Bicycle 20%"
+          }
+        },
+        {
+          "id": "p12-chart-pie-q2",
+          "prompt": "Which way of travelling has the smallest share?",
+          "expected": {
+            "type": "exact",
+            "value": "Scooter"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Scooter 5%"
+          }
+        },
+        {
+          "id": "p12-chart-pie-q3",
+          "prompt": "How many pupils walk to school? Use the share in the chart and the number of pupils surveyed.",
+          "expected": {
+            "type": "number",
+            "value": 168
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Walk 35%",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "all 480 pupils"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p12-chart-pie-q4",
+          "prompt": "Which class carried out the survey?",
+          "expected": {
+            "type": "exact",
+            "value": "6B"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "class 6B"
+          }
+        },
+        {
+          "id": "p12-chart-pie-q5",
+          "prompt": "How many pupils took part in the survey of the previous year?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Only one survey is reported."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p13-vendite-grafico",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p13.pdf",
+          "bytes": 149754,
+          "sha256": "4195305d4fad6da2387180a37a709d5583421197dc0d7d4a8f53e7b3b2e6a6b4"
+        }
+      ],
+      "pages": 2,
+      "categories": [
+        "native-text",
+        "chart",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p13-vendite-grafico-q1",
+          "prompt": "Quante tonnellate di carta riciclata sono state vendute nel terzo trimestre?",
+          "expected": {
+            "type": "number",
+            "value": 127
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "127 t"
+          }
+        },
+        {
+          "id": "p13-vendite-grafico-q2",
+          "prompt": "Qual è il prezzo al chilo del cartoncino, in euro?",
+          "expected": {
+            "type": "number",
+            "value": 2.4
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Cartoncino 2,40"
+          }
+        },
+        {
+          "id": "p13-vendite-grafico-q3",
+          "prompt": "Qual è il ricavo del trimestre per la carta kraft, in euro? Moltiplica le tonnellate vendute per mille e per il prezzo al chilo.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 154800
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "86 t",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "Carta kraft 1,80"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p13-vendite-grafico-q4",
+          "prompt": "Quante tonnellate sono state vendute nel quarto trimestre?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il rapporto riguarda solo il terzo trimestre.",
+            "absentTerms": [
+              "quarto trimestre"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p14-diagram-flow",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p14.pdf",
+          "bytes": 154661,
+          "sha256": "91e549e3aec50e179e070b0a68fb7ed4c924e1c202b9b085dccc2b8a1963893c"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "diagram",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p14-diagram-flow-q1",
+          "prompt": "In the flowchart, which step comes right after the label is found readable?",
+          "expected": {
+            "type": "exact",
+            "value": "Weigh the parcel"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Weigh the parcel"
+          }
+        },
+        {
+          "id": "p14-diagram-flow-q2",
+          "prompt": "Where is a parcel sent when its label is not readable?",
+          "expected": {
+            "type": "exact",
+            "value": "desk 4"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Send to desk 4"
+          }
+        },
+        {
+          "id": "p14-diagram-flow-q3",
+          "prompt": "Where does a parcel of more than 20 kg go?",
+          "expected": {
+            "type": "exact",
+            "value": "bay 7"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Move to bay 7"
+          }
+        },
+        {
+          "id": "p14-diagram-flow-q4",
+          "prompt": "How many decision diamonds does the flowchart contain?",
+          "tags": [
+            "count",
+            "shape"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 2
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Over 20 kg?",
+            "visual": "Two diamond shapes are drawn: \"Label readable?\" and \"Over 20 kg?\"."
+          }
+        },
+        {
+          "id": "p14-diagram-flow-q5",
+          "prompt": "Who approved revision C of the procedure?",
+          "expected": {
+            "type": "exact",
+            "value": "Isolde Varnham"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "approved by Isolde Varnham"
+          }
+        },
+        {
+          "id": "p14-diagram-flow-q6",
+          "prompt": "For how many days may a parcel stay on the shelf before it is sent back?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Neither the text nor the flowchart gives a storage time."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p15-planimetria",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p15.pdf",
+          "bytes": 126590,
+          "sha256": "4bf36cb92a85a07062a36dcb64a0789a132d9bffba41f6f0687296b91464b826"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "diagram",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p15-planimetria-q1",
+          "prompt": "Qual è la superficie del magazzino, in metri quadrati?",
+          "expected": {
+            "type": "number",
+            "value": 76
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "76 m²"
+          }
+        },
+        {
+          "id": "p15-planimetria-q2",
+          "prompt": "Quale locale ha la superficie maggiore?",
+          "expected": {
+            "type": "exact",
+            "value": "Officina"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "142 m²",
+            "visual": "Il locale con il valore più alto è Officina, 142 m²."
+          }
+        },
+        {
+          "id": "p15-planimetria-q3",
+          "prompt": "Quale locale si trova tra l'ingresso e lo spogliatoio?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Ufficio"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Ufficio",
+            "visual": "Nella fila in basso Ufficio è disegnato tra Ingresso e Spogliatoio."
+          }
+        },
+        {
+          "id": "p15-planimetria-q4",
+          "prompt": "Quante uscite di emergenza sono indicate nella planimetria?",
+          "tags": [
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 2
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "U2",
+            "visual": "Sono disegnate due uscite rosse, U1 e U2."
+          }
+        },
+        {
+          "id": "p15-planimetria-q5",
+          "prompt": "Chi è il responsabile della sicurezza?",
+          "expected": {
+            "type": "exact",
+            "value": "Demetrio Falasca"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Demetrio Falasca"
+          }
+        },
+        {
+          "id": "p15-planimetria-q6",
+          "prompt": "A che altezza si trova il soffitto dell'officina?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La planimetria riporta solo superfici.",
+            "absentTerms": [
+              "altezza",
+              "soffitto"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p16-transit-map",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p16.pdf",
+          "bytes": 168995,
+          "sha256": "3465378321c4648e4b5a8cadb89551c7a1e446ead221f5897284379bea16f6e3"
+        }
+      ],
+      "pages": 2,
+      "categories": [
+        "native-text",
+        "diagram",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p16-transit-map-q1",
+          "prompt": "On the network diagram, which station lies between Saltwick and Tannery Row on the Amber line?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Founders Square"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Founders Square"
+          }
+        },
+        {
+          "id": "p16-transit-map-q2",
+          "prompt": "Which two lines meet at Glasshouse?",
+          "tags": [
+            "colour"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "Teal",
+              "Plum"
+            ]
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Glasshouse",
+            "visual": "The teal and the plum lines both pass through the station labelled Glasshouse."
+          }
+        },
+        {
+          "id": "p16-transit-map-q3",
+          "prompt": "Which station is the eastern end of the Amber line?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Eastmere"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Eastmere",
+            "visual": "Eastmere is the right-hand end of the amber line; north is up."
+          }
+        },
+        {
+          "id": "p16-transit-map-q4",
+          "prompt": "At what time is the last departure on the line that ends at Orchard Halt?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "22:40"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Orchard Halt",
+            "also": [
+              {
+                "page": 2,
+                "pixelOnly": false,
+                "fact": "Plum 06:00 22:40"
+              }
+            ],
+            "visual": "Orchard Halt is the end of the plum line."
+          }
+        },
+        {
+          "id": "p16-transit-map-q5",
+          "prompt": "For how many minutes is a ticket valid?",
+          "expected": {
+            "type": "number",
+            "value": 75
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "valid for 75 minutes"
+          }
+        },
+        {
+          "id": "p16-transit-map-q6",
+          "prompt": "What is the price of a single ticket?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The leaflet gives validity and times, no prices.",
+            "absentTerms": [
+              "price"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p17-letter-note",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p17.pdf",
+          "bytes": 137499,
+          "sha256": "755d4e006b2fb0a6f78bb7618987554c68f1d05e15fcfae874751bdf50f081ca"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p17-letter-note-q1",
+          "prompt": "According to the handwritten note, for how many months was the lease extension approved?",
+          "expected": {
+            "type": "number",
+            "value": 18
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "18 months"
+          }
+        },
+        {
+          "id": "p17-letter-note-q2",
+          "prompt": "What reference is written in the note?",
+          "expected": {
+            "type": "exact",
+            "value": "TM-5527"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "TM-5527"
+          }
+        },
+        {
+          "id": "p17-letter-note-q3",
+          "prompt": "What date does the stamp show?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "11 JUN",
+              "11 June",
+              "June 11"
+            ]
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "11 JUN"
+          }
+        },
+        {
+          "id": "p17-letter-note-q4",
+          "prompt": "On what date did the committee consider the request?",
+          "expected": {
+            "type": "exact",
+            "value": "6 June"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "meeting on 6 June"
+          }
+        },
+        {
+          "id": "p17-letter-note-q5",
+          "prompt": "What is the monthly rent for the pontoon?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Neither the letter nor the note states a rent.",
+            "absentTerms": [
+              "rent"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p18-orario-screenshot",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p18.pdf",
+          "bytes": 134738,
+          "sha256": "86f9271a04381fec049af93fdcbd089e0b6114236dbc8e064295a5b90de8fbed"
+        }
+      ],
+      "pages": 1,
+      "categories": [
+        "native-text",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p18-orario-screenshot-q1",
+          "prompt": "A che ora arriva a Castelvento la corsa 103?",
+          "expected": {
+            "type": "exact",
+            "value": "10:49"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "10:49"
+          }
+        },
+        {
+          "id": "p18-orario-screenshot-q2",
+          "prompt": "Quale corsa non ferma a Rifugio Lago?",
+          "expected": {
+            "type": "exact",
+            "value": "105"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "non ferma",
+            "visual": "Nella riga della corsa 105 la colonna Rifugio Lago riporta \"non ferma\"."
+          }
+        },
+        {
+          "id": "p18-orario-screenshot-q3",
+          "prompt": "Quanti minuti impiega la corsa 101 da Valfrasca a Castelvento?",
+          "expected": {
+            "type": "number",
+            "value": 69
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "07:12",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": true,
+                "fact": "08:21"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p18-orario-screenshot-q4",
+          "prompt": "Qual è l'interno telefonico dello sportello?",
+          "expected": {
+            "type": "exact",
+            "value": "214"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "interno 214"
+          }
+        },
+        {
+          "id": "p18-orario-screenshot-q5",
+          "prompt": "Quanto costa il biglietto da Valfrasca a Castelvento?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Né il testo né l'avviso riportano prezzi.",
+            "absentTerms": [
+              "biglietto"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p19-nameplate-small",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p19.pdf",
+          "bytes": 179410,
+          "sha256": "eed4b6e5c699808210a177bcab8baf3140f7ac95d1d01315b2b1f31c0b603ca6"
+        }
+      ],
+      "pages": 1,
+      "smallestTextPt": 7,
+      "categories": [
+        "native-text",
+        "small-text",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p19-nameplate-small-q1",
+          "prompt": "What is the serial number on the rating plate?",
+          "expected": {
+            "type": "exact",
+            "value": "7H-03815"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "7H-03815"
+          }
+        },
+        {
+          "id": "p19-nameplate-small-q2",
+          "prompt": "What output does the rating plate give, in kVA?",
+          "expected": {
+            "type": "number",
+            "value": 6.5
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "6.5 kVA"
+          }
+        },
+        {
+          "id": "p19-nameplate-small-q3",
+          "prompt": "Who inspected the generator?",
+          "expected": {
+            "type": "exact",
+            "value": "Linnea Thackwell"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Inspected by Linnea Thackwell"
+          }
+        },
+        {
+          "id": "p19-nameplate-small-q4",
+          "prompt": "When was the generator last serviced?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "No service date appears in the text or on the plate.",
+            "absentTerms": [
+              "serviced"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p20-scan-letter",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p20.pdf",
+          "bytes": 57256,
+          "sha256": "b2d76893be6744f92d79203acd7411aacaf122fa5e4aaf6989ed99fce10bfca5"
+        }
+      ],
+      "pages": 1,
+      "scannedPages": [
+        1
+      ],
+      "categories": [
+        "scanned",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p20-scan-letter-q1",
+          "prompt": "How many trays were ordered?",
+          "expected": {
+            "type": "number",
+            "value": 36
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "36 trays"
+          }
+        },
+        {
+          "id": "p20-scan-letter-q2",
+          "prompt": "What is the order number?",
+          "expected": {
+            "type": "exact",
+            "value": "HB-3068"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "HB-3068"
+          }
+        },
+        {
+          "id": "p20-scan-letter-q3",
+          "prompt": "Who signed the letter?",
+          "expected": {
+            "type": "exact",
+            "value": "Petronella Wickhart"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Petronella Wickhart"
+          }
+        },
+        {
+          "id": "p20-scan-letter-q4",
+          "prompt": "At what time will the delivery be made?",
+          "expected": {
+            "type": "exact",
+            "value": "06:15"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "06:15"
+          }
+        },
+        {
+          "id": "p20-scan-letter-q5",
+          "prompt": "What is the telephone number of the bakery?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The letter gives an address but no telephone number."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p21-scontrino",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p21.pdf",
+          "bytes": 79629,
+          "sha256": "ff6d22428c5b77594708586b76e743100bf9e3227f9d51599a02d6cba5091890"
+        }
+      ],
+      "pages": 1,
+      "scannedPages": [
+        1
+      ],
+      "smallestTextPt": 7,
+      "categories": [
+        "scanned",
+        "small-text",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p21-scontrino-q1",
+          "prompt": "Qual è il totale dello scontrino, in euro?",
+          "expected": {
+            "type": "number",
+            "value": 49.1
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "49,10"
+          }
+        },
+        {
+          "id": "p21-scontrino-q2",
+          "prompt": "Qual è il numero dello scontrino, stampato in piccolo in fondo?",
+          "expected": {
+            "type": "exact",
+            "value": "0482"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Scontrino n. 0482"
+          }
+        },
+        {
+          "id": "p21-scontrino-q3",
+          "prompt": "Quanto costa la zuppa di farro, in euro?",
+          "expected": {
+            "type": "number",
+            "value": 9.5
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "9,50"
+          }
+        },
+        {
+          "id": "p21-scontrino-q4",
+          "prompt": "Quanti coperti sono indicati?",
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Coperti 3"
+          }
+        },
+        {
+          "id": "p21-scontrino-q5",
+          "prompt": "Qual è l'aliquota IVA applicata?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Lo scontrino non riporta aliquote."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p22-scan-logbook",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p22.pdf",
+          "bytes": 334116,
+          "sha256": "f3d9a47c411b23a7c95cd5cff8bb5d66714db4f8f36b087fbf9fb9a57497072e"
+        }
+      ],
+      "pages": 5,
+      "scannedPages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "categories": [
+        "scanned",
+        "multipage",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p22-scan-logbook-q1",
+          "prompt": "Who was the observer on the night recorded on the fourth physical page?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Wilhelmina Stroud"
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": true,
+            "fact": "Observer: Wilhelmina Stroud"
+          }
+        },
+        {
+          "id": "p22-scan-logbook-q2",
+          "prompt": "On which night were no targets observed?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "5 March",
+              "March 5"
+            ]
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "Targets observed: 0"
+          }
+        },
+        {
+          "id": "p22-scan-logbook-q3",
+          "prompt": "How many targets did Caspian Yarrow observe in total over his nights?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 17
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "Targets observed: 6",
+            "also": [
+              {
+                "page": 5,
+                "pixelOnly": true,
+                "fact": "Targets observed: 11"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p22-scan-logbook-q4",
+          "prompt": "At what time was the dome closed on the night recorded on the first physical page?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "04:50"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Dome closed at 04:50"
+          }
+        },
+        {
+          "id": "p22-scan-logbook-q5",
+          "prompt": "What was the outside temperature on the night of 6 March?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The log records sky, targets and dome times, no temperature."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p23-scan-ruotato",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p23.pdf",
+          "bytes": 159590,
+          "sha256": "41ebde44023690e5b7c5895bf09f4526397e443b2b5196eceb47a86711f9df3c"
+        }
+      ],
+      "pages": 2,
+      "scannedPages": [
+        1,
+        2
+      ],
+      "contentRotations": [
+        0,
+        90
+      ],
+      "categories": [
+        "scanned",
+        "rotated",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p23-scan-ruotato-q1",
+          "prompt": "Qual è il numero di protocollo della nota di trasmissione?",
+          "expected": {
+            "type": "exact",
+            "value": "3391"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Protocollo n. 3391"
+          }
+        },
+        {
+          "id": "p23-scan-ruotato-q2",
+          "prompt": "Quanti metri cubi ha consumato la palestra nel secondo semestre?",
+          "expected": {
+            "type": "number",
+            "value": 702
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "702"
+          }
+        },
+        {
+          "id": "p23-scan-ruotato-q3",
+          "prompt": "Quale edificio ha consumato di più nel primo semestre?",
+          "expected": {
+            "type": "exact",
+            "value": "Scuola elementare"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "1.240",
+            "visual": "La riga Scuola elementare ha il valore più alto della colonna Primo semestre."
+          }
+        },
+        {
+          "id": "p23-scan-ruotato-q4",
+          "prompt": "Quanti metri cubi ha consumato il campo sportivo?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il prospetto elenca quattro edifici; il campo sportivo non compare."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p24-scan-upside-down",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p24.pdf",
+          "bytes": 118518,
+          "sha256": "be4c0264fda6e3955e4b16a1fe454222c723da7057c1cef20fb1cfb3977b6483"
+        }
+      ],
+      "pages": 2,
+      "scannedPages": [
+        1,
+        2
+      ],
+      "contentRotations": [
+        0,
+        180
+      ],
+      "categories": [
+        "scanned",
+        "rotated",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p24-scan-upside-down-q1",
+          "prompt": "How many consent forms are enclosed?",
+          "expected": {
+            "type": "number",
+            "value": 28
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "28 forms enclosed"
+          }
+        },
+        {
+          "id": "p24-scan-upside-down-q2",
+          "prompt": "At what time does the coach leave?",
+          "expected": {
+            "type": "exact",
+            "value": "08:20"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "leaves at 08:20"
+          }
+        },
+        {
+          "id": "p24-scan-upside-down-q3",
+          "prompt": "Who is the group leader of the trip?",
+          "expected": {
+            "type": "exact",
+            "value": "Barnaby Oakhollow"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "Group leader: Barnaby Oakhollow"
+          }
+        },
+        {
+          "id": "p24-scan-upside-down-q4",
+          "prompt": "How much does the trip cost per pupil?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "No cost is stated on either page."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p25-scan-table",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p25.pdf",
+          "bytes": 122598,
+          "sha256": "b421362463189f38f1e30cd08f2e3b77bcb29c21511424eafc44eb1b161ddf20"
+        }
+      ],
+      "pages": 1,
+      "scannedPages": [
+        1
+      ],
+      "categories": [
+        "scanned",
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p25-scan-table-q1",
+          "prompt": "What is the total number of repair hours in the record?",
+          "expected": {
+            "type": "number",
+            "value": 8.25
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "8.25"
+          }
+        },
+        {
+          "id": "p25-scan-table-q2",
+          "prompt": "What fault was recorded for the tile cutter?",
+          "expected": {
+            "type": "exact",
+            "value": "Cracked guard"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Cracked guard"
+          }
+        },
+        {
+          "id": "p25-scan-table-q3",
+          "prompt": "How many tools were repaired in week 2?",
+          "tags": [
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Week 2",
+            "visual": "The merged Week 2 cell spans three rows: cordless drill, tile cutter and jigsaw."
+          }
+        },
+        {
+          "id": "p25-scan-table-q4",
+          "prompt": "Who repaired the jigsaw?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The record names tools and faults, no repairer."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p26-scan-registro",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p26.pdf",
+          "bytes": 324284,
+          "sha256": "406847f45eeb6735bc1db895dc8d74817001baf4f96d92b66c1ec2033ffcfbd5"
+        }
+      ],
+      "pages": 5,
+      "scannedPages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "pageLabels": [
+        "112",
+        "113",
+        "114",
+        "115",
+        "116"
+      ],
+      "categories": [
+        "scanned",
+        "multipage",
+        "page-labels",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p26-scan-registro-q1",
+          "prompt": "Quale numero di pagina è stampato sulla quarta pagina fisica del file?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "115"
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": true,
+            "fact": "pag. 115"
+          }
+        },
+        {
+          "id": "p26-scan-registro-q2",
+          "prompt": "Qual è il numero della deliberazione che si trova nella pagina con numero stampato 113?",
+          "tags": [
+            "printed-label"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "59"
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "Deliberazione n. 59"
+          }
+        },
+        {
+          "id": "p26-scan-registro-q3",
+          "prompt": "Qual è la somma degli importi delle deliberazioni n. 58 e n. 61, in euro?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 44150
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "Importo: 12.400 euro",
+            "also": [
+              {
+                "page": 4,
+                "pixelOnly": true,
+                "fact": "Importo: 31.750 euro"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p26-scan-registro-q4",
+          "prompt": "Chi viene nominato revisore nell'ultima pagina fisica del file?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Clelia Montanari"
+          },
+          "evidence": {
+            "page": 5,
+            "pixelOnly": true,
+            "fact": "Clelia Montanari"
+          }
+        },
+        {
+          "id": "p26-scan-registro-q5",
+          "prompt": "Che cosa è stato deliberato nella pagina con numero stampato 111?",
+          "tags": [
+            "printed-label"
+          ],
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il file inizia dalla pagina stampata 112."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p27-scan-chart",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p27.pdf",
+          "bytes": 53919,
+          "sha256": "e4cfa67c52d06ef1f93639fbcdafb11b210a697133cd36eb6217189b04cefcef"
+        }
+      ],
+      "pages": 1,
+      "scannedPages": [
+        1
+      ],
+      "categories": [
+        "scanned",
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p27-scan-chart-q1",
+          "prompt": "How many visiting boats were counted in July?",
+          "expected": {
+            "type": "number",
+            "value": 93
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "93"
+          }
+        },
+        {
+          "id": "p27-scan-chart-q2",
+          "prompt": "Which month had the fewest visiting boats?",
+          "expected": {
+            "type": "exact",
+            "value": "May"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "42",
+            "visual": "The shortest bar is May, with the value 42."
+          }
+        },
+        {
+          "id": "p27-scan-chart-q3",
+          "prompt": "How many more boats visited in August than in September?",
+          "expected": {
+            "type": "number",
+            "value": 37
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": true,
+            "fact": "88",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": true,
+                "fact": "51"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p27-scan-chart-q4",
+          "prompt": "How many visiting boats were counted in October?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The chart ends in September."
+          }
+        }
+      ]
+    },
+    {
+      "id": "p28-mixed-agreement",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p28.pdf",
+          "bytes": 90948,
+          "sha256": "7a0cb4e25233d95bf663b12fcf02dac6e6138070e5d286a8b7e034548210cd29"
+        }
+      ],
+      "pages": 4,
+      "scannedPages": [
+        3
+      ],
+      "categories": [
+        "mixed",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p28-mixed-agreement-q1",
+          "prompt": "What is the deposit, in EUR?",
+          "expected": {
+            "type": "number",
+            "value": 150
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Deposit. 150 EUR"
+          }
+        },
+        {
+          "id": "p28-mixed-agreement-q2",
+          "prompt": "According to the collection record, who collected the equipment?",
+          "expected": {
+            "type": "exact",
+            "value": "Ferdinand Lowmoor"
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "Ferdinand Lowmoor"
+          }
+        },
+        {
+          "id": "p28-mixed-agreement-q3",
+          "prompt": "How many sanding belts were supplied at collection?",
+          "expected": {
+            "type": "number",
+            "value": 6
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "Sanding belts supplied: 6"
+          }
+        },
+        {
+          "id": "p28-mixed-agreement-q4",
+          "prompt": "The loan period starts at collection. By which date must the equipment be returned?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "22 September",
+              "September 22"
+            ]
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "Collected on 8 September",
+            "also": [
+              {
+                "page": 1,
+                "pixelOnly": false,
+                "fact": "14 days from collection"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p28-mixed-agreement-q5",
+          "prompt": "What is the serial number of the floor sander?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Only the model, FS-90, is given.",
+            "absentTerms": [
+              "serial"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p29-fascicolo-misto",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p29.pdf",
+          "bytes": 298941,
+          "sha256": "d785cd1537dc90d475b968d692fae8eed5ca3a58cdfe7e2db32f2f94bdbad625"
+        }
+      ],
+      "pages": 6,
+      "scannedPages": [
+        2,
+        4,
+        6
+      ],
+      "categories": [
+        "mixed",
+        "multipage",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p29-fascicolo-misto-q1",
+          "prompt": "Di quanti metri quadrati si chiede di ampliare il capannone?",
+          "expected": {
+            "type": "number",
+            "value": 180
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "180 metri quadrati"
+          }
+        },
+        {
+          "id": "p29-fascicolo-misto-q2",
+          "prompt": "Quale sarà la superficie complessiva del capannone dopo l'ampliamento richiesto, in metri quadrati?",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 800
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "180 metri quadrati",
+            "also": [
+              {
+                "page": 3,
+                "pixelOnly": false,
+                "fact": "620 metri quadrati"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p29-fascicolo-misto-q3",
+          "prompt": "Qual è l'importo della ricevuta che si trova nella quarta pagina fisica del file, in euro?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 265
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": true,
+            "fact": "265,00 euro"
+          }
+        },
+        {
+          "id": "p29-fascicolo-misto-q4",
+          "prompt": "Chi è il progettista?",
+          "expected": {
+            "type": "exact",
+            "value": "Morgana Belisari"
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "Morgana Belisari"
+          }
+        },
+        {
+          "id": "p29-fascicolo-misto-q5",
+          "prompt": "Quale distanza dal confine è stata misurata durante il sopralluogo, in metri?",
+          "expected": {
+            "type": "number",
+            "value": 6.2
+          },
+          "evidence": {
+            "page": 6,
+            "pixelOnly": true,
+            "fact": "6,2 metri"
+          }
+        },
+        {
+          "id": "p29-fascicolo-misto-q6",
+          "prompt": "Qual è il costo previsto dei lavori di ampliamento?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il fascicolo non contiene un preventivo dei lavori.",
+            "absentTerms": [
+              "preventivo",
+              "costo"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p30-mixed-rotate-attr",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p30.pdf",
+          "bytes": 186273,
+          "sha256": "dd34b358766cfb8ddf7abf6edd09f940a053d542966699e5a3fc1ccc323c31c1"
+        }
+      ],
+      "pages": 3,
+      "scannedPages": [
+        2,
+        3
+      ],
+      "pageRotations": [
+        0,
+        90,
+        180
+      ],
+      "categories": [
+        "mixed",
+        "rotated",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p30-mixed-rotate-attr-q1",
+          "prompt": "Who is the inspector?",
+          "expected": {
+            "type": "exact",
+            "value": "Hesper Collingwood"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Inspector: Hesper Collingwood"
+          }
+        },
+        {
+          "id": "p30-mixed-rotate-attr-q2",
+          "prompt": "What is the brake test result for the rear axle, in percent?",
+          "expected": {
+            "type": "number",
+            "value": 58
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": true,
+            "fact": "Rear axle: 58%"
+          }
+        },
+        {
+          "id": "p30-mixed-rotate-attr-q3",
+          "prompt": "Which tyre has the lowest tread depth?",
+          "expected": {
+            "type": "exact",
+            "value": "rear left"
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "rear left: 6 mm"
+          }
+        },
+        {
+          "id": "p30-mixed-rotate-attr-q4",
+          "prompt": "At how many kilometres is the next inspection due?",
+          "expected": {
+            "type": "number",
+            "value": 182000
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": true,
+            "fact": "182,000 km"
+          }
+        },
+        {
+          "id": "p30-mixed-rotate-attr-q5",
+          "prompt": "What is the registration plate of the bus?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The file identifies the bus by fleet number only.",
+            "absentTerms": [
+              "registration"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p31-mixed-manual",
+      "kind": "pdf",
+      "language": "en",
+      "files": [
+        {
+          "path": "pdf/p31.pdf",
+          "bytes": 300208,
+          "sha256": "fd9daaa4a89d876fc33d5e5ed72bc23f312e122a9a673aa6a07f932abb07363c"
+        }
+      ],
+      "pages": 8,
+      "scannedPages": [
+        7,
+        8
+      ],
+      "pageLabels": [
+        null,
+        "ii",
+        "1",
+        "2",
+        "3",
+        "4",
+        "A-1",
+        "A-2"
+      ],
+      "categories": [
+        "mixed",
+        "multipage",
+        "diagram",
+        "page-labels",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p31-mixed-manual-q1",
+          "prompt": "According to figure 2, at what height above the floor is the bracket mounted, in millimetres?",
+          "expected": {
+            "type": "number",
+            "value": 1350
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": true,
+            "fact": "1350 mm"
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q2",
+          "prompt": "According to figure 3, which wire colour goes to terminal 3?",
+          "tags": [
+            "colour"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "green"
+            ]
+          },
+          "evidence": {
+            "page": 5,
+            "pixelOnly": true,
+            "fact": "3 GREEN"
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q3",
+          "prompt": "What label is printed at the bottom of the seventh physical page?",
+          "tags": [
+            "printed-label",
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "A-1"
+          },
+          "evidence": {
+            "page": 7,
+            "pixelOnly": true,
+            "fact": "A-1"
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q4",
+          "prompt": "How long is the power lead in the carton, and within how many seconds does the status lamp turn steady? Give both numbers.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "2.4",
+              "40"
+            ]
+          },
+          "evidence": {
+            "page": 3,
+            "pixelOnly": false,
+            "fact": "2.4 m power lead",
+            "also": [
+              {
+                "page": 6,
+                "pixelOnly": false,
+                "fact": "within 40 seconds"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q5",
+          "prompt": "Figure 2 gives the hole spacing and a workshop note names a shim for early units. State both.",
+          "tags": [
+            "two-pages"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "96",
+              "S-3"
+            ]
+          },
+          "evidence": {
+            "page": 4,
+            "pixelOnly": true,
+            "fact": "96 mm",
+            "also": [
+              {
+                "page": 7,
+                "pixelOnly": true,
+                "fact": "S-3"
+              }
+            ]
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q6",
+          "prompt": "Who checked the workshop note on the last physical page?",
+          "tags": [
+            "physical-page"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Ottoline Marsh"
+          },
+          "evidence": {
+            "page": 8,
+            "pixelOnly": true,
+            "fact": "Ottoline Marsh"
+          }
+        },
+        {
+          "id": "p31-mixed-manual-q7",
+          "prompt": "What is the network address of the terminal's configuration page?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The guide covers unpacking, mounting, wiring and first start only.",
+            "absentTerms": [
+              "address"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "p32-prospetto-landscape",
+      "kind": "pdf",
+      "language": "it",
+      "files": [
+        {
+          "path": "pdf/p32.pdf",
+          "bytes": 18333,
+          "sha256": "d1e85cde44522d01ff63ef3c00d11747697a32ffe97c27d9a97da60248997d4e"
+        }
+      ],
+      "pages": 2,
+      "pageRotations": [
+        0,
+        90
+      ],
+      "categories": [
+        "native-text",
+        "rotated",
+        "table",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "p32-prospetto-landscape-q1",
+          "prompt": "Quanti quintali di uva rossa ha conferito l'azienda Fontenera?",
+          "expected": {
+            "type": "number",
+            "value": 305
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Az. Fontenera 96 305 401"
+          }
+        },
+        {
+          "id": "p32-prospetto-landscape-q2",
+          "prompt": "Qual è il totale complessivo dei conferimenti, in quintali?",
+          "expected": {
+            "type": "number",
+            "value": 1178
+          },
+          "evidence": {
+            "page": 2,
+            "pixelOnly": false,
+            "fact": "Totale 500 678 1.178"
+          }
+        },
+        {
+          "id": "p32-prospetto-landscape-q3",
+          "prompt": "Chi ha compilato il prospetto?",
+          "expected": {
+            "type": "exact",
+            "value": "Ilario Ventresca"
+          },
+          "evidence": {
+            "page": 1,
+            "pixelOnly": false,
+            "fact": "Compilato da Ilario Ventresca"
+          }
+        },
+        {
+          "id": "p32-prospetto-landscape-q4",
+          "prompt": "Qual è il prezzo pagato al quintale per l'uva bianca?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il prospetto riporta solo quantità.",
+            "absentTerms": [
+              "prezzo"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "i01-ui-tickets",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i01.png",
+          "bytes": 44950,
+          "sha256": "bef86bb07187d09fe9e805d57d7fb304845bb9314e89186d990dc15b19a5d61c",
+          "width": 1100,
+          "height": 560
+        }
+      ],
+      "categories": [
+        "ui",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i01-ui-tickets-q1",
+          "prompt": "What is the status of ticket #4103?",
+          "expected": {
+            "type": "exact",
+            "value": "In progress"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "#4103 Badge reader beeps twice — In progress"
+          }
+        },
+        {
+          "id": "i01-ui-tickets-q2",
+          "prompt": "Who is assigned to the ticket about the Wi-Fi?",
+          "expected": {
+            "type": "exact",
+            "value": "Tess W."
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "#4106 Wi-Fi drops in the annex — Tess W."
+          }
+        },
+        {
+          "id": "i01-ui-tickets-q3",
+          "prompt": "How many tickets in the list have the status Open?",
+          "tags": [
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "#4102, #4104 and #4106 are Open",
+            "visual": "Three rows carry the Open pill."
+          }
+        },
+        {
+          "id": "i01-ui-tickets-q4",
+          "prompt": "On what date was ticket #4105 closed?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The list shows a status, never a date."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i02-ui-impostazioni",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i02.png",
+          "bytes": 29612,
+          "sha256": "3d2e310cc9a1a58b58980723974bee871a49a3489c5f92fd4700529000063c41",
+          "width": 760,
+          "height": 560
+        }
+      ],
+      "categories": [
+        "ui",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i02-ui-impostazioni-q1",
+          "prompt": "Quali interruttori sono attivi nella schermata?",
+          "tags": [
+            "colour",
+            "position"
+          ],
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "Notifiche",
+              "Sincronizzazione automatica"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Notifiche e Sincronizzazione automatica",
+            "visual": "Due interruttori sono verdi con il cursore a destra; gli altri due sono grigi con il cursore a sinistra."
+          }
+        },
+        {
+          "id": "i02-ui-impostazioni-q2",
+          "prompt": "Quale versione dell'applicazione è indicata?",
+          "expected": {
+            "type": "exact",
+            "value": "3.8.2"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Versione 3.8.2"
+          }
+        },
+        {
+          "id": "i02-ui-impostazioni-q3",
+          "prompt": "Quanto spazio risulta usato, in MB?",
+          "expected": {
+            "type": "number",
+            "value": 412
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "412 MB di 2 GB"
+          }
+        },
+        {
+          "id": "i02-ui-impostazioni-q4",
+          "prompt": "Qual è l'indirizzo email dell'account?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La schermata non mostra alcun account."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i03-ui-dashboard",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i03.png",
+          "bytes": 35182,
+          "sha256": "5464948794d1a13df51d27cbbb51efbf2961a05ebf83cef99f350bbfb070604b",
+          "width": 1100,
+          "height": 560
+        }
+      ],
+      "categories": [
+        "ui",
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i03-ui-dashboard-q1",
+          "prompt": "How many berths are occupied?",
+          "expected": {
+            "type": "number",
+            "value": 148
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Berths occupied 148 / 210"
+          }
+        },
+        {
+          "id": "i03-ui-dashboard-q2",
+          "prompt": "How many berths are free?",
+          "expected": {
+            "type": "number",
+            "value": 62
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Berths occupied 148 / 210"
+          }
+        },
+        {
+          "id": "i03-ui-dashboard-q3",
+          "prompt": "Until which day is the crane out of service?",
+          "expected": {
+            "type": "exact",
+            "value": "Thursday"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Crane out of service until Thursday"
+          }
+        },
+        {
+          "id": "i03-ui-dashboard-q4",
+          "prompt": "How many arrivals does the chart show for Friday?",
+          "expected": {
+            "type": "number",
+            "value": 16
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Fri 16"
+          }
+        },
+        {
+          "id": "i03-ui-dashboard-q5",
+          "prompt": "What is the water temperature in the harbour?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The board shows berths, arrivals, fuel and wind only."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i04-ui-chat",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i04.png",
+          "bytes": 62457,
+          "sha256": "cf6d4d431dcd451a5b46483958d78ecb3f41151f2cc89a1cbe12cd266eed98bf",
+          "width": 840,
+          "height": 1240
+        }
+      ],
+      "categories": [
+        "ui",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i04-ui-chat-q1",
+          "prompt": "Chi ha scritto l'ultimo messaggio della conversazione?",
+          "expected": {
+            "type": "exact",
+            "value": "Bruna"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Bruna · 08:33"
+          }
+        },
+        {
+          "id": "i04-ui-chat-q2",
+          "prompt": "Quante piantine di basilico porta Fosca?",
+          "expected": {
+            "type": "number",
+            "value": 24
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Porto io le piantine di basilico, sono 24."
+          }
+        },
+        {
+          "id": "i04-ui-chat-q3",
+          "prompt": "A che ora è stato inviato il messaggio di Oreste?",
+          "expected": {
+            "type": "exact",
+            "value": "08:20"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Oreste · 08:20"
+          }
+        },
+        {
+          "id": "i04-ui-chat-q4",
+          "prompt": "A che ora finisce l'incontro all'orto?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Nessun messaggio indica un orario di fine."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i05-chart-bars",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i05.png",
+          "bytes": 16562,
+          "sha256": "fb84848b3007512f993dd6404efce04b7d913c4f9d8a6326a875003f814b1503",
+          "width": 900,
+          "height": 520
+        }
+      ],
+      "categories": [
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i05-chart-bars-q1",
+          "prompt": "What value does the Thursday bar reach?",
+          "expected": {
+            "type": "number",
+            "value": 100,
+            "tolerance": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Thu bar ends on the gridline 100",
+            "visual": "No value is printed on the bar; it must be read against the axis."
+          }
+        },
+        {
+          "id": "i05-chart-bars-q2",
+          "prompt": "Which weekday has the lowest bar?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "Wednesday",
+              "Wed"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Wed bar ends on the gridline 40",
+            "visual": "The Wed bar is the shortest."
+          }
+        },
+        {
+          "id": "i05-chart-bars-q3",
+          "prompt": "Which two weekdays have bars of the same height?",
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "Tue",
+              "Fri"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Tue and Fri bars both end on the gridline 80",
+            "visual": "Two bars end on the same gridline."
+          }
+        },
+        {
+          "id": "i05-chart-bars-q4",
+          "prompt": "How many books were borrowed on Saturday?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The chart covers Monday to Friday."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i06-grafico-linee",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i06.png",
+          "bytes": 34015,
+          "sha256": "5a2fc4eb84556f4f2110d1eaebb96ddf46ca35c7b49fb8a34b6b849a6f3bd5d3",
+          "width": 920,
+          "height": 540
+        }
+      ],
+      "categories": [
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i06-grafico-linee-q1",
+          "prompt": "Qual è stata la temperatura massima di mercoledì?",
+          "expected": {
+            "type": "number",
+            "value": 24
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Mer, linea rossa: 24"
+          }
+        },
+        {
+          "id": "i06-grafico-linee-q2",
+          "prompt": "In quale giorno la temperatura minima è stata più bassa?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "sabato",
+              "Sab"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Sab, linea blu: 8"
+          }
+        },
+        {
+          "id": "i06-grafico-linee-q3",
+          "prompt": "Qual è la differenza tra massima e minima di giovedì, in gradi?",
+          "expected": {
+            "type": "number",
+            "value": 8
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Gio: 22 e 14"
+          }
+        },
+        {
+          "id": "i06-grafico-linee-q4",
+          "prompt": "Di che colore è la linea della temperatura minima?",
+          "tags": [
+            "colour"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "blu",
+              "azzurro",
+              "blue"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Temperatura minima",
+            "visual": "La legenda associa Temperatura minima alla linea blu."
+          }
+        },
+        {
+          "id": "i06-grafico-linee-q5",
+          "prompt": "Quanti millimetri di pioggia sono caduti domenica?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il grafico riporta solo temperature."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i07-chart-pie",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i07.png",
+          "bytes": 24116,
+          "sha256": "9b2771cc2901252bf1173f5e09cc2ebcb377d4d48ca6540f35d9dd52a6878fbe",
+          "width": 700,
+          "height": 420
+        }
+      ],
+      "categories": [
+        "chart",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i07-chart-pie-q1",
+          "prompt": "What share of the loans are power tools, in percent?",
+          "expected": {
+            "type": "number",
+            "value": 28
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Power tools 28%"
+          }
+        },
+        {
+          "id": "i07-chart-pie-q2",
+          "prompt": "Which category is the largest?",
+          "expected": {
+            "type": "exact",
+            "value": "Hand tools"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Hand tools 48%"
+          }
+        },
+        {
+          "id": "i07-chart-pie-q3",
+          "prompt": "What is the combined share of Garden and Ladders, in percent?",
+          "expected": {
+            "type": "number",
+            "value": 24
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Garden 17%",
+            "also": [
+              {
+                "pixelOnly": true,
+                "fact": "Ladders 7%"
+              }
+            ]
+          }
+        },
+        {
+          "id": "i07-chart-pie-q4",
+          "prompt": "Which colour is the Garden slice?",
+          "tags": [
+            "colour"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "green"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Garden 17%",
+            "visual": "The legend square next to Garden is green."
+          }
+        },
+        {
+          "id": "i07-chart-pie-q5",
+          "prompt": "How many loans were made in total?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The chart shows shares, no totals."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i08-table-roster",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i08.png",
+          "bytes": 30738,
+          "sha256": "1e5569f47cd234a924fc5fa90c259bbf004766289465f7224562d8343215b9bf",
+          "width": 900,
+          "height": 380
+        }
+      ],
+      "categories": [
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i08-table-roster-q1",
+          "prompt": "Who drives route 22 in the morning?",
+          "expected": {
+            "type": "exact",
+            "value": "Mabel Thorne"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "22 | Mabel Thorne | 4402"
+          }
+        },
+        {
+          "id": "i08-table-roster-q2",
+          "prompt": "Which bus does Pia Lindqvist drive?",
+          "expected": {
+            "type": "exact",
+            "value": "4455"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Pia Lindqvist | 4455"
+          }
+        },
+        {
+          "id": "i08-table-roster-q3",
+          "prompt": "On which routes does Corin Vale drive?",
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "18",
+              "22"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "18 morning: Corin Vale",
+            "also": [
+              {
+                "pixelOnly": true,
+                "fact": "22 evening: Corin Vale"
+              }
+            ]
+          }
+        },
+        {
+          "id": "i08-table-roster-q4",
+          "prompt": "How many buses are in service according to the last row?",
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Buses in service 4"
+          }
+        },
+        {
+          "id": "i08-table-roster-q5",
+          "prompt": "Who drives route 40?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The roster lists routes 18, 22 and 31."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i09-tabella-corsi",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i09.png",
+          "bytes": 32885,
+          "sha256": "f7b687b469bccc13a78ef162c0164e885abc57eb507eca82acbcc9830493749f",
+          "width": 900,
+          "height": 380
+        }
+      ],
+      "categories": [
+        "table",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i09-tabella-corsi-q1",
+          "prompt": "A che ora inizia il corso di apnea?",
+          "expected": {
+            "type": "exact",
+            "value": "20:15"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Apnea | Giovedì | 20:15"
+          }
+        },
+        {
+          "id": "i09-tabella-corsi-q2",
+          "prompt": "Quale corso non ha posti liberi?",
+          "expected": {
+            "type": "exact",
+            "value": "Nuoto adulti"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Nuoto adulti | 0"
+          }
+        },
+        {
+          "id": "i09-tabella-corsi-q3",
+          "prompt": "Quanti posti liberi ci sono in totale?",
+          "expected": {
+            "type": "number",
+            "value": 13
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Totale posti liberi 13"
+          }
+        },
+        {
+          "id": "i09-tabella-corsi-q4",
+          "prompt": "Quanto costa l'iscrizione al corso di acquagym?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La tabella non riporta prezzi."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i10-handwritten-note",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i10.png",
+          "bytes": 38371,
+          "sha256": "9007bb340395f448f001499f834c3b336f7caafa37867e5755b16fb3b215c2ad",
+          "width": 640,
+          "height": 480
+        }
+      ],
+      "categories": [
+        "handwriting",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i10-handwritten-note-q1",
+          "prompt": "Which locker is the spare key for?",
+          "expected": {
+            "type": "number",
+            "value": 58
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "locker 58"
+          }
+        },
+        {
+          "id": "i10-handwritten-note-q2",
+          "prompt": "Who has the spare key?",
+          "expected": {
+            "type": "exact",
+            "value": "Jonas"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "is with Jonas"
+          }
+        },
+        {
+          "id": "i10-handwritten-note-q3",
+          "prompt": "Which extension should be called?",
+          "expected": {
+            "type": "exact",
+            "value": "304"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "ext. 304"
+          }
+        },
+        {
+          "id": "i10-handwritten-note-q4",
+          "prompt": "Why does Mira need the spare key?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The note gives no reason."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i11-lista-corsivo",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i11.png",
+          "bytes": 29404,
+          "sha256": "51dca8e164cdf685e9897d6f3eb3e5414ae1fd3dd9ef135ee2da84605f43a653",
+          "width": 560,
+          "height": 640
+        }
+      ],
+      "categories": [
+        "handwriting",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i11-lista-corsivo-q1",
+          "prompt": "Quanti limoni ci sono nella lista?",
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "3 limoni"
+          }
+        },
+        {
+          "id": "i11-lista-corsivo-q2",
+          "prompt": "Quanti chili di farina sono indicati?",
+          "expected": {
+            "type": "number",
+            "value": 2
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "2 kg di farina"
+          }
+        },
+        {
+          "id": "i11-lista-corsivo-q3",
+          "prompt": "Quale voce della lista è scritta senza quantità?",
+          "expected": {
+            "type": "exact",
+            "value": "lievito"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "lievito"
+          }
+        },
+        {
+          "id": "i11-lista-corsivo-q4",
+          "prompt": "In quale negozio va fatta la spesa?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La lista non nomina alcun negozio."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i12-poster-stylised",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i12.png",
+          "bytes": 258080,
+          "sha256": "7e840041ed46e63b2e66f94178e572f068c20f24c3adcb6cfeb982bb3116446b",
+          "width": 640,
+          "height": 800
+        }
+      ],
+      "categories": [
+        "stylised-font",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i12-poster-stylised-q1",
+          "prompt": "At what time does the lantern walk start?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "9:15 pm",
+              "21:15",
+              "9:15"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "starts 9:15 pm"
+          }
+        },
+        {
+          "id": "i12-poster-stylised-q2",
+          "prompt": "Where do participants meet?",
+          "expected": {
+            "type": "exact",
+            "value": "Old Quay steps"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Meet at the Old Quay steps"
+          }
+        },
+        {
+          "id": "i12-poster-stylised-q3",
+          "prompt": "How much is a ticket, in EUR?",
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Tickets 4 EUR"
+          }
+        },
+        {
+          "id": "i12-poster-stylised-q4",
+          "prompt": "Who organises the lantern walk?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The poster names no organiser."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i13-label-small-text",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i13.png",
+          "bytes": 20726,
+          "sha256": "321fc2eebd8de711b41a022a13f7bf494df83b67fd99bab0474ccd1a8619588c",
+          "width": 640,
+          "height": 400
+        }
+      ],
+      "categories": [
+        "small-text",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "smallestTextPx": 10,
+      "questions": [
+        {
+          "id": "i13-label-small-text-q1",
+          "prompt": "What is the batch code on the label?",
+          "expected": {
+            "type": "exact",
+            "value": "L-20931"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Batch L-20931"
+          }
+        },
+        {
+          "id": "i13-label-small-text-q2",
+          "prompt": "What is the net weight, in grams?",
+          "expected": {
+            "type": "number",
+            "value": 250
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Net weight 250 g"
+          }
+        },
+        {
+          "id": "i13-label-small-text-q3",
+          "prompt": "Which spice is listed among the ingredients?",
+          "expected": {
+            "type": "exact",
+            "value": "caraway"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "rye flour, water, sea salt, caraway"
+          }
+        },
+        {
+          "id": "i13-label-small-text-q4",
+          "prompt": "In which country was the crispbread produced?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The label names no country."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i14-biglietto-small",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i14.png",
+          "bytes": 26784,
+          "sha256": "ef6270f789bdf8c41ba2e9dfa23d4d9aa06f5bc102dfd587ab6fefe7b8bcf4fa",
+          "width": 760,
+          "height": 320
+        }
+      ],
+      "categories": [
+        "small-text",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "smallestTextPx": 10,
+      "questions": [
+        {
+          "id": "i14-biglietto-small-q1",
+          "prompt": "Quali sono la fila e il posto indicati sul biglietto?",
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "G",
+              "14"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Fila G — Posto 14"
+          }
+        },
+        {
+          "id": "i14-biglietto-small-q2",
+          "prompt": "A che ora inizia lo spettacolo?",
+          "expected": {
+            "type": "exact",
+            "value": "20:45"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "ore 20:45"
+          }
+        },
+        {
+          "id": "i14-biglietto-small-q3",
+          "prompt": "Qual è il numero del biglietto, stampato in piccolo?",
+          "expected": {
+            "type": "exact",
+            "value": "004417"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Biglietto n. 004417"
+          }
+        },
+        {
+          "id": "i14-biglietto-small-q4",
+          "prompt": "Chi è il regista dello spettacolo?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il biglietto non nomina il regista."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i15-sign-rotated",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i15.png",
+          "bytes": 28899,
+          "sha256": "f6e9f5ba06275de20ce19dde9e0a820157d4341092ac8e48eb00162139c00912",
+          "width": 440,
+          "height": 760
+        }
+      ],
+      "categories": [
+        "rotated",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "rotation": 90,
+      "questions": [
+        {
+          "id": "i15-sign-rotated-q1",
+          "prompt": "What is the maximum height on the sign, in metres?",
+          "expected": {
+            "type": "number",
+            "value": 3.8
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Max height 3.8 m"
+          }
+        },
+        {
+          "id": "i15-sign-rotated-q2",
+          "prompt": "Which gatehouse should drivers report to?",
+          "expected": {
+            "type": "exact",
+            "value": "B"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Report to gatehouse B"
+          }
+        },
+        {
+          "id": "i15-sign-rotated-q3",
+          "prompt": "Until what time are deliveries accepted?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "15:30",
+              "3:30 pm"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Deliveries 7:00–15:30"
+          }
+        },
+        {
+          "id": "i15-sign-rotated-q4",
+          "prompt": "What is the speed limit in the yard?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The sign gives no speed limit."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i16-ricevuta-capovolta",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i16.png",
+          "bytes": 19906,
+          "sha256": "4f8880f73d200a020525f393d34d53af497231c33f2188dd0b273a42d299796f",
+          "width": 480,
+          "height": 600
+        }
+      ],
+      "categories": [
+        "rotated",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "rotation": 180,
+      "questions": [
+        {
+          "id": "i16-ricevuta-capovolta-q1",
+          "prompt": "A che ora è avvenuto l'ingresso nel parcheggio?",
+          "expected": {
+            "type": "exact",
+            "value": "14:05"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Ingresso 14:05"
+          }
+        },
+        {
+          "id": "i16-ricevuta-capovolta-q2",
+          "prompt": "Qual è la tariffa pagata, in euro?",
+          "expected": {
+            "type": "number",
+            "value": 5.5
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Tariffa 5,50 euro"
+          }
+        },
+        {
+          "id": "i16-ricevuta-capovolta-q3",
+          "prompt": "Qual è il numero del posto?",
+          "expected": {
+            "type": "number",
+            "value": 37
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Posto n. 37"
+          }
+        },
+        {
+          "id": "i16-ricevuta-capovolta-q4",
+          "prompt": "Qual è la targa del veicolo?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La ricevuta non riporta targhe."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i17-low-contrast",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i17.png",
+          "bytes": 13885,
+          "sha256": "838794148f2ce28dadd07ea6f1947b173b6118e4b678cc9ae2b4b0a64c033bf6",
+          "width": 820,
+          "height": 360
+        }
+      ],
+      "categories": [
+        "low-contrast",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i17-low-contrast-q1",
+          "prompt": "What is the room number on the plaque?",
+          "expected": {
+            "type": "number",
+            "value": 214
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "ROOM 214"
+          }
+        },
+        {
+          "id": "i17-low-contrast-q2",
+          "prompt": "Who is the keyholder?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "O. Fernbrook",
+              "Fernbrook"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "KEYHOLDER: O. FERNBROOK"
+          }
+        },
+        {
+          "id": "i17-low-contrast-q3",
+          "prompt": "On which days is the archive open?",
+          "expected": {
+            "type": "all-of",
+            "value": [
+              "Tue",
+              "Thu"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "OPEN TUE & THU"
+          }
+        },
+        {
+          "id": "i17-low-contrast-q4",
+          "prompt": "At what time does the archive open?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The plaque gives days, no times."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i18-basso-contrasto",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i18.png",
+          "bytes": 17325,
+          "sha256": "38580bd034551a5089b043f49a38f6a2bbababee67e1015a9ffc05167888adda",
+          "width": 820,
+          "height": 360
+        }
+      ],
+      "categories": [
+        "low-contrast",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i18-basso-contrasto-q1",
+          "prompt": "Da quale binario parte il treno?",
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Binario 3"
+          }
+        },
+        {
+          "id": "i18-basso-contrasto-q2",
+          "prompt": "Di quanti minuti è il ritardo?",
+          "expected": {
+            "type": "number",
+            "value": 15
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "ritardo 15 min"
+          }
+        },
+        {
+          "id": "i18-basso-contrasto-q3",
+          "prompt": "Qual è la destinazione del treno?",
+          "expected": {
+            "type": "exact",
+            "value": "Pieve Alta"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Regionale per Pieve Alta"
+          }
+        },
+        {
+          "id": "i18-basso-contrasto-q4",
+          "prompt": "Qual è il numero del treno?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Il tabellone non riporta il numero del treno."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i19-diagram-flow",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i19.png",
+          "bytes": 36901,
+          "sha256": "15fa3289c7f88c079652d1751a20455731fa6bb9d72e57bca057cf8c9e21461d",
+          "width": 760,
+          "height": 530
+        }
+      ],
+      "categories": [
+        "diagram",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i19-diagram-flow-q1",
+          "prompt": "What happens to a returned book that is reserved by another member?",
+          "expected": {
+            "type": "exact",
+            "value": "hold shelf"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Place on hold shelf"
+          }
+        },
+        {
+          "id": "i19-diagram-flow-q2",
+          "prompt": "What is the first step after a book is returned?",
+          "expected": {
+            "type": "exact",
+            "value": "Scan barcode"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Scan barcode"
+          }
+        },
+        {
+          "id": "i19-diagram-flow-q3",
+          "prompt": "What happens to a book that is neither reserved nor damaged?",
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "Reshelve",
+              "reshelved"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Reshelve"
+          }
+        },
+        {
+          "id": "i19-diagram-flow-q4",
+          "prompt": "How many diamond-shaped decisions are in the diagram?",
+          "tags": [
+            "count",
+            "shape"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 2
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Reserved by another member? / Damaged?",
+            "visual": "Two diamonds are drawn."
+          }
+        },
+        {
+          "id": "i19-diagram-flow-q5",
+          "prompt": "For how many days is a book kept on the hold shelf?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The diagram gives no durations."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i20-piantina",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i20.png",
+          "bytes": 11730,
+          "sha256": "fdf724f5624eca76f2844f59394dd1ae4cb32d099f2fbcd70521e08e3508ad44",
+          "width": 640,
+          "height": 410
+        }
+      ],
+      "categories": [
+        "diagram",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i20-piantina-q1",
+          "prompt": "Quale stanza ha la superficie maggiore?",
+          "expected": {
+            "type": "exact",
+            "value": "Soggiorno"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Soggiorno 28 m²"
+          }
+        },
+        {
+          "id": "i20-piantina-q2",
+          "prompt": "Qual è la superficie del bagno, in metri quadrati?",
+          "expected": {
+            "type": "number",
+            "value": 6
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Bagno 6 m²"
+          }
+        },
+        {
+          "id": "i20-piantina-q3",
+          "prompt": "Quale stanza confina con il balcone?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Soggiorno"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Balcone",
+            "visual": "Il balcone è disegnato a sinistra e tocca solo il soggiorno."
+          }
+        },
+        {
+          "id": "i20-piantina-q4",
+          "prompt": "Quanti locali, balcone compreso, sono disegnati nella piantina?",
+          "tags": [
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 6
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Balcone, Soggiorno, Cucina, Bagno, Corridoio, Camera",
+            "visual": "Sei rettangoli con nome."
+          }
+        },
+        {
+          "id": "i20-piantina-q5",
+          "prompt": "Qual è l'altezza dei soffitti?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La piantina riporta solo superfici."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i21-shapes-count",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i21.png",
+          "bytes": 14953,
+          "sha256": "c9508d59e62d7b6c66c381844f030a152e228c07d447ca05656e4be8eb3187da",
+          "width": 900,
+          "height": 560
+        }
+      ],
+      "categories": [
+        "visual-attributes",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i21-shapes-count-q1",
+          "prompt": "How many triangles are in the image?",
+          "tags": [
+            "count",
+            "shape"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "four green triangles"
+          }
+        },
+        {
+          "id": "i21-shapes-count-q2",
+          "prompt": "What colour is the star?",
+          "tags": [
+            "colour",
+            "shape"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "yellow"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "one yellow star"
+          }
+        },
+        {
+          "id": "i21-shapes-count-q3",
+          "prompt": "How many blue shapes are there in total?",
+          "tags": [
+            "count",
+            "colour"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "two blue squares and one blue circle"
+          }
+        },
+        {
+          "id": "i21-shapes-count-q4",
+          "prompt": "How many circles are there, counting every colour?",
+          "tags": [
+            "count",
+            "shape"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "three red circles and one blue circle"
+          }
+        },
+        {
+          "id": "i21-shapes-count-q5",
+          "prompt": "What number is written inside the star?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The image contains shapes only, no writing."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i22-griglia-posizioni",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i22.png",
+          "bytes": 11692,
+          "sha256": "b1728a26952607f38ab2ad5502ae314f81b101c2f6ce7f9676baab8f591d2b3f",
+          "width": 660,
+          "height": 660
+        }
+      ],
+      "categories": [
+        "visual-attributes",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i22-griglia-posizioni-q1",
+          "prompt": "Di che colore è la forma al centro della griglia?",
+          "tags": [
+            "colour",
+            "position"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "nero",
+              "nera",
+              "black"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "cerchio nero al centro"
+          }
+        },
+        {
+          "id": "i22-griglia-posizioni-q2",
+          "prompt": "Quale forma si trova in alto a destra?",
+          "tags": [
+            "shape",
+            "position"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "triangolo",
+              "triangle"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "triangolo verde in alto a destra"
+          }
+        },
+        {
+          "id": "i22-griglia-posizioni-q3",
+          "prompt": "In quale riga si trova il quadrato giallo: in alto, al centro o in basso?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "al centro",
+              "centrale",
+              "centro",
+              "in mezzo"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "quadrato giallo a sinistra nella riga centrale"
+          }
+        },
+        {
+          "id": "i22-griglia-posizioni-q4",
+          "prompt": "Quanti triangoli ci sono nella griglia?",
+          "tags": [
+            "count",
+            "shape"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 3
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "triangoli: verde, arancione, grigio"
+          }
+        },
+        {
+          "id": "i22-griglia-posizioni-q5",
+          "prompt": "Quale forma si trova nella quarta riga della griglia?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La griglia ha tre righe."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i23-campus-map",
+      "kind": "image",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/i23.png",
+          "bytes": 21628,
+          "sha256": "2e00d7fede96762c4efba82d777f6bc10b5a23ae523a10d60a09a43bca09113f",
+          "width": 720,
+          "height": 560
+        }
+      ],
+      "categories": [
+        "diagram",
+        "visual-attributes",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i23-campus-map-q1",
+          "prompt": "Which building is in the north-east corner of the plan?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "Canteen"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "B Canteen",
+            "visual": "North is up; building B, Canteen, is at the top right."
+          }
+        },
+        {
+          "id": "i23-campus-map-q2",
+          "prompt": "Which letter marks the Workshop?",
+          "expected": {
+            "type": "exact",
+            "value": "C"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "C Workshop"
+          }
+        },
+        {
+          "id": "i23-campus-map-q3",
+          "prompt": "What is drawn at the centre of the plan?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "Pond",
+              "a pond"
+            ]
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Pond"
+          }
+        },
+        {
+          "id": "i23-campus-map-q4",
+          "prompt": "On which side of the site is the gate: north, south, east or west?",
+          "tags": [
+            "position"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "south"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Gate",
+            "visual": "The gate is at the bottom edge and north is up."
+          }
+        },
+        {
+          "id": "i23-campus-map-q5",
+          "prompt": "How many metres is it from the gate to the library?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The plan has no scale and no distances."
+          }
+        }
+      ]
+    },
+    {
+      "id": "i24-menu-lavagna",
+      "kind": "image",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/i24.png",
+          "bytes": 47537,
+          "sha256": "3f18e0241ad4f268b65d42f28c23b89e7c7cd1c28ccd76977bc2726ee5cde86b",
+          "width": 640,
+          "height": 720
+        }
+      ],
+      "categories": [
+        "stylised-font",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "i24-menu-lavagna-q1",
+          "prompt": "Quanto costa l'arrosto con patate, in euro?",
+          "expected": {
+            "type": "number",
+            "value": 14.5
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Arrosto con patate 14,50"
+          }
+        },
+        {
+          "id": "i24-menu-lavagna-q2",
+          "prompt": "Qual è il piatto meno caro del menù?",
+          "expected": {
+            "type": "exact",
+            "value": "Torta di nocciole"
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "Torta di nocciole 5,00"
+          }
+        },
+        {
+          "id": "i24-menu-lavagna-q3",
+          "prompt": "Quanti piatti sono elencati nel menù del giorno?",
+          "tags": [
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 4
+          },
+          "evidence": {
+            "pixelOnly": true,
+            "fact": "quattro righe con prezzo"
+          }
+        },
+        {
+          "id": "i24-menu-lavagna-q4",
+          "prompt": "A che ora chiude la cucina?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "La lavagna non riporta orari."
+          }
+        }
+      ]
+    },
+    {
+      "id": "s01-three-doors",
+      "kind": "image-set",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/s01-a.png",
+          "bytes": 3480,
+          "sha256": "d4f16f0554d6cb4a05b4e21063c9dbd252666570d9afb971cb771e8031c62275",
+          "width": 420,
+          "height": 520
+        },
+        {
+          "path": "images/s01-b.png",
+          "bytes": 3824,
+          "sha256": "4c41a1db2355c52ae925ed0af819774ee68abfad8a21dabd76cf19cb366cccd5",
+          "width": 420,
+          "height": 520
+        },
+        {
+          "path": "images/s01-c.png",
+          "bytes": 3696,
+          "sha256": "2c47fbba3d885b2cdb436b1290c16c815502f6b83ac413cf965fed02c3f8fc0b",
+          "width": 420,
+          "height": 520
+        }
+      ],
+      "categories": [
+        "visual-attributes",
+        "image-order",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "s01-three-doors-q1",
+          "prompt": "What number is on the door in the second image?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 42
+          },
+          "evidence": {
+            "image": 2,
+            "pixelOnly": true,
+            "fact": "door plate 42"
+          }
+        },
+        {
+          "id": "s01-three-doors-q2",
+          "prompt": "In which image is the door blue: the first, the second or the third?",
+          "tags": [
+            "image-order",
+            "colour"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "third",
+              "3rd",
+              "image 3"
+            ]
+          },
+          "evidence": {
+            "image": 3,
+            "pixelOnly": true,
+            "fact": "blue door with plate 8"
+          }
+        },
+        {
+          "id": "s01-three-doors-q3",
+          "prompt": "What colour is the door in the first image?",
+          "tags": [
+            "image-order",
+            "colour"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "green"
+          },
+          "evidence": {
+            "image": 1,
+            "pixelOnly": true,
+            "fact": "green door with plate 17"
+          }
+        },
+        {
+          "id": "s01-three-doors-q4",
+          "prompt": "What is the sum of the numbers on the doors in the first and third images?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 25
+          },
+          "evidence": {
+            "image": 1,
+            "pixelOnly": true,
+            "fact": "door plate 17",
+            "also": [
+              {
+                "image": 3,
+                "pixelOnly": true,
+                "fact": "door plate 8"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s01-three-doors-q5",
+          "prompt": "What number is on the door in the fourth image?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Only three images are supplied."
+          }
+        }
+      ]
+    },
+    {
+      "id": "s02-prima-dopo",
+      "kind": "image-set",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/s02-a.png",
+          "bytes": 4705,
+          "sha256": "abe30d8acfba76397fa8555f88894ba0c9199cb8b838b3b04ff797e54b912710",
+          "width": 760,
+          "height": 320
+        },
+        {
+          "path": "images/s02-b.png",
+          "bytes": 4025,
+          "sha256": "af78396158d8a1d493542884439da1f9354e362349a277f908b18fd401174cd8",
+          "width": 760,
+          "height": 320
+        }
+      ],
+      "categories": [
+        "visual-attributes",
+        "image-order",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "s02-prima-dopo-q1",
+          "prompt": "Quale scatola è presente nella prima immagine ma manca nella seconda?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "C"
+          },
+          "evidence": {
+            "image": 1,
+            "pixelOnly": true,
+            "fact": "scatole A B C D E",
+            "also": [
+              {
+                "image": 2,
+                "pixelOnly": true,
+                "fact": "scatole A B D E F"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s02-prima-dopo-q2",
+          "prompt": "Quale scatola compare solo nella seconda immagine?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "exact",
+            "value": "F"
+          },
+          "evidence": {
+            "image": 2,
+            "pixelOnly": true,
+            "fact": "scatole A B D E F",
+            "also": [
+              {
+                "image": 1,
+                "pixelOnly": true,
+                "fact": "scatole A B C D E"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s02-prima-dopo-q3",
+          "prompt": "Quante scatole ci sono nella prima immagine?",
+          "tags": [
+            "image-order",
+            "count"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 5
+          },
+          "evidence": {
+            "image": 1,
+            "pixelOnly": true,
+            "fact": "cinque scatole"
+          }
+        },
+        {
+          "id": "s02-prima-dopo-q4",
+          "prompt": "Che cosa contiene la scatola A?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Le immagini mostrano le scatole chiuse, senza indicazioni sul contenuto."
+          }
+        }
+      ]
+    },
+    {
+      "id": "s03-four-gauges",
+      "kind": "image-set",
+      "language": "en",
+      "files": [
+        {
+          "path": "images/s03-a.png",
+          "bytes": 5208,
+          "sha256": "becd6f7b1a7e13700df7e5548bae3eea5dbda19f39e3fef04fd5095d0f4851d9",
+          "width": 380,
+          "height": 420
+        },
+        {
+          "path": "images/s03-b.png",
+          "bytes": 5290,
+          "sha256": "af6d213ea9227b51843bbf9750d7c3ccf8f07784febd0ab6656c826a56dc19fc",
+          "width": 380,
+          "height": 420
+        },
+        {
+          "path": "images/s03-c.png",
+          "bytes": 4661,
+          "sha256": "8108a96650d17bbad5a8da6d5d3864b13d58cc7b01b747807c2225e38d43d6eb",
+          "width": 380,
+          "height": 420
+        },
+        {
+          "path": "images/s03-d.png",
+          "bytes": 5240,
+          "sha256": "badfe5dd81e17249504b26e48d94b0062c44edc7fd26447851d3bb58c7291268",
+          "width": 380,
+          "height": 420
+        }
+      ],
+      "categories": [
+        "visual-attributes",
+        "image-order",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "s03-four-gauges-q1",
+          "prompt": "What percentage is shown in the third image?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 15
+          },
+          "evidence": {
+            "image": 3,
+            "pixelOnly": true,
+            "fact": "Tank P 15%"
+          }
+        },
+        {
+          "id": "s03-four-gauges-q2",
+          "prompt": "Which image shows the highest level: the first, second, third or fourth?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "second",
+              "2nd",
+              "image 2"
+            ]
+          },
+          "evidence": {
+            "image": 2,
+            "pixelOnly": true,
+            "fact": "Tank M 80%"
+          }
+        },
+        {
+          "id": "s03-four-gauges-q3",
+          "prompt": "Which tank is shown in the last image?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "R",
+              "Tank R"
+            ]
+          },
+          "evidence": {
+            "image": 4,
+            "pixelOnly": true,
+            "fact": "Tank R 60%"
+          }
+        },
+        {
+          "id": "s03-four-gauges-q4",
+          "prompt": "By how many percentage points does the level in the fourth image exceed the level in the first?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 25
+          },
+          "evidence": {
+            "image": 4,
+            "pixelOnly": true,
+            "fact": "Tank R 60%",
+            "also": [
+              {
+                "image": 1,
+                "pixelOnly": true,
+                "fact": "Tank K 35%"
+              }
+            ]
+          }
+        },
+        {
+          "id": "s03-four-gauges-q5",
+          "prompt": "What is the capacity of tank M in litres?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "The images show levels in percent, no capacities."
+          }
+        }
+      ]
+    },
+    {
+      "id": "s04-passi-ordine",
+      "kind": "image-set",
+      "language": "it",
+      "files": [
+        {
+          "path": "images/s04-a.png",
+          "bytes": 16286,
+          "sha256": "b9cd06b63ab4d9cbaca6535f63f330ea7c0436a25c144251fe8f64698bc433d3",
+          "width": 600,
+          "height": 400
+        },
+        {
+          "path": "images/s04-b.png",
+          "bytes": 16731,
+          "sha256": "ff73f93d1db0f64e494e195ef6ded15b9743631e1c34d206152223f810621136",
+          "width": 600,
+          "height": 400
+        },
+        {
+          "path": "images/s04-c.png",
+          "bytes": 17245,
+          "sha256": "b4cad1ca72ce22c948e988a175814284afa01d6d5d7d83394734222ae17b625d",
+          "width": 600,
+          "height": 400
+        }
+      ],
+      "categories": [
+        "ui",
+        "image-order",
+        "pixel-only",
+        "unanswerable"
+      ],
+      "questions": [
+        {
+          "id": "s04-passi-ordine-q1",
+          "prompt": "Quale passo della procedura è mostrato nella prima immagine fornita?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "2",
+              "Passo 2",
+              "secondo"
+            ]
+          },
+          "evidence": {
+            "image": 1,
+            "pixelOnly": true,
+            "fact": "Passo 2 di 3 — Indirizzo"
+          }
+        },
+        {
+          "id": "s04-passi-ordine-q2",
+          "prompt": "Quale immagine mostra il passo 1: la prima, la seconda o la terza?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "one-of",
+            "value": [
+              "terza",
+              "la terza",
+              "immagine 3"
+            ]
+          },
+          "evidence": {
+            "image": 3,
+            "pixelOnly": true,
+            "fact": "Passo 1 di 3 — Dati personali"
+          }
+        },
+        {
+          "id": "s04-passi-ordine-q3",
+          "prompt": "Quale totale è indicato nella seconda immagine, in euro?",
+          "tags": [
+            "image-order"
+          ],
+          "expected": {
+            "type": "number",
+            "value": 46
+          },
+          "evidence": {
+            "image": 2,
+            "pixelOnly": true,
+            "fact": "Totale: 46,00 euro"
+          }
+        },
+        {
+          "id": "s04-passi-ordine-q4",
+          "prompt": "Quale metodo di pagamento è stato scelto?",
+          "expected": {
+            "type": "unanswerable"
+          },
+          "evidence": {
+            "pixelOnly": false,
+            "fact": null,
+            "missing": "Nessuna delle tre schermate riguarda il pagamento."
+          }
+        }
+      ]
+    }
+  ]
+}

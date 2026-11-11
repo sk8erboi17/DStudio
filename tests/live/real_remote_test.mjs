@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  artifactDir,
+  artifactRunDir,
   csrfHeaders,
   jsonFetch,
   mkdirp,
@@ -15,7 +15,8 @@ import {
   writeArtifact,
 } from '../support/real_harness.mjs';
 
-const artifacts = artifactDir('remote-real');
+// Every run keeps its own receipts; earlier runs, failed ones included, stay.
+const artifacts = artifactRunDir('remote-real');
 const host = await startDStudio({ binaryArg: process.argv[2], label: 'dstudio-remote-host' });
 const client = await startDStudio({ binaryArg: process.argv[2], label: 'dstudio-remote-client', ignoreExternal: true });
 

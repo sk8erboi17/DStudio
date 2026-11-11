@@ -4,6 +4,11 @@
 // a target that exits non-zero failed, whatever its lines say.
 //
 //   node tests/support/gate_run.mjs check-fast [--only TARGET[,TARGET...]]
+//   node tests/support/gate_run.mjs --cases RUN_DIR [--json]
+//
+// The second form reads the logs of a finished run and lists the case lines
+// each target printed, with their state: the case-level census of what that
+// run executed. It runs nothing and changes nothing in the run directory.
 //
 // Every invocation owns a new directory in ignored tests/.artifacts/gate-runs/
 // with one log per target and results.json: exit status, duration, the
@@ -31,18 +36,34 @@ export function gateTargets(rules, gate) {
   return order;
 }
 
-// Case lines as the suites print them. Counting is descriptive: the verdict of
-// a target is its exit status.
-export function countCases(text) {
-  let passed = 0, failed = 0;
-  const notRun = [];
+// Case lines as the suites print them, each with its state. Descriptive: the
+// verdict of a target is its exit status.
+export function caseLines(text) {
+  const out = [];
   for (const raw of text.split('\n')) {
     const line = raw.trim();
-    if (/\b(?:NOT[ _]RUN|BLOCKED)\b/.test(line) && !/^(?:PASS|pass|ok)\b|\bPASS\b|\.\.\. ok$/.test(line)) { notRun.push(line.slice(0, 240)); continue; }
-    if (/^(?:PASS|pass|ok)\b/.test(line) || /(?::|^\S+) PASS\b/.test(line) || /\.\.\. ok$/.test(line) || /\bPASS$/.test(line)) passed++;
-    else if (/^(?:FAIL|fail|not ok)\b/.test(line) || /: FAIL\b/.test(line) || /\.\.\. (?:FAIL|ERROR)$/.test(line)) failed++;
+    if (/\b(?:NOT[ _]RUN|BLOCKED)\b/.test(line) && !/^(?:PASS|pass|ok)\b|\bPASS\b|\.\.\. ok$/.test(line)) { out.push({ state: 'not_run', line: line.slice(0, 240) }); continue; }
+    if (/^(?:PASS|pass|ok)\b/.test(line) || /(?::|^\S+) PASS\b/.test(line) || /\.\.\. ok$/.test(line) || /\bPASS$/.test(line)) out.push({ state: 'pass', line: line.slice(0, 240) });
+    else if (/^(?:FAIL|fail|not ok)\b/.test(line) || /: FAIL\b/.test(line) || /\.\.\. (?:FAIL|ERROR)$/.test(line)) out.push({ state: 'fail', line: line.slice(0, 240) });
   }
-  return { passed, failed, notRun };
+  return out;
+}
+
+export function countCases(text) {
+  const lines = caseLines(text);
+  return { passed: lines.filter((row) => row.state === 'pass').length, failed: lines.filter((row) => row.state === 'fail').length,
+    notRun: lines.filter((row) => row.state === 'not_run').map((row) => row.line) };
+}
+
+// The case lines of every target of a finished run, from its retained logs.
+export function runCases(runDir) {
+  const receipt = JSON.parse(fs.readFileSync(path.join(runDir, 'results.json'), 'utf8'));
+  if (receipt.schema !== 'dstudio.gate-run.v1') throw new Error('not a gate run directory');
+  return { gate: receipt.gate, started: receipt.started, finished: receipt.finished || null,
+    targets: receipt.targets.map((row) => {
+      const log = path.join(runDir, `${row.target}.log`);
+      return { target: row.target, status: row.status, cases: fs.existsSync(log) ? caseLines(fs.readFileSync(log, 'utf8')) : [] };
+    }) };
 }
 
 function runTarget(target, log) {
@@ -57,7 +78,21 @@ function runTarget(target, log) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   const [gate, ...rest] = process.argv.slice(2);
-  if (!gate) { console.error('usage: gate_run.mjs GATE [--only TARGET[,TARGET...]]'); process.exit(2); }
+  if (!gate || (gate === '--cases' && !rest[0])) { console.error('usage: gate_run.mjs GATE [--only TARGET[,TARGET...]] | --cases RUN_DIR [--json]'); process.exit(2); }
+  if (gate === '--cases') {
+    const listed = runCases(path.resolve(rest[0]));
+    if (rest.includes('--json')) console.log(JSON.stringify(listed, null, 1));
+    else {
+      const total = { pass: 0, fail: 0, not_run: 0 };
+      for (const row of listed.targets) {
+        const n = (state) => row.cases.filter((c) => c.state === state).length;
+        for (const state of Object.keys(total)) total[state] += n(state);
+        console.log(`${row.status.padEnd(7)} ${row.target}: ${n('pass')} passed, ${n('fail')} failed, ${n('not_run')} not run case lines`);
+      }
+      console.log(`${listed.gate}: ${listed.targets.length} targets, ${total.pass} passed, ${total.fail} failed, ${total.not_run} not run case lines`);
+    }
+    process.exit(0);
+  }
   const onlyIndex = rest.indexOf('--only');
   const only = onlyIndex < 0 ? null : new Set(rest[onlyIndex + 1].split(',').filter(Boolean));
   const rules = parseMakefile(fs.readFileSync(path.join(root, 'Makefile'), 'utf8'));

@@ -14,7 +14,7 @@
     },
     {
       "name": "edit-wrong-note",
-      "caughtAs": "strictly equal:[\\s\\S]*\\+ 'Note 2'[\\s\\S]*- '<b>literal & note</b>'",
+      "caughtAs": "^editing the Text field changed a note that was not selected",
       "flags": ""
     },
     {
@@ -49,13 +49,105 @@
     },
     {
       "name": "capacity-not-enforced",
-      "caughtAs": "strictly equal:\\s+8 !== 6",
+      "caughtAs": "^a seventh note was added; the maximum is six",
       "flags": ""
     },
     {
       "name": "history-keeps-ten",
-      "caughtAs": "locator\\.click: Timeout[\\s\\S]*\\^Undo\\$[\\s\\S]*element is not enabled",
+      "caughtAs": "^Undo is disabled after 10 of 20 actions",
       "flags": ""
+    },
+    {
+      "name": "notes-lettered",
+      "caughtAs": "^a new note carries no number",
+      "flags": ""
+    },
+    {
+      "name": "focus-ignores-inspector",
+      "caughtAs": "^focusing a note did not show its text in the Inspector",
+      "flags": ""
+    },
+    {
+      "name": "edit-changes-all",
+      "caughtAs": "^editing the Text field changed a note that was not selected",
+      "flags": ""
+    },
+    {
+      "name": "export-text-as-markup",
+      "caughtAs": "^Export preview does not list the literal note text",
+      "flags": ""
+    },
+    {
+      "name": "delete-removes-all",
+      "caughtAs": "^Delete selected removed a note that was not selected",
+      "flags": ""
+    },
+    {
+      "name": "undo-delete-loses-selection",
+      "caughtAs": "^Undo of Delete selected did not restore the selection",
+      "flags": ""
+    },
+    {
+      "name": "export-only-selected",
+      "caughtAs": "^Export preview omits the note \"Note 1\"",
+      "flags": ""
+    },
+    {
+      "name": "arrows-move-all",
+      "caughtAs": "^an arrow key moved a note that was not focused",
+      "flags": ""
+    },
+    {
+      "name": "export-without-coordinates",
+      "caughtAs": "^Export preview coordinates did not follow a note moved right",
+      "flags": ""
+    },
+    {
+      "name": "export-omits-y",
+      "caughtAs": "^Export preview coordinates did not follow a note moved up or down",
+      "flags": ""
+    },
+    {
+      "name": "arrows-leave-artboard",
+      "caughtAs": "^an arrow key moved the focused note outside the artboard",
+      "flags": ""
+    },
+    {
+      "name": "capacity-silent-at-five",
+      "caughtAs": "^Add note added nothing with 5 of six notes",
+      "flags": ""
+    },
+    {
+      "name": "history-ten-undo-enabled",
+      "caughtAs": "^Undo 11 of 20 did not take back one move",
+      "flags": ""
+    },
+    {
+      "name": "text-over-32",
+      "caughtAs": "^a note shows more than 32 characters",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "add-refuses-at-six",
+      "why": "Add note stays enabled; with six notes on the board pressing it adds nothing and a visible message says the maximum is six."
+    },
+    {
+      "name": "repeated-moves-are-one-action",
+      "why": "Successive arrow keys on the same note are one Undo step, as a typing session is; moves of different notes stay separate actions."
+    },
+    {
+      "name": "text-applied-with-button",
+      "why": "The Text field holds a draft that an Apply button commits to the selected note, instead of committing on every keystroke."
+    },
+    {
+      "name": "export-in-textarea",
+      "why": "The Export preview dialog shows each note's text and coordinates as lines inside a read-only text area instead of a list."
+    },
+    {
+      "name": "number-and-text-in-one",
+      "why": "A note renders its number and its text as one text (\"#2 words\") instead of two elements; the text is still literal."
     }
   ]
 }

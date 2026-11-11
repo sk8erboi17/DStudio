@@ -57,7 +57,10 @@ On October 23, 2026 the bundled llama.cpp moved from `b11371` (`99b9548`)
 to `b11836` (`f5027fb`). On `b11836` Qwen3.6 passed the same six production-host
 checks again (`run-7Ad19x`); an earlier attempt (`run-RpFauU`) stopped on a
 stale test assertion that predated transcript restoration and is retained.
-Qwen3.8-27B has not been rerun on `b11836`; `b11371` results do not transfer.
+On November 11 Qwen3.8-27B passed the same six checks on `b11836`
+(`run-vQz1Lv`, clean worktree at `11cd3cef`; its Design case took 56 minutes).
+This is the development gate, not qualification; `b11371` results do not
+transfer.
 
 The retained Next Q4 common-100 result (75/100, including 8/8 long cases)
 belongs to main `0aaea5a`. It is not qualification of the current `890898c`
@@ -246,15 +249,25 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    and Laguna was installed again from the bundled `448d569` sources, so its
    results can be bound to the pin. The native common-100 runner now takes the
    engine revision from DStudio's source receipt and refuses an engine without
-   one. Compiler/options and the installed app bundle are not yet bound.
+   one. Since November 11 both corpus runners store the compiler and tools
+   present when a run starts, and the llama.cpp install receipt already holds
+   its CMake version and options. Still open: the ds4 installers do not record
+   the compiler and flags that built an engine (its binary SHA-256 is the
+   identity), and the installed app bundle is not bound to a run.
 3. Complete the case-level census of unit, integration, browser, live, upstream
    and publication suites, including prerequisites and exclusions. Since
    November 10 `node tests/support/test_census.mjs` lists every test file and
    the target, gate or documented manual command that reaches it (276 files,
    none reached by nothing; see [the test index](tests/README.md#suite-census)),
    and the four live runners that erased their earlier receipts now write a
-   new run directory each time. Still open: the census is per file, not per
-   case, and does not yet record each suite's prerequisites and exclusions.
+   new run directory each time. Since November 11 the census lists the
+   prerequisites it can detect per file (the browsers a recipe selects, host
+   or app binary, Python modules, external tools, real weights), and
+   `gate_run.mjs --cases RUN_DIR` lists the case lines of a finished gate run
+   with their state. Still open: the prerequisites are detected from the
+   sources, not declared and checked; suites that print no line per case are
+   known by exit status only; and the real-model suites have no single
+   case-level listing across their receipts.
 4. Complete the coordinator using existing runners and the frozen
    [common corpus](tests/fixtures/common_model_quality_cases.py).
    `tests/live/quality_multihardware.mjs` exists since November 10: it reads
@@ -263,9 +276,11 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    pin, model and memory mode, and starts the owning runner one model at a time
    ([how it counts](tests/docs/model-quality.md#common-100-answer-quality)).
    It covers the common-100 suite only: the product, numerical, vision and
-   desktop suites are not in its matrix yet, and the public report directory
-   `docs/benchmarks/quality-multihardware/` does not exist until reviewed
-   results do. A coordinator checks coverage, identities, exit states and
+   desktop suites are not in its matrix yet. The public report
+   [`docs/benchmarks/quality-multihardware/`](docs/benchmarks/quality-multihardware/README.md)
+   exists since November 11 with the reviewed common-100 aggregates and their
+   Matplotlib charts; it grows as runs are reviewed and holds no other suite
+   yet. A coordinator checks coverage, identities, exit states and
    denominators; it is not another inference implementation or application
    scheduler.
 5. Perform resource preflight before each heavy run and retain its baseline,
@@ -450,6 +465,18 @@ representation; it does not qualify a model's pixel path.
    to text cases: native/scanned/mixed/multipage, charts/tables/diagrams, small
    text, rotations, ordered images and unanswerable inputs. Include facts found
    only in pixels and independently prove they are absent from extracted text.
+   Since November 11 one authored corpus is frozen in
+   `tests/fixtures/vision_corpus/`: 32 PDFs (80 pages, 26 of them image-only)
+   and 28 image items (36 files, four ordered sets), English and Italian, with
+   282 questions of which 60 are unanswerable. `make test-vision-corpus`
+   proves on the committed files that each of the 81 pixel-only facts is
+   absent from what the production PDF reader extracts without OCR
+   ([what it checks](tests/docs/regression.md#frozen-vision-corpus)). Still
+   open: no model has seen it and no runner or grader for its expected-answer
+   types exists; on macOS the OCR helper can read the image-only pages, so a
+   pixel-path run must disable it or report those pages separately; a
+   whole-document read hands at most four rendered pages to native vision, so
+   some pixel-only facts on later pages need a page-directed question.
 4. Run real answer checks with the actual selected model/component in all four
    modes. Retain source/page hashes, physical numbering, original bytes,
    payloads, expected results, outputs and failures.
@@ -519,6 +546,19 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    corpus reruns on November 10.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
+   November 11: DeepSeek V4 Flash Vision-Exp IQ2XXS scored 51/100 on main
+   `890898c` (development replay, `engine-acceptance/run-8uAZCk`; long context
+   6/8, code 0/15: every program came inside Markdown fences, which the tasks
+   forbid). The Qwen3.8-Flash-Next Q4 run did not start because the native
+   runner refused beside a model-free test's client process; that check is
+   corrected and the run queued again (`run-MnogVK` retained).
+   Retained from November 11: Laguna's common-100 run stopped at its first
+   long-context case with `Metal command batch failed: Impacting
+   Interactivity` in the second 16,384-token prefill batch (51/100, 12 not
+   run; `engine-acceptance/run-QMNdf9`). Establish whether it reproduces on an
+   idle machine, and whether Laguna needs smaller Metal batches as main has
+   with `--prefill-chunk`; an adaptation goes under `patch/` with a numerical
+   comparison against the 16,384-token batch.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.
@@ -608,7 +648,7 @@ permission/tool is BLOCKED with a ready procedure, never replaced by mock PASS.
 
 Status: IN_PROGRESS. Twenty-five offline systems now exist; the 18 frozen briefs
 and generation/resource harnesses cover the original nine systems only.
-The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the limits found are open (item 1).
+The sixteen added systems require separate future generated-output qualification. All eighteen interaction oracles have qualification fixtures since November 11; the five shared-helper limits found are corrected and narrower ones remain open (item 1).
 
 1. Qualify the remaining **14 domain interaction oracles** with independent
    positive/negative behavioral fixtures. Preserve current shared pipeline and
@@ -616,11 +656,16 @@ The sixteen added systems require separate future generated-output qualification
    broken behavior and keep late script/console errors observable.
    Since November 11 all eighteen oracles have an authored reference page
    with deliberate faults, checked in Chromium and WebKit, and the row helper
-   that made two oracles reject every page is corrected. Still open: the
-   correct pages some oracles and the WebKit audit still reject, and the
-   defects they do not detect, both listed in
+   that made two oracles reject every page is corrected. A second pass the
+   same day made the oracles detect the defects the first pass had found
+   undetected, where the brief requires the behaviour, and accept the correct
+   pages they rejected (262 faults and 85 accepted variants in all). A third
+   change that day corrected the five recorded shared-helper limits and moved
+   the workarounds the scenarios duplicated into the shared layer (270 faults
+   and 86 variants; the complete test runs 881 checks). Still open: the
+   narrower helper limits that remain, the correct pages still rejected and
+   the behaviours still unverified, listed in
    [the Design test guide](tests/docs/design.md#interaction-oracle-qualification).
-   Correct those before generated projects are graded.
 2. Generate **at least two projects per system: 18 projects** using
    [the frozen briefs](tests/fixtures/design_pack_projects.json), included
    models and recorded identities. No excluded image/video workers or human
@@ -652,6 +697,14 @@ baseline uses DStudio patches; it is not clean upstream.
 
 1. Implement actual Codex invocation and Responses proxy validation in
    [the existing runner](extension/task-graph/bench/run-cli-competitors.mjs).
+   Since November 11 the runner has a Codex harness (isolated configuration,
+   sandboxed non-interactive run, event parsing, the same grading path) and
+   `make test-codex-protocol` drives the installed Codex CLI 0.167.0 through
+   26 cases against a scripted Responses server
+   ([what it proves](extension/task-graph/bench/README.md)). Still open: no
+   real-model Codex run exists; whether the CLI's 25 KB base request fits the
+   benchmark context is unmeasured; the publication scripts still read Pi and
+   OpenCode only.
    Inspect the installed CLI/API at implementation time; exercise tool-call →
    file/command effect → tool-result → answer, reasoning/events, partial and
    Unicode frames, IDs, stop, cache/continuation and resume. Verify native

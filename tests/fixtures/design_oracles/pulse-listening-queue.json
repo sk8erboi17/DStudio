@@ -4,12 +4,12 @@
   "faults": [
     {
       "name": "current-by-position",
-      "caughtAs": "did not match the regular expression /Current/",
+      "caughtAs": "did not match the regular expression /Current/\\.",
       "flags": ""
     },
     {
       "name": "move-overwrites",
-      "caughtAs": "Expected one accessible ordered entry Paper satellites",
+      "caughtAs": "Expected Paper satellites once in the queue, found 2",
       "flags": ""
     },
     {
@@ -29,8 +29,92 @@
     },
     {
       "name": "missing-empty-state",
-      "caughtAs": "Missing visible content: /empty\\|no tracks/",
+      "caughtAs": "Queue details shows no empty message for a cleared queue",
       "flags": ""
+    },
+    {
+      "name": "duplicate-tracks",
+      "caughtAs": "Add to queue put Night lines in the queue more than once",
+      "flags": ""
+    },
+    {
+      "name": "current-on-every-row",
+      "caughtAs": "Night lines is marked Current exactly like the selected Paper satellites",
+      "flags": ""
+    },
+    {
+      "name": "current-moves-to-next",
+      "caughtAs": "Removing the current track made Second sunrise Current instead of clearing Current",
+      "flags": ""
+    },
+    {
+      "name": "queue-empty-note-missing",
+      "caughtAs": "Clear queue left no explicit empty state on the page",
+      "flags": ""
+    },
+    {
+      "name": "queue-empty-note-static",
+      "caughtAs": "Clear queue left no explicit empty state on the page",
+      "flags": ""
+    },
+    {
+      "name": "plain-details-library-order",
+      "caughtAs": "Rendered order mismatch: Paper satellites → Night lines → Second sunrise",
+      "flags": ""
+    },
+    {
+      "name": "radio-current-moves-to-next",
+      "caughtAs": "Removing the current track made Second sunrise Current instead of clearing Current",
+      "flags": ""
+    },
+    {
+      "name": "move-down-drops-current",
+      "caughtAs": "Move down changed how Paper satellites is marked Current",
+      "flags": ""
+    },
+    {
+      "name": "inside-names-on-wrong-rows",
+      "caughtAs": "Rendered order mismatch: Paper satellites → Night lines → Second sunrise",
+      "flags": ""
+    },
+    {
+      "name": "current-mark-not-rendered",
+      "caughtAs": "did not match the regular expression /Current/\\.",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "current-title-repeated",
+      "why": "The Current line holds the title in its own element (Current: <strong>Paper satellites</strong>), in the queue and in the dialog, so the bare title is rendered twice."
+    },
+    {
+      "name": "make-current-controls",
+      "why": "Rows are selected with a Make current button that turns into the Current mark, and the Add to queue control of a queued track is disabled and renamed Queued."
+    },
+    {
+      "name": "current-radio",
+      "why": "Every row has a radio labelled Current; the checked radio is the only mark of the current track, so the word Current is rendered in every row."
+    },
+    {
+      "name": "title-inside-action-names",
+      "why": "The accessible names put the title inside the action: Add Night lines to queue, Move Paper satellites up, Remove Paper satellites from queue."
+    },
+    {
+      "name": "dialog-plain-lines",
+      "why": "Each entry of the dialog is one text, 1. Paper satellites — Current, so no element holds the bare title."
+    },
+    {
+      "name": "other-names-and-wording",
+      "why": "The heading and the dialog button carry the number of tracks, Your queue (3) and Queue details (3), and the empty states say Nothing queued yet instead of empty."
+    },
+    {
+      "name": "uppercase-current-mark",
+      "why": "The style sheet sets the Current mark in capitals (text-transform), so the rendered row reads CURRENT."
+    },
+    {
+      "name": "titles-in-button-text",
+      "why": "The row buttons end with the title in a visually hidden element (Move up <span>Paper satellites</span>), so the bare title is rendered four times in its row, and a row is selected by clicking it."
     }
   ]
 }

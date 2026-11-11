@@ -29,6 +29,9 @@ EDITS = json.loads((ROOT / 'tests/fixtures/qwen-variants/invalid-edits.json').re
 R36, R27 = 'a483e9e6cbd595906af30beda3187c2663a1118c', '4ca720788d1e01f1bff70c033e0d0028fd02e502'
 RMLX = '10c35caafbb80f7dc6a7a432cdd11af10a6d4818'
 PAYLOADS, REQUESTS, OVERSIZED = {}, [], set()
+# Paths answered as the Hub answers a pinned URL: a redirect whose own body is
+# larger than the smallest files of an MLX folder.
+REDIRECTED, REDIRECT_BODY = set(), b'r' * 324
 
 
 def payload(remote, size):
@@ -57,6 +60,7 @@ def mlx(identifier, family, repository, revision, sizes):
 
 
 Q36, Q27, M27 = 'unsloth/Qwen3.6-35B-A3B-GGUF', 'unsloth/Qwen3.8-27B-GGUF', 'mlx-community/Qwen3.8-27B-4bit'
+M36N, M36X, RMLXN = 'mlx-community/Qwen3.6-35B-A3B-nvfp4', 'mlx-community/Qwen3.6-35B-A3B-mxfp4', '9c1a3a223ddd8a3425212cc421056614f149cf0f'
 PROJECTOR = entry(Q27, R27, 'mmproj-F16.gguf', 3001, 'Qwen3.8-27B-mmproj-F16.gguf')
 TEST_CATALOG = {
     'schema': catalog.SCHEMA, 'version': catalog.VERSION,
@@ -73,8 +77,18 @@ TEST_CATALOG = {
                                                                digest='0' * 64)], Q36, R36),
         mlx('qwen27-mlx-4bit', 'qwen27', M27, RMLX, [('config.json', 101), ('model-00001-of-00001.safetensors', 30011),
                                                      ('model.safetensors.index.json', 211), ('tokenizer.json', 4099)]),
+        # Real MLX folders hold files of 58 and 202 bytes, smaller than the redirect body.
+        mlx('qwen36-mlx-nvfp4', 'qwen36', M36N, RMLXN, [('config.json', 101), ('configuration.json', 58),
+                                                        ('generation_config.json', 202), ('model-00001-of-00001.safetensors', 9001),
+                                                        ('model.safetensors.index.json', 211), ('tokenizer.json', 4099)]),
+        mlx('qwen36-mlx-mxfp4', 'qwen36', M36X, RMLXN, [('config.json', 101), ('configuration.json', 58),
+                                                        ('model-00001-of-00001.safetensors', 9001),
+                                                        ('model.safetensors.index.json', 211), ('tokenizer.json', 4099)]),
     ],
 }
+REDIRECTED.update(path for path in PAYLOADS if path.startswith((f'/{M36N}/', f'/{M36X}/')))
+# Behind its redirect, this tiny file arrives three bytes longer than its pin.
+OVERSIZED.add(f'/{M36X}/resolve/{RMLXN}/configuration.json')
 # The server sends three more bytes than this variant's pinned size.
 OVERSIZED.add(f'/{Q36}/resolve/{R36}/Qwen3.6-35B-A3B-Q8_0.gguf')
 
@@ -82,11 +96,19 @@ OVERSIZED.add(f'/{Q36}/resolve/{R36}/Qwen3.6-35B-A3B-Q8_0.gguf')
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         REQUESTS.append(self.path)
-        data = PAYLOADS.get(self.path)
+        if self.path in REDIRECTED:
+            self.send_response(307)
+            self.send_header('Location', '/resolved' + self.path)
+            self.send_header('Content-Length', str(len(REDIRECT_BODY)))
+            self.end_headers()
+            self.wfile.write(REDIRECT_BODY)
+            return
+        path = self.path[len('/resolved'):] if self.path.startswith('/resolved/') else self.path
+        data = PAYLOADS.get(path)
         if data is None:
             self.send_error(404)
             return
-        if self.path in OVERSIZED:
+        if path in OVERSIZED:
             data = data + b'xyz'
         start = int(self.headers.get('Range', 'bytes=0-').split('=')[1].split('-')[0])
         self.send_response(206 if start else 200)
@@ -243,6 +265,24 @@ class DownloaderTests(unittest.TestCase):
                          ['config.json', 'model-00001-of-00001.safetensors', 'model.safetensors.index.json', 'tokenizer.json'])
         self.assertTrue(REQUESTS[-1].endswith('/config.json'), REQUESTS)
         self.assertEqual(phases, 'DV' * 4)
+
+    def test_tiny_files_behind_a_redirect_larger_than_themselves_are_fetched(self):
+        result = self.fetch('qwen36-mlx-nvfp4', '--root', str(self.ds4))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        folder = self.ds4 / 'mlx/Qwen3.6-35B-A3B-nvfp4'
+        for name, size in (('configuration.json', 58), ('generation_config.json', 202), ('config.json', 101)):
+            data = (folder / name).read_bytes()
+            self.assertEqual(len(data), size)
+            self.assertEqual(data, PAYLOADS[f'/{M36N}/resolve/{RMLXN}/{name}'], 'the file bytes, never the redirect body')
+        self.assertIn(f'/{M36N}/resolve/{RMLXN}/configuration.json', REQUESTS)
+        self.assertIn(f'/resolved/{M36N}/resolve/{RMLXN}/configuration.json', REQUESTS, 'the redirect was followed')
+
+    def test_an_oversized_file_behind_a_redirect_is_still_refused(self):
+        result = self.fetch('qwen36-mlx-mxfp4', '--root', str(self.ds4))
+        self.assertNotEqual(result.returncode, 0)
+        folder = self.ds4 / 'mlx/Qwen3.6-35B-A3B-mxfp4'
+        self.assertFalse((folder / 'configuration.json').exists(), 'a file longer than its pin is never published')
+        self.assertFalse((folder / 'config.json').exists(), 'the folder is not completed around a refused file')
 
     def test_size_mismatch_is_refused_without_publication(self):
         result = self.fetch('qwen36-q8_0', '--directory', str(self.gguf))

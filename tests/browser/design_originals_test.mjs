@@ -203,6 +203,10 @@ try {
         await preview.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
         await page.keyboard.press('Escape');
         assert.equal(await preview.getByRole('dialog').count(),0);
+        // Focus must return to the button that opened the dialog. Wait for that
+        // state, then read it: under load WebKit was still handling Escape when the
+        // focused element was read at once (gate run check-fast-h83qnj, retained).
+        await preview.getByRole('button',{name:'Try primary action',exact:true}).and(preview.locator(':focus')).waitFor();
         assert.equal(await preview.locator(':focus').textContent(),'Try primary action');
         assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
       });
@@ -243,6 +247,10 @@ try {
           await independent.getByRole('button',{name:'Complete preview',exact:true}).click();
           await independent.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
           await independent.keyboard.press('Escape');
+          // Focus must return to the button that opened the dialog. Wait for that
+          // state, then read it: under load WebKit was still handling Escape when the
+          // focused element was read at once (gate run check-fast-h83qnj, retained).
+          await independent.getByRole('button',{name:'Try primary action',exact:true}).and(independent.locator(':focus')).waitFor();
           assert.equal(await independent.locator(':focus').textContent(),'Try primary action');
           if(additionalDesignIds.includes(system.id)) {
             await independent.getByRole('button',{name:'Example',exact:true}).click();

@@ -69,7 +69,9 @@ held-out quality, numerical parity or CUDA/ROCm/Vulkan qualification.
 Those 10/10 runs used `b11371`. On `b11836` (October 23) Qwen3.6 passed the
 current six cases (`run-7Ad19x`); the first attempt (`run-RpFauU`) failed on a
 stale `agentDiskCheckpointsSupported` assertion written before transcript
-restoration and is retained. Qwen3.8-27B has not been rerun on `b11836`.
+restoration and is retained. On November 11, 2026 Qwen3.8-27B passed the six
+cases on `b11836` too (`run-vQz1Lv`, from a clean worktree at `11cd3cef`): the
+Design case took 3,367 s, inside the test's one-hour bound.
 
 `make test-llama-install-profile` (in `check-fast`) executes the installer's
 production build recipes, receipts and leases with simulated toolchains
@@ -291,6 +293,10 @@ OpenCode through the production host with Qwen3.6 and Qwen3.8-27B (llama.cpp)
 and DeepSeek V4 Flash (bridge-owned ds4-server): a CSV total written to a file,
 a code read in the same session and a file-tool read outside the workspace,
 each checked independently, plus no surviving process after the host stops.
+Since November 11 `DSTUDIO_HARNESS_MODELS` also accepts `laguna`, `next`
+(Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2, started with expert
+SSD streaming; the row fails when that mode is not the effective one). These
+three have not been run yet.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
@@ -448,3 +454,19 @@ Send and the readable reasoning level. It waits for the real sidebar transition
 instead of disabling animations. Each attempt keeps a separate receipt and
 screenshots; failures also capture the visible page. These layout checks do not
 claim that a simulated engine generated a correct answer.
+
+### Codex CLI Responses protocol (scripted server)
+
+`make test-codex-protocol` (in `check-fast`; `NOT RUN` and failing without the
+Codex CLI) runs the installed `codex exec` against a scripted loopback server
+that speaks the Responses API as the pinned `ds4-server` source does, through
+the third-party CLI benchmark's own proxy, configuration, command line, event
+parser and grading function. It checks file contents, exit status, the CLI's
+JSON events and the exact requests received: a complete tool loop, reasoning,
+split and Unicode frames, call identifiers, resume, compaction, Stop,
+truncated/malformed/refused responses, the sandbox, isolation from the user's
+environment and three fixture tasks graded by the benchmark. Every reply is
+scripted: it proves nothing about a model, about Codex as an agent or about
+the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS;
+other versions and platforms were not run. Scope, observations and what
+remains open: [extension/task-graph/bench/README.md](../../extension/task-graph/bench/README.md).

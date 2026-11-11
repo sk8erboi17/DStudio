@@ -180,4 +180,7 @@ external harnesses.
 - `make test-harness-patches` (check-fast): patch apply/repeat/reverse/drift,
   receipt rules and the bundled snapshots' identity.
 - `make test-harness-live`: real models (`DSTUDIO_HARNESSES`,
-  `DSTUDIO_HARNESS_MODELS`, `DSTUDIO_HARNESS_CTX`).
+  `DSTUDIO_HARNESS_MODELS`, `DSTUDIO_HARNESS_CTX`). Besides the default
+  `qwen36,qwen27,deepseek` the runner knows `qwen36mlx`, `laguna`, `next`
+  (Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2 with expert SSD
+  streaming); the last three have not been run yet.

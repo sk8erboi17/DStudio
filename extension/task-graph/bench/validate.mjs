@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +7,7 @@ import {
   createReliabilityFixture, RELIABILITY_FIXTURE_ID, RELIABILITY_SUITE_SIZE,
   RELIABILITY_TASK_TYPES,
 } from './reliability-fixture.mjs';
+import { harnessOrder, selectHarnesses, startModelPinProxy } from './cli-competitor-harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json'), 'utf8'));
@@ -40,7 +42,7 @@ try {
   const fixture = createReliabilityFixture({
     workspace: fixtureRoot,
     caseCount: RELIABILITY_SUITE_SIZE,
-    variants: ['native-agent', 'task-graph', 'pi', 'opencode'],
+    variants: ['native-agent', 'task-graph', 'pi', 'opencode', 'codex'],
   });
   if (fixture.metadata.id !== RELIABILITY_FIXTURE_ID || RELIABILITY_SUITE_SIZE !== 50 ||
       RELIABILITY_TASK_TYPES.length !== 10 || fixture.scenarios.length !== 50 ||
@@ -50,7 +52,7 @@ try {
     const matching = fixture.scenarios.filter((scenario) => scenario.templateId === template.id);
     if (matching.length !== 5) throw new Error(`reliability family ${template.id} must contain five cases`);
   }
-  for (const variant of ['native-agent', 'task-graph', 'pi', 'opencode']) {
+  for (const variant of ['native-agent', 'task-graph', 'pi', 'opencode', 'codex']) {
     const prompts = fixture.scenarios.map((scenario) => scenario.variants[variant].prompt);
     if (new Set(prompts).size !== 50) throw new Error(`${variant} reliability prompts are not unique`);
     for (const scenario of fixture.scenarios) {
@@ -78,12 +80,76 @@ for (const file of [manifest.cliCompetitorBenchmark, manifest.cliCompetitorPubli
     throw new Error(`missing Pi/OpenCode benchmark artifact ${file}`);
 }
 const cliRunner = fs.readFileSync(path.resolve(here, manifest.cliCompetitorBenchmark), 'utf8');
-if (!cliRunner.includes("variants: ['pi', 'opencode']") ||
-    !cliRunner.includes("ssdStreaming: 'off'") ||
+if (!cliRunner.includes("ssdStreaming: 'off'") ||
     !cliRunner.includes('DSTUDIO_RELIABILITY_CASES || 50') ||
-    !cliRunner.includes("request.model === 'ds4'") ||
     !cliRunner.includes('DSTUDIO_COMPETITOR_MAX_OUTPUT_TOKENS || 1024'))
   throw new Error('Pi/OpenCode benchmark must run 50 matched cases against the pinned local no-SSD model');
+
+// The competitor runner's harness selection, order and model pin, by running them.
+const same = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+if (!same(selectHarnesses(''), ['pi', 'opencode', 'codex']) ||
+    !same(selectHarnesses(' Codex , pi '), ['pi', 'codex']) ||
+    !same(selectHarnesses('pi,opencode'), ['pi', 'opencode']))
+  throw new Error('competitor harness selection must default to Pi, OpenCode and Codex and accept a subset');
+let unknownHarnessRefused = false;
+try { selectHarnesses('pi,other'); } catch { unknownHarnessRefused = true; }
+if (!unknownHarnessRefused) throw new Error('an unknown competitor harness must be refused');
+for (let index = 0; index < 50; index++) {
+  if (!same(harnessOrder(index, ['pi', 'opencode']), index % 2 === 0 ? ['pi', 'opencode'] : ['opencode', 'pi']))
+    throw new Error('a Pi/OpenCode run must alternate as the published two-harness run did');
+}
+if (!same(harnessOrder(0, ['codex']), ['codex']) ||
+    !same([0, 1, 2, 3].map((index) => harnessOrder(index, ['opencode', 'codex'])[0]), ['opencode', 'codex', 'opencode', 'codex']))
+  throw new Error('one harness runs alone and any two alternate');
+for (let block = 0; block < 48; block += 6) {
+  const orders = [0, 1, 2, 3, 4, 5].map((offset) => harnessOrder(block + offset, ['pi', 'opencode', 'codex']));
+  for (const harness of ['pi', 'opencode', 'codex']) {
+    for (const position of [0, 1, 2]) {
+      if (orders.filter((order) => order.length === 3 && order[position] === harness).length !== 2)
+        throw new Error(`three harnesses are not counterbalanced: ${harness} at position ${position}`);
+    }
+    for (const other of ['pi', 'opencode', 'codex'].filter((item) => item !== harness)) {
+      if (orders.filter((order) => order.indexOf(harness) < order.indexOf(other)).length !== 3)
+        throw new Error(`three harnesses are not counterbalanced: ${harness} before ${other}`);
+    }
+  }
+}
+{
+  const forwarded = [];
+  const engine = http.createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      forwarded.push({ url: request.url, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+    });
+  });
+  await new Promise((resolve) => engine.listen(0, '127.0.0.1', resolve));
+  const proxy = await startModelPinProxy(engine.address().port, { responsesMaxOutputTokens: 1024 });
+  try {
+    const post = async (url, body) => (await fetch(`${proxy.baseUrl}${url}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })).status;
+    proxy.begin('pin');
+    const statuses = [
+      await post('/v1/chat/completions', { model: 'other', messages: [] }),
+      await post('/v1/responses', { model: 'other', input: [] }),
+      await post('/v1/chat/completions', { model: 'ds4', messages: [], reasoning_effort: 'high' }),
+      await post('/v1/responses', { model: 'ds4', input: [], reasoning: { effort: 'high', summary: 'auto' } }),
+    ];
+    const observed = proxy.end('pin');
+    if (!same(statuses, [400, 400, 200, 200]) ||
+        !same(observed.map((request) => request.model), ['other', 'other', 'ds4', 'ds4']) ||
+        !same(forwarded, [
+          { url: '/v1/chat/completions', body: { model: 'ds4', messages: [], think: false } },
+          { url: '/v1/responses', body: { model: 'ds4', input: [], reasoning: { effort: 'none', summary: 'auto' }, max_output_tokens: 1024 } },
+        ]))
+      throw new Error(`the competitor proxy must forward only ds4 requests with thinking off: ${JSON.stringify({ statuses, forwarded })}`);
+  } finally {
+    await proxy.close();
+    await new Promise((resolve) => engine.close(resolve));
+  }
+}
 for (const file of [manifest.publicationResult, manifest.plotter, ...(manifest.figures || [])]) {
   if (!file || !fs.existsSync(path.resolve(here, file))) throw new Error(`missing published benchmark artifact ${file}`);
 }
@@ -153,4 +219,4 @@ for (const scenario of manifest.scenarios) {
   if (fixture.schemaVersion !== 1 || fixture.id !== scenario.id || !Array.isArray(fixture.acceptance) || !fixture.acceptance.length)
     throw new Error(`invalid fixture ${scenario.fixture}`);
 }
-console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; diverse 50-case Native/checked and Pi/OpenCode publications verified`);
+console.log(`task_graph_bench_validate: ${manifest.scenarios.length} scenarios; diverse 50-case Native/checked and Pi/OpenCode publications verified; competitor harness order and model pin exercised`);

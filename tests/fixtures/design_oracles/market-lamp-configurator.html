@@ -5,12 +5,12 @@
 <style>
 :root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
-button,input{font:inherit;color:inherit;max-width:100%}
-button,input[type=number]{background:inherit;border:1px solid #8c96a2;padding:6px}fieldset{margin:0;padding:8px;border:1px solid #8c96a2}
+button,input,select{font:inherit;color:inherit;max-width:100%}
+button,select,input[type=number]{background:inherit;border:1px solid #8c96a2;padding:6px}fieldset{margin:0;padding:8px;border:1px solid #8c96a2}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}p{margin:6px 0}ul{list-style:none;margin:0;padding:0}
 .fields{display:grid;gap:8px;max-width:20rem}.fields label{display:grid}.fields .check{display:flex;gap:8px;align-items:center}
 .check input{flex:none;width:20px;height:20px;margin:0}.lamp{display:block;width:96px;height:96px;fill:none;stroke:currentColor;stroke-width:4}
-.sum{font-size:1.5rem;font-weight:700}.bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.sum{font-size:1.5rem;font-weight:700}.bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
 #rows li{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:8px 0;border-top:1px solid #8c96a2}
 dialog{width:min(32rem,92vw);color:inherit;background:inherit}
 @media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
@@ -18,67 +18,129 @@ dialog{width:min(32rem,92vw);color:inherit;background:inherit}
 <h1>SOFT LIGHT</h1><p>Make a desk lamp yours</p><p>Sample data: a fictional lamp and a local demo basket.</p>
 <section aria-labelledby="configuration-title"><h2 id="configuration-title">Configuration</h2>
   <svg class="lamp" viewBox="0 0 96 96" aria-hidden="true"><path d="M30 88h36M48 88V44M28 44h40L58 12H38z"/></svg>
-  <div class="fields">
-    <fieldset><legend>Colour</legend>
-      <label class="check"><input type="radio" name="colour" value="Chalk" checked onchange="render()"><span>Chalk (€60)</span></label>
-      <label class="check"><input type="radio" name="colour" value="Ink" onchange="render()"><span>Ink (€65)</span></label></fieldset>
-    <label class="check"><input type="checkbox" id="cable" onchange="render()"><span>Long cable (+€8)</span></label>
-    <label for="quantity">Quantity</label><input type="number" id="quantity" min="1" max="4" step="1" value="1" oninput="render()">
-  </div>
+  <div class="fields" id="fields"></div>
   <p id="hint" hidden>Choose a whole quantity from 1 to 4.</p>
+  <p id="cap" hidden>Up to 4 of the same lamp fit in the basket.</p>
   <p>Unit price <strong id="unit"></strong></p><p class="sum">Total <span id="total"></span></p>
   <button id="add" onclick="add()">Add to basket</button><p id="notice" role="status"></p></section>
-<section aria-labelledby="basket-title"><h2 id="basket-title">Basket</h2><ul id="rows"></ul><p id="empty">Your basket is empty.</p>
+<section aria-labelledby="basket-title"><h2 id="basket-title">Basket</h2><ul id="rows"></ul><p id="empty"></p>
+  <p id="note" hidden>No items are shipped from this sample shop.</p><p id="said" role="status"></p>
   <p class="sum">Grand total <span id="grand"></span></p>
-  <div class="bar"><button onclick="clearBasket()">Clear basket</button><button onclick="review(this)">Review order</button></div></section>
+  <div class="bar"><button onclick="clearBasket()">Clear basket</button><button id="open" onclick="review(this)">Review order</button></div></section>
 <dialog aria-labelledby="review-title"><h2 id="review-title">Order review</h2><ul id="lines"></ul><p id="review-total"></p>
-  <p id="placed" role="status"></p><div class="bar"><button onclick="confirmOrder()">Confirm demo order</button>
+  <p id="terms" hidden>No order was placed in this sample shop.</p>
+  <p id="placed" role="status"></p><div class="bar"><button id="confirm" onclick="confirmOrder()">Confirm demo order</button>
   <button onclick="this.closest('dialog').close()">Close</button></div></dialog>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant switches to another correct rendering:
+//   named-row-buttons    the − + Remove buttons of a basket row repeat the variant in their accessible name
+//   colour-radios        the colour is a group of two radios instead of a select
+//   cable-radios         the cable is one of two radios (Standard cable, Long cable) instead of a checkbox
+//   quantity-select      the quantity is a select of 1 to 4
+//   quantity-stepper     the quantity is a value between a Decrease and an Increase button
+//   add-disabled-at-cap  Add to basket is disabled while the chosen variant already holds four, and a hint
+//                        that is always shown states the limit
+//   suffix-euro          amounts are written 272,00 €
+//   counted-names        the Basket heading and the Review order button carry a number
+//   row-quantity-fields  each basket row also has an editable field labelled Quantity
+//   removal-status       a status line in the basket names the variant that Remove took out
+//   other-wording        the configuration panel is headed "Your lamp", the completion button is "Submit
+//                        demo order", and the cap and the empty basket are stated in other words
+window.fault='';window.variant='';
 const prices={Chalk:60,Ink:65};
 // One basket row per colour/cable pair; a row never holds more than 4.
-let basket=[],notice='',grand=0;
-const el=id=>document.getElementById(id),colourNow=()=>document.querySelector('[name=colour]:checked').value;
-const unitOf=(colour,cable)=>prices[colour]+(cable&&window.fault!=='cable-not-priced'?8:0);
+let basket=[],notice='',grand=0,built=null,said='',cleared=false;
+const el=id=>document.getElementById(id),fault=name=>window.fault===name,variant=name=>window.variant===name;
+const euro=amount=>variant('suffix-euro')?`${amount},00 €`:`€${amount}`;
+// The form controls are built once per rendering mode; the three readers below accept each mode.
+// The reference rendering offers the colour as a select, so that Chalk and Ink are on the initial
+// page only as option labels: the audited view then also covers the required-text check for them.
+function build(){
+  built=window.variant;
+  const radio=(name,value,text,checked)=>`<label class="check"><input type="radio" name="${name}" value="${value}"${checked?' checked':''} onchange="render()"><span>${text}</span></label>`;
+  const options=values=>values.map(value=>`<option>${value}</option>`).join('');
+  el('fields').innerHTML=(variant('colour-radios')
+    ?`<fieldset><legend>Colour</legend>${radio('colour','Chalk','Chalk (€60)',true)}${radio('colour','Ink','Ink (€65)')}</fieldset>`
+    :`<label for="colour">Colour</label><select id="colour" onchange="render()"><option value="Chalk">Chalk (€60)</option><option value="Ink">Ink (€65)</option></select>`)
+    +(variant('cable-radios')
+    ?`<fieldset><legend>Cable</legend>${radio('cable','','Standard cable',true)}${radio('cable','long','Long cable (+€8)')}</fieldset>`
+    :`<label class="check"><input type="checkbox" id="cable" onchange="render()"><span>Long cable (+€8)</span></label>`)
+    +(variant('quantity-stepper')
+    ?`<div class="bar" role="group" aria-label="Quantity"><button id="fewer" onclick="stepQuantity(-1)" aria-label="Decrease quantity">−</button>
+      <output id="quantity">1</output><button id="more" onclick="stepQuantity(1)" aria-label="Increase quantity">+</button></div>`
+    :variant('quantity-select')?`<label for="quantity">Quantity</label><select id="quantity" onchange="render()">${options([1,2,3,4])}</select>`
+    :`<label for="quantity">Quantity</label><input type="number" id="quantity" min="1" max="4" step="1" value="1" oninput="render()">`);
+}
+const colourNow=()=>(document.querySelector('[name=colour]:checked')||el('colour')).value;
+const cableNow=()=>el('cable')?el('cable').checked:document.querySelector('[name=cable]:checked').value==='long';
+function quantity(){
+  const value=Number(el('quantity').value);
+  return Number.isInteger(value)&&value>=1&&value<=(fault('quantity-above-four')?9:4)?value:null;
+}
+function stepQuantity(step){el('quantity').value=Math.min(4,Math.max(1,Number(el('quantity').value)+step));render();}
+const unitOf=(colour,cable)=>prices[colour]+(cable&&!fault('cable-not-priced')?8:0);
 const label=row=>`${row.colour}, ${row.cable?'Long cable':'standard cable'}`,subtotal=row=>row.quantity*unitOf(row.colour,row.cable);
 const sum=()=>basket.reduce((total,row)=>total+subtotal(row),0);
-function quantity(){const value=Number(el('quantity').value);return Number.isInteger(value)&&value>=1&&value<=4?value:null;}
-// Rows are rebuilt, so keyboard focus returns to the same control (button n) of the row acted on.
-// keepTotal exists only for the stale-grand-total fault.
-function render(at,n,keepTotal){
-  const count=quantity(),unit=unitOf(colourNow(),el('cable').checked);
-  el('unit').textContent='€'+unit;el('total').textContent=count===null?'not available':'€'+unit*(window.fault==='total-ignores-quantity'?1:count);
-  el('add').disabled=count===null;el('hint').hidden=count!==null;el('notice').textContent=notice;
-  el('rows').innerHTML=basket.map((row,i)=>`<li><div><strong>${label(row)}</strong><br>${row.quantity} × €${unitOf(row.colour,row.cable)} = €${subtotal(row)}</div>
-    <div class="bar"><button onclick="change(${i},-1)" aria-label="Decrease quantity"${row.quantity>1?'':' disabled'}>−</button>
-    <button onclick="change(${i},1)" aria-label="Increase quantity"${row.quantity<4?'':' disabled'}>+</button>
-    <button onclick="removeRow(${i})">Remove</button></div></li>`).join('');
-  el('empty').hidden=basket.length>0||window.fault==='missing-empty-state';
-  if(!keepTotal)grand=sum();el('grand').textContent='€'+grand;
-  const row=el('rows').children[at]||el('rows').lastElementChild,button=row?.querySelectorAll('button')[n];
+// Variants are the same only when colour and cable are both the same.
+const sameAs=(colour,cable)=>row=>row.colour===colour&&(row.cable===cable||fault('merge-by-colour-only'));
+const heldOf=(colour,cable)=>basket.filter(sameAs(colour,cable)).reduce((total,row)=>total+row.quantity,0);
+// Rows are rebuilt, so keyboard focus returns to the same control (data-act) of the row acted on.
+// keepTotal exists only for the two stale-total faults.
+function render(at,act,keepTotal){
+  if(built!==window.variant)build();
+  const count=quantity(),unit=unitOf(colourNow(),cableNow());
+  el('unit').textContent=euro(unit);el('total').textContent=count===null?'not available':euro(unit*(fault('total-ignores-quantity')?1:count));
+  el('add').disabled=count===null||variant('add-disabled-at-cap')&&heldOf(colourNow(),cableNow())>=4;
+  el('hint').hidden=count!==null;el('cap').hidden=!variant('add-disabled-at-cap');el('notice').textContent=notice;
+  if(el('fewer')){el('fewer').disabled=count<=1;el('more').disabled=count>=4;}
+  const worded=variant('other-wording'),named=variant('named-row-buttons'),fields=variant('row-quantity-fields');
+  el('configuration-title').textContent=worded?'Your lamp':'Configuration';el('confirm').textContent=worded?'Submit demo order':'Confirm demo order';
+  el('empty').textContent=worded?'Nothing in your basket yet.':'Your basket is empty.';
+  el('rows').innerHTML=basket.map((row,i)=>`<li><div><strong>${label(row)}</strong><br>${row.quantity} × ${euro(unitOf(row.colour,row.cable))}${
+      fault('row-subtotal-missing')?'':` = ${euro(subtotal(row))}`}</div>
+    <div class="bar">${fields?`<input type="number" min="1" max="4" step="1" value="${row.quantity}" aria-label="Quantity" onchange="setRow(${i},this.value)">`:''}
+    <button data-act="less" onclick="change(${i},-1)" aria-label="Decrease quantity${named?' of '+label(row):''}"${row.quantity>1?'':' disabled'}>−</button>
+    <button data-act="more" onclick="change(${i},1)" aria-label="Increase quantity${named?' of '+label(row):''}"${row.quantity<4||fault('basket-plus-exceeds-four')?'':' disabled'}>+</button>
+    <button data-act="remove" onclick="removeRow(${i})"${named?` aria-label="Remove ${label(row)}"`:''}>Remove</button></div></li>`).join('');
+  el('empty').hidden=basket.length>0&&!(cleared&&fault('clear-leaves-a-row'))||fault('missing-empty-state')||fault('empty-state-missing-beside-note');
+  el('said').textContent=variant('removal-status')?said:'';
+  el('note').hidden=!fault('empty-state-missing-beside-note');
+  if(!keepTotal)grand=sum();el('grand').textContent=euro(grand);
+  const units=basket.reduce((total,row)=>total+row.quantity,0),counted=variant('counted-names');
+  el('basket-title').textContent=counted?`Basket (${units})`:'Basket';el('open').textContent=counted?`Review order (${basket.length})`:'Review order';
+  const row=el('rows').children[at]||el('rows').lastElementChild,button=row?.querySelector(`[data-act="${act}"]`);
   if(at!==undefined)(button&&!button.disabled?button:row?.querySelector('button:enabled'))?.focus();
 }
 function add(){
-  const colour=colourNow(),cable=el('cable').checked,count=quantity();if(count===null)return;
-  const same=row=>row.colour===colour&&row.cable===cable,held=basket.filter(same).reduce((total,row)=>total+row.quantity,0);
-  const added=window.fault==='cap-not-enforced'?count:Math.min(count,4-held);
-  let row=window.fault==='no-merge'?null:basket.find(same);
+  const colour=colourNow(),cable=cableNow(),count=quantity();if(count===null)return;
+  const same=sameAs(colour,cable),held=heldOf(colour,cable);
+  const added=fault('cap-not-enforced')||fault('quantity-above-four')&&!held?count:Math.min(count,4-held);
+  let row=fault('no-merge')?null:basket.find(same);
   if(added>0){if(!row)basket.push(row={colour,cable,quantity:0});row.quantity+=added;}
   const name=label({colour,cable});
-  notice=added===count?`${added} × ${name} added.`:window.fault==='cap-silent'?'':`Limit reached: a basket row holds at most 4 of the same lamp, so ${added} of ${count} were added.`;
+  notice=added===count?`${added} × ${name} added.`:fault('cap-silent')?''
+    :variant('other-wording')?`You already have ${held} of this lamp in the basket, so ${added} of ${count} were added.`
+    :`Limit reached: a basket row holds at most 4 of the same lamp, so ${added} of ${count} were added.`;
   render();
 }
 function change(at,step){
-  basket[at].quantity=Math.min(4,Math.max(1,basket[at].quantity+step));notice='';render(at,step<0?0:1,window.fault==='stale-grand-total');
+  const next=basket[at].quantity+step;
+  basket[at].quantity=Math.max(1,fault('basket-plus-exceeds-four')?next:Math.min(4,next));notice='';
+  render(at,step<0?'less':'more',fault('stale-grand-total'));
 }
-function removeRow(at){basket.splice(window.fault==='remove-wrong-row'?basket.length-1:at,1);notice='';render(at,2);}
-function clearBasket(){basket=[];notice='';render();}
+function setRow(at,value){const count=Number(value);if(Number.isInteger(count)&&count>=1&&count<=4)basket[at].quantity=count;notice='';render(at,'more');}
+function removeRow(at){
+  const [gone]=basket.splice(fault('remove-wrong-row')?basket.length-1:at,1);notice='';said=`Removed ${label(gone)} from the basket.`;
+  render(at,'remove',fault('remove-stale-grand-total'));
+}
+function clearBasket(){basket=fault('clear-leaves-a-row')?basket.slice(-1):[];cleared=true;notice='';said='Basket cleared.';render();}
 function review(button){
-  button.focus();el('placed').textContent='';el('review-total').textContent='Grand total €'+sum();
-  el('lines').innerHTML=basket.map(row=>`<li>${label(row)}: ${row.quantity} × €${unitOf(row.colour,row.cable)} = €${subtotal(row)}</li>`).join('')||'<li>Your basket is empty.</li>';
-  document.querySelector('dialog').showModal();
+  button.focus();el('placed').textContent='';el('review-total').textContent='Grand total '+euro(sum());
+  el('lines').innerHTML=basket.map(row=>`<li>${label(row)}: ${row.quantity} × ${euro(unitOf(row.colour,row.cable))} = ${euro(subtotal(row))}</li>`).join('')||'<li>Your basket is empty.</li>';
+  el('terms').hidden=!fault('completion-says-nothing');document.querySelector('dialog').showModal();
 }
-function confirmOrder(){el('placed').textContent=window.fault==='false-order-claim'?'Order placed. Thank you!':'No order was placed. This is a local demo.';}
+function confirmOrder(){
+  el('placed').textContent=fault('completion-says-nothing')?'':fault('false-order-claim')?'Order placed. Thank you!':'No order was placed. This is a local demo.';
+}
 render();
 </script></html>

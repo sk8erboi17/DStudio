@@ -8,6 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   artifactDir,
+  artifactRunOrResume,
   csrfHeaders,
   jsonFetch,
   pollAgent,
@@ -73,13 +74,17 @@ const selected = selectedIds.map((id) => {
   return byId.get(id);
 });
 
-const artifacts = artifactDir(process.env.DSTUDIO_DESIGN_ARTIFACTS || 'design-quality-real');
 const resumeConfig = process.env.DSTUDIO_DESIGN_RESUME_MANIFEST
   ? loadResumeManifest(process.env.DSTUDIO_DESIGN_RESUME_MANIFEST, selectedIds) : null;
-if (process.env.DSTUDIO_DESIGN_KEEP_ARTIFACTS !== '1' && !resumeConfig) {
-  for (const name of fs.readdirSync(artifacts)) {
-    fs.rmSync(path.join(artifacts, name), { recursive: true, force: true });
-  }
+// Every run owns a new directory; earlier runs, failed ones included, stay. A
+// resumed run continues the most recent one. DSTUDIO_DESIGN_ARTIFACTS names a
+// directory instead: it must be empty unless the run resumes it or
+// DSTUDIO_DESIGN_KEEP_ARTIFACTS=1 states that it adds to it. Nothing is erased.
+const namedArtifacts = process.env.DSTUDIO_DESIGN_ARTIFACTS;
+const artifacts = namedArtifacts ? artifactDir(namedArtifacts) : artifactRunOrResume('design-quality-real', Boolean(resumeConfig));
+if (namedArtifacts && !resumeConfig && process.env.DSTUDIO_DESIGN_KEEP_ARTIFACTS !== '1') {
+  assert.equal(fs.readdirSync(artifacts).length, 0,
+    `${artifacts} holds an earlier run and receipts are never erased: name a new directory, or set DSTUDIO_DESIGN_KEEP_ARTIFACTS=1 to add to this one`);
 }
 const workspace = path.join(artifacts, 'workspace');
 fs.mkdirSync(workspace, { recursive: true });

@@ -103,6 +103,13 @@ weights against `scripts/qwen-variants.json`, records the engine's own
 patch-set digest and the effective memory mode. A requested SSD-streaming mode
 that the runtime does not report as effective stops the run before the first
 case. Receipts stay in `tests/.artifacts/host-common-quality/`.
+With `--restart-failed-engine`, after a case whose HTTP exchange did not
+complete (a frozen deadline, a dropped connection) the runner stops its host
+and the engine, checks that the engine is gone and that weights and host
+binary are unchanged, starts both again in the same memory mode and goes on
+with the next case, at most eight times. The failed case is not retried and
+stays failed; each restart is recorded. Without the option the remaining cases
+stay not run, as in the native runner.
 
 The native path now reads the engine revision from DStudio's
 `.dstudio-source.json` receipt. A managed engine is installed from bundled
@@ -113,9 +120,13 @@ Both runners take a resource snapshot before starting a model
 (`tests/support/heavy_preflight.mjs`, checked by `make test-heavy-preflight`).
 It judges a foreign engine by the memory it holds: an idle router without a
 loaded model is recorded and allowed, a process holding a model or one whose
-footprint cannot be measured blocks the run. It never stops a process. The
-host runner repeats the snapshot afterwards and marks the run contaminated if
-another engine loaded a model meanwhile.
+footprint cannot be measured blocks the run. It never stops a process. Both
+runners repeat the snapshot afterwards and mark the run contaminated if
+another engine loaded a model meanwhile. Until November 11 the native runner
+also refused to start beside any process with an engine's name, whatever it
+held: a model-free test's Cowork client made it refuse the Qwen3.8-Flash-Next
+Q4 run (`engine-acceptance/run-MnogVK`, retained as not executed). It now
+applies the snapshot's verdict alone, like the host runner.
 
 `node tests/live/quality_multihardware.mjs status` is the campaign coordinator:
 it reads the ten selections of `tests/fixtures/quality_campaign.json` and every
@@ -167,6 +178,20 @@ HTTP receipts cannot qualify as model results. It excludes personal paths, raw
 prompts and answers. An unrequested JSON wrapper around a correct value is
 classified separately but **remains failed**. `common_quality_summary_test.mjs`
 checks these publication boundaries with explicitly synthetic unit data.
+It reads the receipts of both runners: the native one records one weight file
+and the engine binary; the host one records every weight file, the engine's
+install receipt and the host binary (an MLX model folder is identified by one
+digest over its file list). Both receipts also store the compiler and tools
+present when the run started (`toolchainAtRun`): the installers do not record
+which compiler built an engine, so the binary's SHA-256 remains its identity.
+
+The campaign's reviewed aggregates and charts are published in
+[`docs/benchmarks/quality-multihardware/`](../../docs/benchmarks/quality-multihardware/README.md).
+`python3 extension/benchmarks/qwen-quality/plot-results.py` regenerates every
+chart and refuses an aggregate that has no reviewed entry for its receipt;
+`make test-qwen-quality-chart` checks the drawn bars against the published
+numbers, that unexecuted tasks are drawn and counted, and that each reviewed
+run is published once with its own receipt digest.
 
 Patch variants, fixtures and tests for the retired Qwen Next fork
 (`test-qwen38-inspect`, `test-qwen38-snapshot-patch` and the compressed fork

@@ -5,69 +5,109 @@
 <style>
 :root{color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff}
-button{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
-button:focus-visible{outline:3px solid #3874e6;outline-offset:2px}button[aria-pressed=true]{border-width:3px;font-weight:700}
+button,select{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;padding:8px;max-width:100%}
+:focus-visible{outline:3px solid #3874e6;outline-offset:2px}button[aria-pressed=true]{border-width:3px;font-weight:700}
 ul,ol{list-style:none;margin:0;padding:0}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 #sessions li{display:grid;grid-template-columns:3.5rem 1fr auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid #8c96a2}
+#chosen li{display:flex;gap:8px;align-items:center;padding:6px 0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 time{font-weight:700}small{display:block}dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 @media(prefers-color-scheme:dark){body,dialog{color:#eaeef5;background:#181b22}}
 </style>
 <h1>FREQUENCY</h1><p>Your session board</p><p>Sample data: a fictional creative-festival programme.</p>
-<div class="bar" role="group" aria-label="Part of day">
+<p id="rule" hidden>Two sessions at the same time conflict: only one of them fits in your day.</p>
+<p id="terms" hidden>No tickets were reserved for this sample programme.</p>
+<div class="bar" id="parts" role="group" aria-label="Part of day">
   <button onclick="setFilter('All')">All</button><button onclick="setFilter('Morning')">Morning</button>
   <button onclick="setFilter('Afternoon')">Afternoon</button></div>
+<p id="picker" hidden><label for="part">Show</label>
+  <select id="part" onchange="setFilter(this.value)"><option>All</option><option>Morning</option><option>Afternoon</option></select></p>
 <section aria-labelledby="programme"><h2 id="programme">Programme</h2><ul id="sessions"></ul></section>
-<section aria-labelledby="day"><h2 id="day">My day</h2><p id="count"></p><p id="message" role="status"></p>
-  <div class="bar"><button onclick="review(this)">Review my day</button><button onclick="finish()">Finish demo</button></div>
+<section aria-labelledby="day"><h2 id="day">My day</h2><p id="count"></p><ul id="chosen" hidden></ul><p id="message" role="status"></p>
+  <div class="bar"><button id="open" onclick="review(this)">Review my day</button><button onclick="finish()">Finish demo</button></div>
   <p id="done" role="status"></p></section>
-<dialog aria-labelledby="review"><h2 id="review">My day in order</h2><ol></ol><p id="none">Your day is empty.</p>
+<dialog aria-labelledby="review"><h2 id="review">My day in order</h2><ol></ol><p id="none"></p>
   <button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant switches to another correct rendering:
+//   chosen-list                  "My day" also lists the chosen sessions, each with its own Remove
+//   title-inside-action-names    the accessible names put the title inside the action: "Add Sound walks to my day"
+//   dialog-plain-lines           each dialog entry is one text: "10:00 — Sound walks"
+//   titles-in-button-text        the buttons end with the title in a visually hidden element, and each dialog
+//                                entry has its own Remove
+//   other-wording                the dialog button carries the number of chosen sessions; the refusal, the empty
+//                                day and the finish line use other words for the same statements
+//   conflict-disabled-with-note  a session whose slot is taken cannot be clicked: its control is disabled,
+//                                renamed and explained in its row
+//   filter-select                the three parts of the day are the options of one select
+window.fault='';window.variant='';
 const sessions=[['Sound walks','10:00'],['Poster room','10:00'],['Light studies','14:00']];
 // chosen keeps the order of selection; slots maps a start time to the session holding it.
 let chosen=[],filter='All',message='',done='';const slots={};
 const el=id=>document.getElementById(id),part=time=>time<'12:00'?'Morning':'Afternoon';
+const fault=name=>window.fault===name,variant=name=>window.variant===name;
+const chronological=(a,b)=>sessions[a][1].localeCompare(sessions[b][1])||a-b;
 const rows=sessions.map(([title,time],i)=>{
   const row=document.createElement('li');row.innerHTML=`<time>${time}</time><div><strong>${title}</strong><small></small></div><button></button>`;
   row.querySelector('button').onclick=()=>toggle(i);el('sessions').append(row);return row;});
 function render(){
   rows.forEach((row,i)=>{
-    const [title,time]=sessions[i],inDay=chosen.includes(i),button=row.querySelector('button');
-    row.hidden=filter!=='All'&&part(time)!==filter;row.querySelector('small').textContent=inDay?'In my day':'';
-    button.textContent=inDay?'Remove':'Add to my day';
-    button.setAttribute('aria-label',inDay?`Remove ${title} from my day`:`Add to my day: ${title}`);});
-  for(const button of document.querySelectorAll('[role=group] button'))button.setAttribute('aria-pressed',String(button.textContent===filter));
+    const [title,time]=sessions[i],inDay=chosen.includes(i),button=row.querySelector('button'),held=slots[time];
+    const blocked=variant('conflict-disabled-with-note')&&!inDay&&held!==undefined;
+    row.hidden=filter!=='All'&&part(time)!==filter&&!(fault('morning-filter-broken')&&filter==='Morning')&&!(fault('chosen-rows-ignore-filter')&&inDay);
+    row.querySelector('small').textContent=inDay?'In my day':blocked?`Conflicts with ${sessions[held][0]} at ${time}`:'';
+    button.disabled=blocked;button.textContent=inDay?'Remove':blocked?'Unavailable':'Add to my day';
+    button.setAttribute('aria-label',inDay?`Remove ${title} from my day`:blocked?`${title} is unavailable`
+      :variant('title-inside-action-names')?`Add ${title} to my day`:`Add to my day: ${title}`);
+    if(variant('titles-in-button-text')){button.removeAttribute('aria-label');button.insertAdjacentHTML('beforeend',`<span class="sr"> ${title}</span>`);}});
+  el('chosen').hidden=!variant('chosen-list');
+  el('chosen').innerHTML=chosen.slice().sort(chronological).map(i=>`<li><time>${sessions[i][1]}</time><span>${sessions[i][0]}</span>
+    <button onclick="toggle(${i})" aria-label="Remove ${sessions[i][0]}">Remove</button></li>`).join('');
+  el('parts').hidden=variant('filter-select');el('picker').hidden=!variant('filter-select');el('part').value=filter;
+  for(const button of el('parts').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.textContent===filter));
+  // One fault is the counted dialog button with the day listed in the order of selection.
+  el('open').textContent=variant('other-wording')||fault('counted-opener-review-insertion-order')?`Review my day (${chosen.length})`:'Review my day';
+  el('rule').hidden=!fault('silent-rejection-beside-conflict-note');el('terms').hidden=!fault('finish-states-nothing');
   el('count').textContent=`${chosen.length} of 3 sessions chosen`;el('message').textContent=message;el('done').textContent=done;
 }
 function setFilter(value){
   filter=value;
-  if(window.fault==='filter-drops-choices')chosen=chosen.filter(i=>filter==='All'||part(sessions[i][1])===filter);
+  if(fault('filter-drops-choices'))chosen=chosen.filter(i=>filter==='All'||part(sessions[i][1])===filter);
   render();
 }
 function toggle(i){
   const [title,time]=sessions[i],held=slots[time];done='';
   if(chosen.includes(i)){
-    chosen=chosen.filter(j=>j!==i);if(window.fault!=='slot-not-freed')delete slots[time];
+    chosen=chosen.filter(j=>j!==i);if(!fault('slot-not-freed'))delete slots[time];
     message=`${title} removed. The ${time} slot is free.`;
-  }else if(held!==undefined&&window.fault!=='conflict-accepted'){
+  }else if(held!==undefined&&!fault('conflict-accepted')){
     const other=sessions[held][0];
-    if(window.fault==='conflict-replaces'){chosen=chosen.filter(j=>j!==held).concat(i);slots[time]=i;}
-    message=window.fault==='silent-rejection'?'':`${title} conflicts with ${other} at ${time}. ${other} stays in your day.`;
+    if(fault('conflict-replaces')){chosen=chosen.filter(j=>j!==held).concat(i);slots[time]=i;}
+    message=fault('silent-rejection')||fault('silent-rejection-beside-conflict-note')?''
+      :variant('other-wording')?`${time} is already taken by ${other}, so ${title} was not added.`
+      :`${title} conflicts with ${other} at ${time}. ${other} stays in your day.`;
   }else{
     chosen.push(i);slots[time]=i;
     message=held===undefined?`${title} added at ${time}.`:`${title} conflicts with ${sessions[held][0]} at ${time}.`;
   }
   render();
 }
-function review(button){
-  button.focus();const list=document.querySelector('dialog ol');list.replaceChildren();
-  const day=window.fault==='review-insertion-order'?chosen:chosen.slice().sort((a,b)=>sessions[a][1].localeCompare(sessions[b][1])||a-b);
-  for(const i of day)list.insertAdjacentHTML('beforeend',`<li><time>${sessions[i][1]}</time> <span>${sessions[i][0]}</span></li>`);
-  el('none').hidden=day.length>0||window.fault==='missing-empty-review';document.querySelector('dialog').showModal();
+function review(button){button.focus();drawDay();document.querySelector('dialog').showModal();}
+function drawDay(){
+  const list=document.querySelector('dialog ol');list.replaceChildren();
+  const unsorted=fault('review-insertion-order')||fault('plain-review-insertion-order')||fault('counted-opener-review-insertion-order');
+  const day=unsorted?chosen:chosen.slice().sort(chronological);
+  const plain=variant('dialog-plain-lines')||fault('plain-review-insertion-order');
+  for(const i of day)list.insertAdjacentHTML('beforeend',plain?`<li>${sessions[i][1]} — ${sessions[i][0]}</li>`
+    :`<li><time>${sessions[i][1]}</time> <span>${sessions[i][0]}</span>${variant('titles-in-button-text')
+      ?` <button onclick="toggle(${i});drawDay()">Remove<span class="sr"> ${sessions[i][0]}</span></button>`:''}</li>`);
+  el('none').textContent=variant('other-wording')?'Nothing chosen yet.':'Your day is empty.';
+  el('none').hidden=fault('missing-empty-review')||day.length>0&&!fault('empty-message-always-shown');
 }
 function finish(){
-  done=window.fault==='false-reservation'?`Tickets reserved for ${chosen.length} sessions.`:'No tickets were reserved. This is a local demo.';render();
+  done=fault('finish-states-nothing')?'':fault('false-reservation')?`Tickets reserved for ${chosen.length} sessions.`
+    :variant('other-wording')?'Demo finished: no tickets were reserved.':'No tickets were reserved. This is a local demo.';
+  render();
 }
 render();
 </script></html>

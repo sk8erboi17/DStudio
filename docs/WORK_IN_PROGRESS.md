@@ -28,6 +28,9 @@ and its [startup regressions](../PLAN.MD#p1--finish-startup-and-lifecycle-accept
 Historical scores qualify only their recorded engine/model/configuration;
 changing a bundled pin does not transfer them. The [engine admission matrix](ENGINE_UPSTREAM_ALIGNMENT.md)
 tracks missing release receipts separately from test outcomes.
+The common-100 results reviewed so far are published, with their charts and
+failures, in [the campaign report](benchmarks/quality-multihardware/README.md):
+five selections measured, none at the required 100/100.
 
 ### Pinned Qwen variants: five representative checks (NOT RUN)
 

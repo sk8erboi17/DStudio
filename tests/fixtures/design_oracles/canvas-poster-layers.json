@@ -54,7 +54,7 @@
     },
     {
       "name": "reorder-not-in-history",
-      "caughtAs": "strictly equal:[\\s\\S]*'Layers[\\s\\S]*\\+ +'Title\\\\n'[\\s\\S]*- +'Local title\\\\n'",
+      "caughtAs": "^Undo did not take back the reorder in the Layers list",
       "flags": ""
     },
     {
@@ -64,8 +64,76 @@
     },
     {
       "name": "capacity-not-enforced",
-      "caughtAs": "strictly equal:\\s+8 !== 6",
+      "caughtAs": "^a seventh object was added; the maximum is six",
       "flags": ""
+    },
+    {
+      "name": "poster-click-ignored",
+      "caughtAs": "^selecting an object on the poster did not update the Inspector",
+      "flags": ""
+    },
+    {
+      "name": "hide-hides-all",
+      "caughtAs": "^Hide removed another object from the poster",
+      "flags": ""
+    },
+    {
+      "name": "review-ignores-visibility",
+      "caughtAs": "^Review layers reports the same visibility for a hidden object",
+      "flags": ""
+    },
+    {
+      "name": "show-does-nothing",
+      "caughtAs": "^Show did not bring the hidden object back",
+      "flags": ""
+    },
+    {
+      "name": "review-ignores-order",
+      "caughtAs": "^Review layers did not follow the reorder",
+      "flags": ""
+    },
+    {
+      "name": "add-shape-does-nothing",
+      "caughtAs": "^Add shape added nothing(?! with)",
+      "flags": ""
+    },
+    {
+      "name": "capacity-silent-at-five",
+      "caughtAs": "^Add shape added nothing with 5 of six objects",
+      "flags": ""
+    },
+    {
+      "name": "shapes-share-name",
+      "caughtAs": "^added shapes share a name",
+      "flags": ""
+    },
+    {
+      "name": "move-up-does-nothing",
+      "caughtAs": "^Move layer up did not change the Layers list",
+      "flags": ""
+    },
+    {
+      "name": "history-ten-undo-enabled",
+      "caughtAs": "^Undo 11 of 20 did not take back one visibility change",
+      "flags": ""
+    }
+  ],
+  "variants": [
+    {
+      "name": "add-refuses-at-six",
+      "why": "Add shape stays enabled; with six objects on the poster pressing it adds nothing and a visible message says the maximum is six."
+    },
+    {
+      "name": "visibility-pressed-toggle",
+      "why": "Each layer has one toggle button that keeps the name Hide and reports aria-pressed while its object is hidden; pressing it again shows the object."
+    },
+    {
+      "name": "review-back-to-front",
+      "why": "The Review layers dialog lists the exact order from the back of the poster to the front and says so; the Layers list runs front to back."
+    },
+    {
+      "name": "review-visibility-on-off",
+      "why": "The Review layers dialog reports visibility as \"visibility on\" and \"visibility off\"; the brief fixes no wording."
     }
   ]
 }

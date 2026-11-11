@@ -27,7 +27,7 @@ dialog{width:min(30rem,90vw);color:var(--fg);background:var(--bg);border:1px sol
 <div class="tools" role="toolbar" aria-label="Tools">
   <button id="add" onclick="addShape()">Add shape</button><button id="undo" onclick="undo()">Undo</button><button id="redo" onclick="redo()">Redo</button>
   <button onclick="review(this)">Review layers</button></div>
-<p id="count" role="status"></p>
+<p id="count" role="status"></p><p id="notice" role="status" hidden></p>
 <main>
 <section aria-labelledby="poster-title"><h2 id="poster-title">Poster</h2><div id="board"></div></section>
 <section aria-labelledby="layers-title"><h2 id="layers-title">Layers</h2><p>Front to back. Move layer up brings an object forward.</p>
@@ -35,24 +35,34 @@ dialog{width:min(30rem,90vw);color:var(--fg);background:var(--bg);border:1px sol
 <section aria-labelledby="inspector-title"><h2 id="inspector-title">Inspector</h2><p id="selection"></p>
   <label for="name">Object name</label> <input id="name" maxlength="24" oninput="renameSelected()" onblur="endRename()"></section>
 </main>
-<dialog aria-labelledby="review-title"><h2 id="review-title">Review layers</h2><p>Front to back:</p><ol id="review"></ol>
+<dialog aria-labelledby="review-title"><h2 id="review-title">Review layers</h2><p id="review-order">Front to back:</p><ol id="review"></ol>
   <p>Local demo: nothing is published.</p><button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+// `fault` switches on one deliberate defect; `variant` one other, equally correct behaviour:
+//   add-refuses-at-six        Add shape stays enabled; at six objects it adds nothing and says why
+//   visibility-pressed-toggle  one toggle button per layer, always named Hide, pressed while hidden
+//   review-back-to-front       the dialog lists the layers from the back of the poster to the front
+//   review-visibility-on-off   visibility is reported as "visibility on" and "visibility off"
+window.fault='';window.variant='';
 const LIMIT=6,KEEP=50,kinds=['Square','Triangle','Diamond','Bar'];
 const art={Circle:'<circle cx="32" cy="32" r="32"/>',Square:'<rect width="64" height="64"/>',Triangle:'<path d="M32 0 64 64H0z"/>',
   Diamond:'<path d="M32 0 64 32 32 64 0 32z"/>',Bar:'<rect y="22" width="64" height="20"/>'};
 // Back to front: this one array is the paint order of the poster and, reversed, the Layers list.
 let objects=[{id:1,kind:'Circle',name:'Circle',visible:true,x:56,y:36},{id:2,kind:'Title',name:'Title',visible:true,x:20,y:56}];
-let selected=null,next=3,past=[],future=[],editing=false;
-const el=id=>document.getElementById(id),F=name=>window.fault===name;
+let selected=null,next=3,past=[],future=[],editing=false,message='';
+let phantom=0; // presses of Add shape that the add-shape-does-nothing fault counted without adding an object
+const el=id=>document.getElementById(id),F=name=>window.fault===name,V=name=>window.variant===name;
 const current=()=>objects.find(o=>o.id===selected),indexOf=id=>objects.findIndex(o=>o.id===id);
-const describe=o=>`${o.kind==='Title'?'text':o.kind.toLowerCase()+' shape'}, ${o.visible?'visible':'hidden'}`;
+const describe=o=>`${o.kind==='Title'?'text':o.kind.toLowerCase()+' shape'}, `
+  +(V('review-visibility-on-off')?'visibility '+(o.visible?'on':'off'):o.visible?'visible':'hidden');
 function make(tag,text,attrs={}){const node=document.createElement(tag);node.textContent=text;for(const key in attrs)node.setAttribute(key,attrs[key]);return node;}
 // Every action first records the objects and the selection; Undo and Redo exchange whole records.
-const record=()=>JSON.stringify({objects,selected,next});
-function restore(state){({objects,selected,next}=JSON.parse(state));editing=false;}
-function commit(){past.push(record());if(past.length>KEEP)past.shift();if(!F('redo-kept-after-new-action'))future=[];editing=false;}
+const record=()=>JSON.stringify({objects,selected,next,phantom});
+function restore(state){({objects,selected,next,phantom}=JSON.parse(state));editing=false;}
+function commit(){
+  past.push(record());if(past.length>(F('history-ten-undo-enabled')?10:KEEP))past.shift();
+  if(!F('redo-kept-after-new-action'))future=[];editing=false;
+}
 function undo(){
   if(!past.length)return;const before=objects.map(o=>o.id);future.push(record());restore(past.pop());
   const back=F('undo-duplicates-object')&&objects.find(o=>!before.includes(o.id));if(back)objects.push({...back,id:next++});
@@ -60,9 +70,12 @@ function undo(){
 }
 function redo(){if(!future.length)return;past.push(record());restore(future.pop());render();}
 function addShape(){
-  if(objects.length>=LIMIT&&!F('capacity-not-enforced'))return;
+  if(objects.length+phantom>=(F('capacity-silent-at-five')?5:LIMIT)&&!F('capacity-not-enforced')){
+    if(objects.length>=LIMIT)message='Maximum six objects. Delete one to add another shape.';render();return;
+  }
+  if(F('add-shape-does-nothing')){commit();phantom++;render();return;} // an undoable press that is counted but adds no object
   commit();const n=next-2,kind=kinds[(n-1)%kinds.length];let name=kind,copy=1;
-  while(objects.some(o=>o.name===name))name=kind+' '+ ++copy;
+  if(F('shapes-share-name'))name='Shape';else while(objects.some(o=>o.name===name))name=kind+' '+ ++copy;
   selected=next++;objects.push({id:selected,kind,name,visible:true,x:20+n*67%170,y:20+n*41%120});render();
 }
 function select(id){selected=id;editing=false;render();}
@@ -73,19 +86,24 @@ function renameSelected(){
 }
 function endRename(){editing=false;el('name').value=current()?current().name:'';}
 function shift(id,by){
-  const from=indexOf(id),to=from+by;if(from<0||to<0||to>=objects.length)return;
+  const from=indexOf(id),to=from+by;if(from<0||to<0||to>=objects.length||F('move-up-does-nothing')&&by>0)return;
   if(!F('reorder-not-in-history'))commit();[objects[from],objects[to]]=[objects[to],objects[from]];render();
 }
 function toggle(id){
-  const at=indexOf(id);if(at<0)return;if(!F('visibility-not-in-history'))commit();
-  if(F('hide-removes-layer'))objects.splice(at,1);else objects[at].visible=!objects[at].visible;render();
+  const at=indexOf(id);if(at<0||F('show-does-nothing')&&!objects[at].visible)return;if(!F('visibility-not-in-history'))commit();
+  if(F('hide-removes-layer'))objects.splice(at,1);else if(F('hide-hides-all'))for(const o of objects)o.visible=false;
+  else objects[at].visible=!objects[at].visible;
+  render();
 }
 function removeObject(id){
   const at=indexOf(id);if(at<0)return;if(!F('delete-not-undoable'))commit();
   objects.splice(at,1);if(selected===id)selected=null;render();
 }
 function review(button){
-  button.focus();el('review').replaceChildren(...[...objects].reverse().map(o=>make('li',`${o.name}: ${describe(o)}`)));
+  button.focus();const back=V('review-back-to-front');
+  const listed=F('review-ignores-order')?[...objects].sort((a,b)=>b.id-a.id):[...objects].reverse();if(back)listed.reverse();
+  el('review-order').textContent=back?'Back to front:':'Front to back:';
+  el('review').replaceChildren(...listed.map(o=>make('li',`${o.name}: ${describe(F('review-ignores-visibility')?{...o,visible:true}:o)}`)));
   document.querySelector('dialog').showModal();
 }
 function render(){
@@ -97,15 +115,16 @@ function render(){
     const label=F('rename-not-on-poster')?o.kind:o.name,text=o.kind==='Title';
     const button=make('button',text?label:'',{class:'object '+o.kind,'aria-pressed':o.id===selected,style:`left:${o.x}px;top:${o.y}px`});
     if(!text){button.setAttribute('aria-label',label);button.innerHTML=`<svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">${art[o.kind]}</svg>`;}
-    button.hidden=!o.visible&&!F('hidden-still-shown');button.onclick=()=>select(o.id);board.append(button);
+    button.hidden=!o.visible&&!F('hidden-still-shown');if(!F('poster-click-ignored'))button.onclick=()=>select(o.id);board.append(button);
   }
   [...objects].reverse().forEach((o,index,front)=>{
-    const entry=make('li','',{'data-id':o.id}),state=o.visible?'Hide':'Show';
+    const entry=make('li','',{'data-id':o.id}),pressed=V('visibility-pressed-toggle'),state=pressed||o.visible?'Hide':'Show';
     const pick=make('button',o.name,{class:'pick','aria-label':'Select '+o.name,'aria-pressed':o.id===selected});
     pick.onclick=()=>select(F('inspector-wrong-layer')?objects[index].id:o.id);entry.append(pick,make('span',o.visible?'visible':'hidden'));
     for(const [label,short,run,off] of [['Move layer up','Up',()=>shift(o.id,1),index===0],['Move layer down','Down',()=>shift(o.id,-1),index===front.length-1],
         [state,state,()=>toggle(o.id)],['Delete','Delete',()=>removeObject(F('delete-wrong-layer')?objects[index].id:o.id)]]){
       const button=make('button',short,{'aria-label':label+' '+o.name});button.disabled=!!off;button.onclick=run;entry.append(button);
+      if(pressed&&label==='Hide')button.setAttribute('aria-pressed',!o.visible);
     }
     list.append(entry);
   });
@@ -114,7 +133,9 @@ function render(){
   el('selection').textContent=chosen?`Selected: ${chosen.name} (${describe(chosen)})`:'No object selected.';
   input.disabled=!chosen;if(document.activeElement!==input)input.value=chosen?chosen.name:'';
   el('count').textContent=`${objects.length} of ${LIMIT} objects. Undo and Redo keep the last ${KEEP} actions.`;
-  el('add').disabled=objects.length>=LIMIT&&!F('capacity-not-enforced');el('undo').disabled=!past.length;el('redo').disabled=!future.length;
+  el('notice').textContent=message;el('notice').hidden=!message;message='';
+  el('add').disabled=objects.length+phantom>=LIMIT&&!F('capacity-not-enforced')&&!V('add-refuses-at-six');
+  el('undo').disabled=!past.length&&!F('history-ten-undo-enabled');el('redo').disabled=!future.length;
 }
 render();
 </script></html>

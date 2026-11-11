@@ -10,8 +10,8 @@ Results below that name `q36` or
 `qwen35` were measured on those retired engines and are history, not llama.cpp
 results. The llama.cpp path has passed only the development gate
 (`make test-llama-resident-live`): 10/10 on each model on `b11371`, and the
-current six cases on Qwen3.6 on `b11836`. Qwen3.8-27B has not been rerun on
-`b11836`.
+current six cases on `b11836`: Qwen3.6 on October 23 and Qwen3.8-27B on
+November 11 (`run-vQz1Lv`; its Design case took 56 minutes).
 On November 10 the owner authorized the complete quality-suite rerun. This checkpoint removes
 completed implementation tasks from the active backlog while retaining their
 missing full-model acceptance checks.
@@ -26,8 +26,8 @@ For the complete scope use [PLAN.MD](../PLAN.MD); for source/binary admission us
 
 | Model / recorded engine | Implementation still missing | Verification still missing |
 | --- | --- | --- |
-| Qwen3.8-27B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design is implemented. | Rerun the development gate on `b11836`: the retained Chat/Agent/Cowork, image and Design checks used `b11371`. Then complete Common-100, long context, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. |
-| Qwen3.6-35B-A3B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design and the separate MLX path are implemented. | Common-100 on llama.cpp and MLX, long context, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode/Design coverage. The six-case development gate passed on `b11836`; MLX retains its own independent development results. |
+| Qwen3.8-27B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design is implemented. | The development gate passed on `b11836` on November 11 (6/6, with the image check). Common-100 ran the same day: 73/100 (development replay; long context 7/8). Still to complete: numerical references and the original long-context requests, Learn/Tutor, PDF, native desktop and multi-session/mode coverage. |
+| Qwen3.6-35B-A3B / llama.cpp f5027fb | Persistent KV/session reuse across engine restarts. Design and the separate MLX path are implemented. | Common-100 ran on November 10–11 as development replays: 67/100 on llama.cpp and 68/100 on MLX (long context 5/8 on both). Still to complete: numerical references and the original long-context requests, long-Agent continuation, Learn/Tutor, PDF/vision, native desktop and complete mode/Design coverage. The six-case development gate passed on `b11836`; MLX retains its own independent development results. |
 | Qwen3.8-Flash-Next / main 890898c (results so far on 0aaea5a) | Independent Design and required native-vision adapters. | Learn/Tutor, PDF/vision, native desktop, complete mode/continuation quality and trusted full-model numerical references. Q2 requires its own qualification; Q4 results do not cover it. |
 
 Complete Agent/Cowork build signatures, crash-safe pair publication and legacy

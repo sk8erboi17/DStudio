@@ -8,7 +8,7 @@ body{margin:16px;font:16px/1.5 system-ui;color:#161b22;background:#fff;max-width
 button,input{font:inherit;color:inherit;background:inherit;border:1px solid #8c96a2;border-radius:3px;padding:8px;max-width:100%}
 :focus-visible{outline:3px solid #3874e6;outline-offset:2px}
 button[aria-pressed=true]{border-width:3px;font-weight:700}
-input{display:block;width:100%}ul{padding:0;list-style:none}li{margin:8px 0}section{margin:20px 0}
+input{display:block;width:100%}ul{padding:0;list-style:none}li{margin:8px 0}li button{margin-right:8px}li.numbered button{margin-left:8px}li label{display:inline-grid;grid-template-columns:20px auto;gap:8px;align-items:center}li input{display:inline-block;width:18px;height:18px;margin:0;padding:0}section{margin:20px 0}
 .map{position:relative;border:1px solid #8c96a2;aspect-ratio:8/5}.map svg{display:block;width:100%;height:100%}
 .pin{position:absolute;display:flex;gap:6px;align-items:center}.pin *{background:var(--page)}.pin button{min-width:2.5rem;border-radius:50%}
 dialog{width:min(30rem,90vw);color:inherit;background:inherit}
@@ -16,7 +16,7 @@ dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 </style>
 <h1>AROUND HERE</h1><p>A pocket guide to small places</p>
 <p>Local demo with Sample data. The map is a schematic drawing, not to scale: no geolocation and no real navigation.</p>
-<label for="query">Search places</label><input id="query" type="search" oninput="render()">
+<label for="query">Search places</label><input id="query" type="search" oninput="typed()">
 <p><button id="show-All" onclick="setCategory('All')">All</button> <button id="show-Indoors" onclick="setCategory('Indoors')">Indoors</button>
   <button id="show-Outdoors" onclick="setCategory('Outdoors')">Outdoors</button> <button onclick="clearFilters()">Clear filters</button></p>
 <section aria-labelledby="map-title"><h2 id="map-title">Schematic map</h2>
@@ -30,45 +30,92 @@ dialog{width:min(30rem,90vw);color:inherit;background:inherit}
 <dialog aria-labelledby="notes-title"><h2 id="notes-title">Place notes</h2><p id="notes-name"></p><p id="notes-text"></p>
   <button onclick="this.closest('dialog').close()">Close</button></dialog>
 <script>
-window.fault='';
+window.fault='';window.variant='';
 const places=[['North garden','Outdoors','A fenced herb garden with two benches.',6,8],
   ['Paper house','Indoors','A small room of folded-paper models.',34,42],
   ['River steps','Outdoors','Worn stone steps down to the water.',50,74]]
   .map(([title,category,note,left,top])=>({title,category,note,left,top}));
-let selected=null,previous=null,category='All',cleared=false;
+let selected=null,previous=null,lastChosen=null,category='All',cleared=false,queryIgnored=false,built=null,views=[];
 const el=id=>document.getElementById(id);
 const make=(tag,text)=>{const node=document.createElement(tag);node.textContent=text;return node;};
-const views=places.map((place,index)=>{
-  const pin=make('span',''),mark=make('button',index+1),row=make('li',''),entry=make('button',place.title);
-  pin.className='pin';pin.style.left=place.left+'%';pin.style.top=place.top+'%';
-  mark.setAttribute('aria-label',`Select ${index+1}: ${place.title}`);
-  mark.onclick=()=>choosePlace(window.fault==='map-off-by-one'?(index+1)%places.length:index);
-  entry.onclick=()=>choosePlace(index);
-  pin.append(mark,make('span',place.title));row.append(entry,make('span',` ${index+1} · ${place.category}`));
-  el('pins').append(pin);el('places').append(row);
-  return {pin,mark,row,entry};
-});
+// A fault named after an alternative rendering is that rendering with one
+// defect of the reference page, so that the more tolerant oracle path that
+// accepts the rendering is shown to refuse the defect as well.
+const implied={'numbered-name-wrong-place':'map-off-by-one','alternate-names-notes-previous-place':'notes-previous-place','numbered-title-stale-details':'stale-details'};
+// Two faults are the numbered-list-rows rendering with a defect of its own: rows that no filter hides,
+// and Select buttons that choose the next place.
+const fault=name=>window.fault===name||implied[window.fault]===name;
+const shape=(variant,...faults)=>window.variant===variant||faults.includes(window.fault);
+// Pins and rows are built once for each rendering, so that a selection keeps keyboard focus.
+function build(){
+  const bareNames=shape('numbered-map-names','numbered-name-wrong-place'),groups=shape('map-groups');
+  const selectButtons=shape('select-buttons-in-rows'),radios=shape('radio-list'),clickOnly=fault('list-not-keyboard-reachable');
+  const numbered=shape('numbered-list-rows','numbered-rows-not-filtered','numbered-rows-select-wrong-place');
+  const key=[bareNames,groups,selectButtons,radios,clickOnly,numbered].join();
+  if(key===built)return;
+  built=key;el('pins').replaceChildren();el('places').replaceChildren();
+  views=places.map((place,index)=>{
+    const pin=make('span',''),mark=make('button',index+1),label=make('span',place.title),row=make('li','');
+    const entry=make(clickOnly?'span':radios?'input':'button',selectButtons||numbered?'Select':radios?'':place.title);
+    const summary=make('span',numbered?` · ${place.category}`:` ${index+1} · ${place.category}`);
+    pin.className='pin';pin.style.left=place.left+'%';pin.style.top=place.top+'%';
+    if(groups){pin.setAttribute('role','group');pin.setAttribute('aria-label',place.title);mark.setAttribute('aria-label','Select');}
+    else mark.setAttribute('aria-label',`${bareNames?'':'Select '}${index+1}: ${place.title}`);
+    mark.onclick=()=>choosePlace(fault('map-off-by-one')?(index+1)%places.length:index);
+    pin.append(mark,label);
+    if(radios){
+      const choice=make('label','');entry.type='radio';entry.name='place';entry.onchange=()=>choosePlace(index);
+      choice.append(entry,make('span',place.title));row.append(choice,summary);
+    }else{
+      entry.onclick=()=>choosePlace(fault('numbered-rows-select-wrong-place')?(index+1)%places.length:index);
+      // The numbered row reads "1. North garden" in one text of its own, directly followed by its button.
+      if(numbered){row.className='numbered';row.append(`${index+1}. ${place.title}`,entry,summary);}
+      else if(selectButtons)row.append(make('span',place.title),entry,summary);else row.append(entry,summary);
+    }
+    el('pins').append(pin);el('places').append(row);
+    return {pin,mark,label,row,entry};
+  });
+  // That rendering ends with a row about a place whose name only begins like North garden.
+  if(numbered)el('places').append(make('li',"Opening soon: North gardeners' shed."));
+}
 function render(){
-  const query=el('query').value.trim().toLowerCase();
-  const visible=places.map(place=>place.title.toLowerCase().includes(query)
-    &&(category==='All'||place.category===category||window.fault==='search-replaces-category'&&query!==''));
-  if(selected!==null&&!visible[selected]&&window.fault!=='stale-details'){selected=null;cleared=true;}
+  build();
+  const otherNames=shape('alternate-names','alternate-names-notes-previous-place');
+  el('notes-button').textContent=otherNames?'Open place notes':'Place notes';
+  el('map-title').textContent=otherNames?'Map of small places':'Schematic map';el('list-title').textContent=otherNames?'Place list':'Places';
+  el('details-title').textContent=otherNames?'Detail area':'Details';
+  const query=queryIgnored?'':el('query').value.trim().toLowerCase();
+  const inCategory=places.map(place=>category==='All'||place.category===category||fault('outdoors-filter-ignored')&&category==='Outdoors');
+  const visible=places.map((place,index)=>place.title.toLowerCase().includes(query)
+    &&(inCategory[index]||fault('search-replaces-category')&&query!==''));
+  if(selected!==null&&!visible[selected]&&!fault('stale-details')&&!(fault('stale-details-after-search')&&inCategory[selected])){selected=null;cleared=true;}
   for(const name of ['All','Indoors','Outdoors'])el('show-'+name).setAttribute('aria-pressed',String(category===name));
   views.forEach((view,index)=>{
-    view.row.hidden=!visible[index];view.pin.hidden=!visible[index]&&window.fault!=='map-not-filtered';
-    view.entry.setAttribute('aria-pressed',String(selected===index));view.mark.setAttribute('aria-pressed',String(selected===index));
+    view.row.hidden=!visible[index]&&!fault('numbered-rows-not-filtered');
+    view.pin.hidden=!visible[index]&&!fault('map-not-filtered')&&!fault('map-buttons-not-filtered');view.label.hidden=!visible[index]&&fault('map-buttons-not-filtered');
+    if(view.entry.tagName==='BUTTON')view.entry.setAttribute('aria-pressed',String(selected===index));
+    if(view.entry.tagName==='INPUT')view.entry.checked=selected===index;
+    view.mark.setAttribute('aria-pressed',String(selected===index));
   });
   el('no-places').hidden=visible.includes(true);
   if(selected===null)el('details').replaceChildren(make('p',cleared?'Selection cleared: that place is hidden by the current filters.'
     :'No place selected. Choose a place from the list or the map.'));
-  else el('details').replaceChildren(make('h3',places[selected].title),make('p',places[selected].category+' · '+places[selected].note));
-  el('notes-button').disabled=selected===null;
+  else el('details').replaceChildren(make('h3',(shape('numbered-detail-title','numbered-title-stale-details')?selected+1+' · ':'')+places[selected].title),
+    make('p',places[selected].category+' · '+places[selected].note));
+  el('notes-button').disabled=selected===null&&!fault('notes-after-cleared-selection');
 }
-function choosePlace(index){previous=selected;selected=index;cleared=false;render();}
-function setCategory(value){category=value;render();}
-function clearFilters(){el('query').value='';if(window.fault!=='clear-keeps-category')category='All';render();}
+function choosePlace(index){previous=selected;selected=lastChosen=index;cleared=false;render();}
+function typed(){queryIgnored=false;render();}
+function setCategory(value){
+  if(fault('all-filter-ignored')&&value==='All')return;
+  // The fault leaves the text in the field but stops applying it until the next keystroke.
+  if(fault('category-ignores-search'))queryIgnored=true;
+  category=value;render();
+}
+function clearFilters(){el('query').value='';queryIgnored=false;if(!fault('clear-keeps-category'))category='All';render();}
 function showNotes(button){
-  button.focus();const place=places[window.fault==='notes-previous-place'?previous:selected];
+  button.focus();
+  const place=places[fault('notes-previous-place')?previous:fault('notes-after-cleared-selection')&&selected===null?lastChosen:selected];
   el('notes-name').textContent=place?place.title:'No place selected';el('notes-text').textContent=place?place.note:'';
   document.querySelector('dialog').showModal();
 }

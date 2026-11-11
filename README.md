@@ -116,7 +116,7 @@ room left for context and macOS. Only a 96 GB M2 Max has been tested.
 
 | Starting point | Engine | Download | Memory | Status on the 96 GB test Mac |
 | --- | --- | ---: | --- | --- |
-| Qwen3.8-27B Q6_K_XL + projector | llama.cpp | 26.2 GB | Whole model in memory | Real workflow checks 6/6 on the previous llama.cpp pin, not yet rerun on `b11836`; Design is slow |
+| Qwen3.8-27B Q6_K_XL + projector | llama.cpp | 26.2 GB | Whole model in memory | Real workflow checks 6/6 (November 11); Design is slow (56 minutes for one page) |
 | Qwen3.6-35B-A3B Q6_K_XL | llama.cpp | 31.8 GB | Whole model in memory | Real workflow checks 6/6 |
 | Qwen3.6-35B-A3B MXFP8 (macOS 26) | MLX | 36.7 GB | Whole model in memory | Real workflow checks 6/6 |
 | Laguna S 2.1 Q4_K_M | ds4 | ~68 GB | Must fit entirely (no SSD streaming) | Experimental; engine acceptance 10/12 (September) |
@@ -929,7 +929,8 @@ on and off, and a killed DStudio leaves no server behind. Retained failures
 include a thinking-off arithmetic error (Qwen3.6) and the 27B Design run that
 hit the test's former one-hour bound before finishing.
 After the move to `b11836` on October 23, Qwen3.6 passed the same six checks
-again; Qwen3.8-27B has not been rerun on `b11836` yet.
+again, and on November 11 Qwen3.8-27B passed them too (its Design case took
+56 minutes).
 
 ### Qwen3.6 on MLX (Apple Silicon)
 
@@ -1193,7 +1194,7 @@ Pi/OpenCode phase **1 h 2 min 36 s**.
 
 ```sh
 DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-reliability-real
-DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
+DSTUDIO_COMPETITOR_HARNESSES=pi,opencode DSTUDIO_RELIABILITY_CASES=50 make test-task-graph-cli-competitors-real
 node extension/task-graph/bench/publish-reliability.mjs \
   tests/.artifacts/task-graph-reliability-real/result.json \
   extension/task-graph/bench/results/2026-09-04-m2-max-diverse-reliability-no-ssd.json

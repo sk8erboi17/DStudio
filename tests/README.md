@@ -44,6 +44,18 @@ target starts; their commands are here so that they are accounted for:
 A file reached by nothing is not evidence of anything: wire it to a target,
 give its command in a guide, or remove it in the final simplification step.
 
+The census also lists, for each file, the prerequisites it can detect from
+what the file and the recipe that runs it name (`--needs` prints them per
+file): the browsers a recipe actually selects, the host test binary or the
+app, Python modules outside the standard library, external tools such as
+Poppler, CMake, ffmpeg or Git, and real weights for everything under
+`tests/live/`. On November 11, 2026, of 282 files: 48 start a browser (16 in
+Chromium only, 26 in Chromium and WebKit, 4 in WebKit only, 1 in all three,
+1 not determined), 49 need the host test binary, 50 a real engine or weights
+and 5 Matplotlib.
+This is a reading aid derived from the sources, not a guarantee: a suite that
+lacks a prerequisite must still report itself as not run or blocked.
+
 `node tests/support/gate_run.mjs check-fast` runs a gate one target at a time
 (`--only TARGET,...` reruns some of them). Each invocation owns a new directory
 in ignored `tests/.artifacts/gate-runs/` with one log per target and a
@@ -53,6 +65,13 @@ blocked. The verdict of a target is its exit status, never its printed lines.
 A rerun does not replace an earlier run, so an intermittent failure stays on
 record beside the rerun that passed. `make test-gate-run` checks the runner on
 a synthetic Makefile.
+
+`node tests/support/gate_run.mjs --cases RUN_DIR` lists the case lines of a
+finished run with their state (`--json` for every line): the case-level
+census of what that run executed. It reads the retained logs and changes
+nothing. The complete run of November 11 (`check-fast-h83qnj`) lists 2,414
+passed and 2 failed case lines over 122 targets; targets that print no case
+line per check are counted by their exit status only.
 
 ## Topic guides and section links
 
@@ -98,6 +117,7 @@ directly to the corresponding guide and section.
 - <a id="streaming-and-live-tool-previews"></a>[Streaming and live tool previews](docs/engines-and-harnesses.md#streaming-and-live-tool-previews)
 - <a id="app-binary-helper-modes"></a>[App-binary helper modes](docs/engines-and-harnesses.md#app-binary-helper-modes)
 - <a id="harnesses-pi-and-opencode-as-the-agent-runtime"></a>[Harnesses: pi and OpenCode as the Agent runtime](docs/engines-and-harnesses.md#harnesses-pi-and-opencode-as-the-agent-runtime)
+- <a id="codex-cli-responses-protocol-scripted-server"></a>[Codex CLI Responses protocol (scripted server)](docs/engines-and-harnesses.md#codex-cli-responses-protocol-scripted-server)
 
 ### Offline installation, inference boundaries and cleanup
 
@@ -114,4 +134,5 @@ directly to the corresponding guide and section.
 - <a id="vision-encoder-with-ssd-streaming-real-metal"></a>[Vision encoder with SSD streaming (real Metal)](docs/regression.md#vision-encoder-with-ssd-streaming-real-metal)
 - <a id="small-ssd-prefill-batches-real-metal-128k-context"></a>[Small SSD prefill batches (real Metal, 128k context)](docs/regression.md#small-ssd-prefill-batches-real-metal-128k-context)
 - <a id="model-free-checks"></a>[Model-free checks](docs/regression.md#model-free-checks)
+- <a id="frozen-vision-corpus"></a>[Frozen vision corpus (PDFs and images)](docs/regression.md#frozen-vision-corpus)
 - <a id="lan-sessions-ocr-and-cowork-limits-october-3-2026"></a>[LAN, sessions, OCR and Cowork limits (October 3, 2026)](docs/regression.md#lan-sessions-ocr-and-cowork-limits-october-3-2026)

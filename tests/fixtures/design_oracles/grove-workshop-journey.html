@@ -11,6 +11,7 @@ ol{margin:0;padding-left:24px}[aria-current]{font-weight:700;text-decoration:und
 fieldset{min-width:0;margin:0 0 12px;padding:4px 12px;border:1px solid #8c96a2}
 .choice{display:grid;grid-template-columns:auto 1fr;gap:10px;margin:10px 0}
 .choice input{width:1.2em;height:1.2em;margin:.15em 0 0;color:inherit;background:transparent}
+.choice [role=radio]{width:1.2em;height:1.2em;margin:.15em 0 0;border:2px solid;border-radius:50%}.choice [aria-checked=true]{background:currentColor}
 .choice strong{display:block}dt{font-weight:700}dd{margin:0 0 8px}
 @media(min-width:768px){main{grid-template-columns:1fr 1fr;align-items:start}}
 @media(prefers-color-scheme:dark){body{color:#eaeef5;background:#181b22}}
@@ -24,47 +25,75 @@ fieldset{min-width:0;margin:0 0 12px;padding:4px 12px;border:1px solid #8c96a2}
 <label class="choice"><input type="radio" name="workshop" value="Bookbinding" onchange="pick('workshop',this.value)"><span><strong>Bookbinding</strong> Fold, stitch and cover a pocket notebook with simple hand tools.</span></label>
 <label class="choice"><input type="radio" name="workshop" value="Bicycle care" onchange="pick('workshop',this.value)"><span><strong>Bicycle care</strong> Clean a chain, mend a puncture and set your brakes with a patient mechanic.</span></label>
 <label class="choice"><input type="radio" name="workshop" value="Urban sketching" onchange="pick('workshop',this.value)"><span><strong>Urban sketching</strong> Draw the square outside in pencil and ink, one quick study at a time.</span></label></fieldset>
+<div id="imitation-step" role="radiogroup" aria-label="Workshops" hidden></div>
 <fieldset id="day-step"><legend>Days</legend>
 <label class="choice"><input type="radio" name="day" value="Tuesday" onchange="pick('day',this.value)"><span>Tuesday</span></label>
 <label class="choice"><input type="radio" name="day" value="Thursday" onchange="pick('day',this.value)"><span>Thursday</span></label></fieldset>
 <dl id="review-step"></dl>
-<p id="done-step">No booking was made. This was a local demo with sample data.</p>
+<p id="done-step"></p>
 <p><button id="back" onclick="go(-1)">Back</button> <button id="next" onclick="go(1)">Continue</button>
 <button id="confirm" onclick="finish()">Confirm</button> <button id="restart" onclick="restart()">Start again</button></p>
 </section>
 <section aria-labelledby="intro-title"><h2 id="intro-title">An evening with neighbours</h2>
 <p>Pick one small workshop, bring nothing but curiosity and learn beside people from your street.</p>
-<p>Sample data: every workshop, day and confirmation here is fictional.</p></section>
+<p>Sample data: every workshop, day and confirmation here is fictional.</p>
+<p id="notes" hidden>On offer: Bookbinding, Bicycle care and Urban sketching, on Tuesday or Thursday. Local demo: No booking was made, and none will be.</p></section>
 </main>
 <script>
-window.fault='';
+// window.fault switches on one deliberate defect; window.variant one other
+// correct rendering (see grove-workshop-journey.json). Call render() after either.
+window.fault='';window.variant='';
 const titles=['Choose a workshop','Choose a day','Review','Journey complete'];
-let state={step:0,workshop:'',day:''};
+let state={step:0,workshop:'',day:''},reviewed=false,ghost='';
 const el=id=>document.getElementById(id);
+const is=(...names)=>names.includes(window.fault)||names.includes(window.variant);
+// For one fault only: keyboard-operable elements with role="radio" in place of
+// the real radio buttons the brief asks for.
+const imitations=[...el('workshop-step').querySelectorAll('input')].map((input,index,all)=>{
+  const row=Object.assign(document.createElement('div'),{className:'choice'}),mark=document.createElement('span');
+  mark.setAttribute('role','radio');mark.setAttribute('aria-label',input.value);mark.tabIndex=0;
+  const choose=at=>{imitations[at].focus();pick('workshop',all[at].value);};
+  mark.onclick=()=>choose(index);
+  mark.onkeydown=event=>{
+    const move={ArrowDown:1,ArrowRight:1,ArrowUp:-1,ArrowLeft:-1}[event.key];
+    if(move)choose((index+move+all.length)%all.length);else if(event.key===' '||event.key==='Enter')choose(index);else return;
+    event.preventDefault();
+  };
+  row.append(mark,input.nextElementSibling.cloneNode(true));el('imitation-step').append(row);return mark;
+});
 function render(){
-  const step=state.step,dead=window.fault==='confirm-does-nothing';
+  const step=state.step,dead=is('confirm-does-nothing'),imitation=is('custom-radio-widgets');
   document.querySelectorAll('#steps li').forEach((item,i)=>i===step?item.setAttribute('aria-current','step'):item.removeAttribute('aria-current'));
   el('step-title').textContent=titles[step];
-  ['workshop-step','day-step','review-step'].forEach((id,i)=>el(id).hidden=i!==step);
+  el('workshop-step').hidden=step!==0||imitation;el('imitation-step').hidden=step!==0||!imitation;
+  ['day-step','review-step'].forEach((id,i)=>el(id).hidden=i+1!==step);
+  // Other text that names every workshop and day and repeats the demo statement.
+  el('notes').hidden=!is('persistent-notes','confirmation-omits-statement');
+  el('done-step').textContent=is('confirmation-omits-statement')?'Thank you. Your journey is complete.':'No booking was made. This was a local demo with sample data.';
   el('done-step').hidden=!(step===3||dead&&step===2);
   for(const key of ['workshop','day'])el(key+'-step').querySelectorAll('input').forEach((input,i)=>{
-    input.name=window.fault==='radios-not-grouped'?key+i:key;
-    if(window.fault!=='restart-leaves-radio-checked')input.checked=input.value===state[key];
+    input.name=is('radios-not-grouped')?key+i:key;
+    if(!is('restart-leaves-radio-checked'))input.checked=input.value===state[key];
   });
-  el('next').hidden=step>1;el('next').disabled=step===0?!state.workshop:!(state.day||window.fault==='day-not-required');
+  for(const mark of imitations)mark.setAttribute('aria-checked',String(mark.getAttribute('aria-label')===state.workshop));
+  el('next').hidden=step>1;el('next').disabled=step===0?!state.workshop:!(state.day||ghost||is('day-not-required'));
   el('back').hidden=step===0||step===3;el('confirm').hidden=step!==2;el('restart').hidden=step!==3;
-  const workshop=window.fault==='review-first-option'?el('workshop-step').querySelector('input').value:state.workshop;
-  el('review-step').replaceChildren(...[['dt','Workshop'],['dd',workshop],['dt','Day'],['dd',state.day]]
+  if(is('review-not-refreshed')&&reviewed)return;
+  reviewed=step===2;
+  const workshop=is('review-first-option')?el('workshop-step').querySelector('input').value:state.workshop;
+  el('review-step').replaceChildren(...[['dt','Workshop'],['dd',workshop],['dt','Day'],['dd',state.day||ghost]]
     .map(([tag,value])=>Object.assign(document.createElement(tag),{textContent:value})));
 }
-function pick(key,value){state[key]=value;render();}
+function pick(key,value){state[key]=value;if(key==='day')ghost='';render();}
 function go(change){
-  if(change<0&&state.step===2&&window.fault==='back-forgets-day')state.day='';
+  if(change<0&&state.step===2&&is('back-forgets-day'))state.day='';
   state.step+=change;render();el('step-title').focus();
 }
-function finish(){if(window.fault!=='confirm-does-nothing')go(1);}
+function finish(){if(!is('confirm-does-nothing'))go(1);}
 function restart(){
-  state=window.fault==='restart-keeps-choices'?{...state,step:0}:{step:0,workshop:'',day:''};
+  // One fault unchecks the day but still counts it as chosen.
+  ghost=is('restart-keeps-unchecked-day')?state.day:'';
+  state=is('restart-keeps-choices')?{...state,step:0}:{step:0,workshop:'',day:is('restart-keeps-day')?state.day:''};
   render();el('step-title').focus();
 }
 render();
