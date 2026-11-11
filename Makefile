@@ -1519,6 +1519,14 @@ test-http-lan: $(TEST_SERVER)
 	@node tests/integration/http_lan_security_test.mjs $(TEST_SERVER)
 	@node tests/integration/http_lan_cowork_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)
 
+# Production page beside a simulated host that runs Agent/Cowork/Design: the
+# page's Chat recovery must not stop the session. No model.
+.PHONY: test-ui-recovery-session
+test-ui-recovery-session:
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_recovery_keeps_session_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_recovery_keeps_session_playwright_test.mjs
+check-fast: test-ui-recovery-session
+
 .PHONY: test-ui-lan-cowork
 test-ui-lan-cowork: $(TEST_SERVER)
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_lan_cowork_playwright_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)

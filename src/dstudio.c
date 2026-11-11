@@ -11446,22 +11446,30 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
     if (!owned_qwen && eport_env && eport_env[0]) { int p = atoi(eport_env); if (p > 0 && p < 65536) eport = p; }
     /* ds4 is a single local inference engine. Immediately after a long response
      * its accept loop can be momentarily unavailable; one failed connect must
-     * not turn that normal handoff into a false "engine is not running" error. */
+     * not turn that normal handoff into a false "engine is not running" error.
+     * Only one attempt runs here, on the interactive owner: retrying with
+     * sleeps (up to 2.4 s) blocked /api/status and every other control request
+     * whenever no Chat engine listened, e.g. beside an Agent/Cowork/Design
+     * session. The remaining attempts run in the relay below. */
     /* llama-server has its own responsive HTTP acceptor; connect in the relay, never
      * sleep/retry on the interactive owner. Its endpoint cannot be redirected
      * by the legacy DS4 port override. */
+    const char *not_running = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
+#ifdef _WIN32
     int efd = owned_qwen ? -1 : connect_loopback_with_retry(eport, 25, 100);
     if (efd < 0 && !owned_qwen) {
         dstudio_log_event("error", "proxy", 0, "/v1 proxy could not connect to local engine port %d", eport);
-        const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
-        if (cors) {
-            send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
-                               body, strlen(body), 0, cors_headers());
-        } else {
-            send_json(client_fd, "503 Service Unavailable", body);
-        }
+        if (cors) send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                                     not_running, strlen(not_running), 0, cors_headers());
+        else send_json(client_fd, "503 Service Unavailable", not_running);
         return;
     }
+#else
+    int efd = owned_qwen ? -1 : connect_loopback_with_retry(eport, 1, 0);
+    const int retry_in_relay = !owned_qwen && efd < 0;
+    if (retry_in_relay)
+        dstudio_log_event("warn", "proxy", 0, "/v1 proxy: local engine port %d refused the first connection; the relay retries", eport);
+#endif
 #ifdef _WIN32
     relay_engine_exchange(client_fd, efd, eport, method, path,
                           req + header_len, got - header_len, clen, cors);
@@ -11483,6 +11491,15 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
                 send_json(client_fd, "503 Service Unavailable", "{\"error\":{\"message\":\"The llama.cpp endpoint disconnected\",\"code\":\"model_disconnected\"}}");
                 close(client_fd); _exit(1);
             }
+        } else if (retry_in_relay) {
+            efd = connect_loopback_with_retry(eport, 24, 100);
+            if (efd < 0) {
+                fprintf(stderr, "proxy: /v1 could not connect to local engine port %d\n", eport);
+                if (cors) send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                                             not_running, strlen(not_running), 0, cors_headers());
+                else send_json(client_fd, "503 Service Unavailable", not_running);
+                close(client_fd); _exit(1);
+            }
         }
         struct timeval tv = { 600, 0 };
         (void)setsockopt(efd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
@@ -11494,7 +11511,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         _exit(0);
     }
     waitpid(pid, NULL, 0);   /* reap the immediately-exiting first child */
-    close(efd);              /* parent's copy; the relay grandchild has its own */
+    if (efd >= 0) close(efd); /* parent's copy; the relay grandchild has its own */
 #endif
 }
 

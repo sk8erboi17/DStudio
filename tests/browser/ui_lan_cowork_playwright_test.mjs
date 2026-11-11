@@ -41,7 +41,7 @@ const api = async (p, body) => {
   const r = await fetch(`http://127.0.0.1:${port}${p}`, body ? { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'ds4web' }, body: JSON.stringify(body) } : {});
   return r.json();
 };
-let browser, hostPageRef, devicePageRef;
+let browser, hostPageRef, devicePageRef, systemChecksClosed = 0;
 const step = async (name, page) => { receipt.checks.push(name); await page.screenshot({ path: path.join(run, `${receipt.checks.length}.png`) }); };
 try {
   for (let i = 0; i < 100; i++) { try { await api('/api/status'); break; } catch { await sleep(100); } }
@@ -60,10 +60,14 @@ try {
   hostPageRef = hostPage;
   const hostEvidence = await seedUi(hostPage, hostOrigin);
   await hostPage.goto(hostOrigin);
-  // The isolated engine folder has no chat model, so the System check opens
-  // on its own; close it as a user would.
-  await hostPage.locator('#doctor-dialog[open]').waitFor({ timeout: 5000 }).catch(() => {});
-  if (await hostPage.locator('#doctor-dialog[open]').count()) await hostPage.locator('#doctor-close').click();
+  // A System check raised by the environment (for instance an engine folder
+  // without a model) is closed as a user would, whenever it appears in front
+  // of a step; the receipt counts them. Until November 11, 2026 the page's
+  // Chat recovery stopped the running Cowork session and raised one about five
+  // seconds after load; this test then failed behind it.
+  await hostPage.addLocatorHandler(hostPage.locator('#doctor-dialog[open]'), async () => {
+    await hostPage.locator('#doctor-close').click(); systemChecksClosed++;
+  });
   await hostPage.locator('#btn-settings').click();
   await hostPage.locator('.set-nav__b[data-pane="network"]').click();
   await hostPage.locator('#set-lan-cowork').waitFor();
@@ -112,6 +116,7 @@ try {
   assert.deepEqual(deviceEvidence.errors, [], 'no page errors on the device');
   assert.deepEqual(hostEvidence.errors, [], 'no page errors on the host');
   assert.deepEqual([...deviceEvidence.external, ...hostEvidence.external], [], 'no request leaves the two origins');
+  receipt.systemChecksClosed = systemChecksClosed;
   receipt.passed = true;
 } catch (error) {
   receipt.passed = false;

@@ -52,8 +52,8 @@ const exited = new Promise(resolve => {host.once('exit', resolve); host.once('er
 const watchdog = setTimeout(() => {
   for (const socket of [...clients, ...backendSockets]) socket.destroy();
   host.kill('SIGTERM');
-  throw Error('Isolated proxy test exceeded its 20-second bound');
-}, 20000);
+  throw Error('Isolated proxy test exceeded its 30-second bound');
+}, 30000);
 
 async function openCall({method = 'POST', url = '/v1/chat/completions', body = Buffer.alloc(0),
                          response = Buffer.from('HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}'),
@@ -133,6 +133,47 @@ try {
     assert.equal(result.call.resetCode, 'ECONNRESET', 'Stop must reach the engine before response headers');
     const next = await openCall({method: 'GET', url: '/v1/models'});
     assert.deepEqual(await next.returned, next.call.response, 'A stopped call cannot poison the next request');
+  });
+  // Nothing listens on the engine port (as beside an Agent, Cowork or Design
+  // session): the relay retries for about 2.4 s before answering 503. Until
+  // November 11, 2026 those retries slept on the host's control loop and
+  // /api/status waited behind them for about 2.5 s.
+  const timedStatus = async () => {
+    const started = performance.now();
+    const res = await fetch(base + '/api/status', {signal: AbortSignal.timeout(5000)});
+    assert.equal(res.status, 200); await res.json();
+    return performance.now() - started;
+  };
+  const stopListening = async () => {backend.close(); await sleep(50);};
+  const listenAgain = () => new Promise((resolve, reject) => {backend.once('error', reject); backend.listen(enginePort, '127.0.0.1', resolve);});
+  await check('no engine listening: status stays responsive while the relay retries, then 503', async () => {
+    await stopListening();
+    try {
+      const started = performance.now();
+      const proxied = fetch(base + '/v1/models', {signal: AbortSignal.timeout(8000)})
+        .then(async (res) => ({status: res.status, body: await res.text(), ms: performance.now() - started}));
+      await sleep(100);
+      const statusMs = await timedStatus();
+      const result = await proxied;
+      assert.ok(statusMs < 1000, `status answered in ${Math.round(statusMs)} ms during the relay's retries`);
+      assert.ok(result.ms > statusMs, 'the status reply did not wait for the proxied request');
+      assert.equal(result.status, 503);
+      assert.match(result.body, /the local ds4 engine is not running/);
+      assert.ok(result.ms >= 1500, `the relay kept retrying before giving up (${Math.round(result.ms)} ms)`);
+    } finally {await listenAgain();}
+  });
+  await check('an engine that starts listening during the retries is reached once', async () => {
+    await stopListening();
+    let reopened = false;
+    const reopen = sleep(400).then(listenAgain).then(() => {reopened = true;});
+    const pending = openCall({method: 'GET', url: '/v1/models'});
+    pending.catch(() => {});
+    await sleep(100);
+    const statusMs = await timedStatus();
+    assert.ok(statusMs < 1000, `status answered in ${Math.round(statusMs)} ms`);
+    const result = await pending; await reopen;
+    assert.equal(reopened, true);
+    assert.deepEqual(await result.returned, result.call.response, 'the retried request is forwarded and answered');
   });
   await check('the full supported request path fits in the forwarded HTTP header', async () => {
     const prefix = '/v1/models?probe=';

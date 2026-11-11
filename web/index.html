@@ -19618,19 +19618,30 @@ Return exactly one complete fenced dstudio-roadmap JSON block and no prose. Neve
         const now = Date.now();
         if (!force && now < autoRecoveryNotBefore) return null;
         autoRecoveryNotBefore = now + AUTO_RECOVERY_COOLDOWN_MS;
-        toast('The local engine is not running. DStudio is starting it…', 'info');
         autoRecoveryFlight = (async () => {
           try {
+            // A page that has just loaded still shows Chat while the host may
+            // own a running Agent, Cowork or Design session: that is not a
+            // Chat engine that went down, and starting Chat would stop it.
+            // Ask the host what it runs before changing it. A host that does
+            // not answer has told nothing: unknown is not "down", so a bounded
+            // number of reads is tried and Chat is never started blindly.
+            let live = null;
+            for (let attempt = 0; attempt < 4 && !live; attempt++) live = await Engine.status().catch(() => null);
+            if (!live) throw new Error('the launcher did not report what it is running');
+            if (live.running && ['agent', 'cowork', 'design'].includes(live.mode)) return;
+            if (!canRecoverLocalEngine()) return;
+            toast('The local engine is not running. DStudio is starting it…', 'info');
             await Switcher.ensureChatReady(Store.getSettings(), undefined, () => {});
             Api.invalidateHealth();
             Store.setConnection('ok');
             lastAutoRecoveryError = '';
-            toast('Motore locale pronto.', 'info');
+            toast('Local engine ready.', 'info');
             // Refresh an open System check immediately: its former “Start”
             // action must turn into the actual ready state without a click.
             Doctor.refresh();
           } catch (error) {
-            const reason = error?.message || 'motivo non disponibile';
+            const reason = error?.message || 'no reason reported';
             if (reason !== lastAutoRecoveryError) {
               lastAutoRecoveryError = reason;
               toast(`Automatic restart failed: ${reason}`, 'error');
@@ -37579,7 +37590,9 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         // checkout disappears at runtime, maybePromptDs4Dir() interrupts with
         // the modal and offers to reinstall it.
         const onStatusPoll = (st) => { syncLanHostFlag(st); maybePromptDs4Dir(st); checkEngineHealth(st); };
-        setInterval(() => { Engine.status().then(onStatusPoll).catch(() => {}); }, 5000);
+        // Until one startup read has succeeded the page does not know what the
+        // host runs; keep asking through the full sync, not only the health poll.
+        setInterval(() => { if (!engineSynced) { syncFromEngine(); return; } Engine.status().then(onStatusPoll).catch(() => {}); }, 5000);
         document.addEventListener('visibilitychange', () => {
           if (!document.hidden) Engine.status().then(onStatusPoll).catch(() => {});
         });
@@ -37753,9 +37766,11 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (!err) lastEngineErr = '';
       }
 
+      let engineSynced = false;
       async function syncFromEngine() {
         try {
           const st = await Engine.status();
+          engineSynced = true;
           syncLanHostFlag(st);
           maybePromptDs4Dir(st);
           checkEngineHealth(st);
