@@ -52,11 +52,16 @@ function print(result) {
 export function runnerFor(selection, qualityUse) {
   const file = path.basename(selection.modelFile);
   if (selection.engine === 'llama' || selection.engine === 'mlx' || selection.ssdStreaming === 'on')
-    return ['tests/live/host_common_quality.mjs', '--model', selection.modelFile, '--ssd-streaming', selection.ssdStreaming, '--quality-use', qualityUse];
+    return ['tests/live/host_common_quality.mjs', '--model', selection.modelFile, '--ssd-streaming', selection.ssdStreaming, '--quality-use', qualityUse,
+      '--restart-failed-engine'];
   const native = selection.engine === 'ds4-laguna' ? 'laguna' : /Flash-Next/.test(file) ? 'qwen' : 'main';
   // The installed engines sit beside the store; state both so that a frozen
   // source tree elsewhere runs against them and not against its own directory.
+  // Both runners restart their engine after a case whose exchange did not
+  // complete, so one frozen deadline does not leave the rest of the corpus not
+  // run. The failed case is never retried.
   return ['tests/live/engine_acceptance.mjs', '--infer', '--engines', native, '--model-file', file, '--common-quality', '--quality-use', qualityUse,
+    '--restart-failed-engine',
     '--installed-root', path.dirname(store), '--model-root', path.join(store, path.dirname(selection.modelFile))];
 }
 
