@@ -564,21 +564,35 @@ representation; it does not qualify a model's pixel path.
    grades 217 authored English and Italian answers as intended. On the whole
    manifest, authored correct answers pass 282/282 questions, and answers
    shifted to another question fail 282/282. A run loop through the production
-   page also exists
-   ([grader and run loop](tests/docs/regression.md#vision-corpus-grader-and-run-loop)).
-   Its SIMULATED check (`make test-vision-corpus-runner`: scripted engine,
-   real test host and page) has one Chat scenario that passes 9/9. That
-   check is unfinished and in no broad gate. Still open: no model has seen
-   the corpus. The real runner (`tests/live/vision_corpus_live.mjs`: model
-   launch, identities, `--ocr off`, `--expect text-only`, `--switch-sequence`)
-   is not written. The simulated scenarios for OCR, `evidence_page_not_sent`,
-   hallucination, engine error, Stop and text-only isolation are not written
-   either. Agent, Cowork and Learn have never run through the loop.
-   `tests/live/ui_live_vision_playwright_test.mjs` still attaches no image and
-   grades no reply. On macOS the OCR helper can read the image-only pages, so
-   a pixel-path run must disable it or report those pages separately. A
-   whole-document read hands at most four rendered pages to native vision, so
-   some pixel-only facts on later pages need a page-directed question.
+   page also exists. Since November 12 the real-model runner
+   `tests/live/vision_corpus_live.mjs` (`make test-vision-corpus-live`) exists
+   too ([grader, run loop and runner](tests/docs/regression.md#vision-corpus-grader-and-run-loop)).
+   It refuses to start beside another engine, launches the model through the
+   app, records the engine process's arguments, the SHA-256 of the model and
+   encoder files and the effective mode, and runs Chat with `--ocr off` (no
+   OCR helper; otherwise OCR-answerable rows are counted apart),
+   `--expect text-only` (graded as isolation), `--switch-sequence` (vision →
+   text → vision in one host session through the model picker, with a
+   history probe), `--only` and `--resume`; every request, answer, grade and
+   failure class stays in `tests/.artifacts/vision-corpus-live/`. Its
+   SIMULATED check (`make test-vision-corpus-runner`: scripted engine, real
+   test host and page; in no broad gate) passed 10/10 on November 12: authored
+   answers, OCR labelled as OCR and counted apart from pixels,
+   `evidence_page_not_sent`, hallucinated answers to unanswerable questions,
+   an engine error and a dropped stream mid-run, Stop, text-only isolation,
+   and a dry run of the runner in which the host launches a fixture engine
+   (launch, identities, switch sequence, Ctrl-C and resume, retention,
+   missing weights BLOCKED). It found and fixed two run-loop defects and a
+   host defect: `DS4UI_ENGINE_PORT` redirected only the relay, so an isolated
+   host's own launches, external-engine checks and forced-launch port release
+   still used port 28000.
+   `tests/live/ui_live_vision_playwright_test.mjs` now attaches one corpus
+   image and grades the reply; it has not been run since. Still open: no
+   model has seen the corpus (the runner has never run on weights), and
+   Agent, Cowork and Learn have never run through the loop (the runner
+   refuses them). A whole-document read hands at most four rendered pages
+   to native vision, so some pixel-only facts on later pages need a
+   page-directed question.
 4. Run real answer checks with the actual selected model/component in all four
    modes. Retain source/page hashes, physical numbering, original bytes,
    payloads, expected results, outputs and failures.
@@ -591,6 +605,8 @@ representation; it does not qualify a model's pixel path.
    A scan without usable text or OCR produces an honest limitation.
 7. Verify vision → text → vision after reload in every mode. Summaries, tool
    results, caches, late responses and KV cannot reinject incompatible data.
+   In Chat, `tests/live/vision_corpus_live.mjs --switch-sequence` runs it with
+   a history probe; only its SIMULATED dry run has passed (November 12).
 8. Revalidate citation chooser → physical page → highlight, light/dark and
    reopened sessions, on the final app. Independent answer correctness remains
    separate from extraction/retrieval/highlight success.
@@ -1067,8 +1083,9 @@ anything is removed, the following inputs from that pass must be resolved:
   no longer passes its outside-workspace case when no read is attempted (rerun
   on real weights the same day: three such cases reported BLOCKED, not pass);
   two assertions in `engine_acceptance.mjs` on a field nothing set are
-  removed. Still open: `ui_live_vision_playwright_test.mjs` attaches no image
-  and grades no reply (being replaced by the vision corpus runner).
+  removed. On November 12 `ui_live_vision_playwright_test.mjs` was made to
+  attach a corpus image and grade the reply with the corpus grader (not run
+  since: it needs the running app with real weights).
 - Guide statements wider than what runs, to correct in the guides or by
   extending the test: case counts that drifted (`test-launch-preflight`,
   `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,

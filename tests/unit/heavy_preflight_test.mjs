@@ -52,6 +52,11 @@ result = classifyEngines(quiet, { ownerPid: 500, footprintOf });
 assert.equal(result.blocking[0].state, 'unmeasured');
 assert.match(result.reasons[0], /could not be measured/);
 
+// A runner driving an already started host owns that host's engine too.
+result = classifyEngines(table, { ownerPid: [720, 501], footprintOf });
+assert.ok(!result.foreign.some((row) => [501, 502].includes(row.pid)), 'the driven host and its engine are owned');
+assert.ok([700, 710].every((pid) => result.blocking.some((row) => row.pid === pid)), 'foreign models still block');
+
 // Another harness's engine is foreign to this owner.
 result = classifyEngines(table, { ownerPid: 720, footprintOf });
 assert.ok(result.blocking.some((row) => row.pid === 502), 'an engine owned by a different run blocks');

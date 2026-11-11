@@ -501,6 +501,24 @@ static const engine_cfg ENGINE_DEFAULTS = {
     28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF, "max"
 };
 
+/* The engine port this host owns: DS4UI_ENGINE_PORT for an isolated host (a
+ * test host beside another DStudio), otherwise the shared default. The /v1
+ * relay, launches that name no port (the page never does), external-engine
+ * detection, the port a forced launch frees and the doctor must all use it.
+ * When only the relay honoured the override, an isolated host attached to,
+ * was blocked by or (forced) stopped whatever engine listened on 28000, and an
+ * engine its page started listened on 28000 while the relay sent requests to
+ * the isolated port. */
+static int engine_port_default(void) {
+    const char *env = getenv("DS4UI_ENGINE_PORT");
+    if (env && env[0]) {
+        char *end = NULL;
+        long port = strtol(env, &end, 10);
+        if (end && !*end && port >= 1024 && port <= 65535) return (int)port;
+    }
+    return ENGINE_DEFAULTS.port;
+}
+
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
 static pid_t     g_child = -1;
@@ -6184,11 +6202,11 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
      * (api_start calls stop_child first). If the server port still responds,
      * there is an EXTERNAL ds4-server: ds4's instance-lock forbids two large
      * processes together, so we refuse with a clear message. */
-    if (!remote_model && port_listening(ENGINE_DEFAULTS.port)) {
+    if (!remote_model && port_listening(engine_port_default())) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to %s — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port,
+                 engine_port_default(),
                  runtime_label);
         return 0;
     }
@@ -6484,11 +6502,11 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
     const char *design_url = owned_model ? owned_url : g_remote_base_url;
     const char *design_model = owned_model ? resident_served_model() : g_remote_model[0] ? g_remote_model : "ds4";
     int remote_model = g_remote_base_url[0] != '\0' || owned_model;
-    if (!remote_model && port_listening(ENGINE_DEFAULTS.port)) {
+    if (!remote_model && port_listening(engine_port_default())) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to the design — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port);
+                 engine_port_default());
         return 0;
     }
 #ifdef _WIN32
@@ -7391,8 +7409,8 @@ static void api_doctor(int fd) {
                                rel_exists("ds4_design.c"));
     int web_ok = ds4_ok && agent_src_ok && chrome_available();
     int engine_port_owned = g_child > 0;
-    int engine_port_busy = port_listening(ENGINE_DEFAULTS.port) && !engine_port_owned;
-    int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(ENGINE_DEFAULTS.port);
+    int engine_port_busy = port_listening(engine_port_default()) && !engine_port_owned;
+    int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(engine_port_default());
 
     char ds4_msg[1400];
     if (ds4_ok) snprintf(ds4_msg, sizeof ds4_msg, "Using %s", g_ds4_dir);
@@ -8387,6 +8405,7 @@ static void api_start(int fd, const char *body) {
     }
 
     engine_cfg cfg = ENGINE_DEFAULTS;
+    cfg.port = engine_port_default();   /* the page never names a port */
     int bad = 0;
     parse_cfg(body, &cfg, &bad);
     if (bad) {
@@ -8611,8 +8630,8 @@ static void launch_commit(launch_job *j) {
      * port first. REMOTE agent/design never touch the local engine or its
      * lock (spawn_agent/spawn_design already skip their own port checks when
      * remote) — blocking them on an unrelated local server was a bug. */
-    if (!remote_engine && !j->resident && port_listening(ENGINE_DEFAULTS.port)) {
-        if (requested_mode == ENGINE_SERVER && ds4_server_compatible(ENGINE_DEFAULTS.port)) {
+    if (!remote_engine && !j->resident && port_listening(engine_port_default())) {
+        if (requested_mode == ENGINE_SERVER && ds4_server_compatible(engine_port_default())) {
             reuse_external_ds4(&cfg, 1, 0);
             dstudio_task *t = task_find(task_id);
             if (t) t->pid = 0;
@@ -8630,11 +8649,11 @@ static void launch_commit(launch_job *j) {
                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"external_server\",\"port\":%d,"
                 "\"error\":\"a ds4-server is running outside the launcher (port %d). "
                 "Stop it to free the instance-lock, or let the launcher restart it.\"}",
-                task_id, ENGINE_DEFAULTS.port, ENGINE_DEFAULTS.port);
+                task_id, engine_port_default(), engine_port_default());
             send_json(fd, "409 Conflict", out);
             return;
         }
-        if (port_listening(ENGINE_DEFAULTS.port)) {
+        if (port_listening(engine_port_default())) {
             task_mark_failed(task_id, "could not free the engine port", "external ds4-server still listening");
             char out[180];
             snprintf(out, sizeof out,
@@ -11488,7 +11507,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
             return;
         }
     }
-    int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : ENGINE_DEFAULTS.port;
+    int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : engine_port_default();
     if (owned_qwen) eport = g_resident.spec.cfg.port;
     /* A completion outside the model relay rewrites the slot unseen. */
     if (owned_qwen && !strcmp(method, "POST")) kvs_completion_admitted(0);
@@ -12362,18 +12381,21 @@ int main(int argc, char **argv)
          * us that the selected family is GLM or Laguna. */
         set_stage("Applying saved engine settings…", 2);
         printf("engine: waiting for the native loading page to apply saved launch settings\n");
-    } else if (port_listening(ENGINE_DEFAULTS.port)) {
-        if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
-            reuse_external_ds4(&ENGINE_DEFAULTS, 1, 0);
-            printf("engine: reusing compatible ds4-server already listening on :%d\n", ENGINE_DEFAULTS.port);
+    } else if (port_listening(engine_port_default())) {
+        engine_cfg shared = ENGINE_DEFAULTS;
+        shared.port = engine_port_default();
+        if (ds4_server_compatible(shared.port)) {
+            reuse_external_ds4(&shared, 1, 0);
+            printf("engine: reusing compatible ds4-server already listening on :%d\n", shared.port);
         } else {
             snprintf(g_engine_err, sizeof g_engine_err,
-                     "port %d is occupied by a service that is not DS4", ENGINE_DEFAULTS.port);
+                     "port %d is occupied by a service that is not DS4", shared.port);
             snprintf(g_stage, sizeof g_stage, "Engine port is busy");
             printf("engine: %s\n", g_engine_err);
         }
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
+        boot.port = engine_port_default();
         char err[256];
         /* Gate on the model the server ACTUALLY loads — the selected variant
          * (variant_rel(g_variant), e.g. flash), the same check spawn_server makes

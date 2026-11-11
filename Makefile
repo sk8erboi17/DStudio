@@ -1540,12 +1540,24 @@ test-vision-corpus: $(TEST_SERVER)
 
 check-fast: test-vision-corpus
 
-# SIMULATED and unfinished: the corpus run loop against the real test host and
-# its page in headless Chromium, with a scripted engine and status overlay.
-# One Chat scenario so far; not in a broad gate.
+# SIMULATED: the corpus run loop against the real test host and its page in
+# headless Chromium with a scripted engine (OCR, page not sent, hallucination,
+# engine error, Stop, text-only isolation), and a dry run of the real-model
+# runner in which the host launches a fixture engine (launch, identities,
+# vision -> text -> vision, resume, retention). Chat only; not in a broad gate.
+# The OCR scenario needs the macOS OCR helper and fails as NOT RUN without it.
 .PHONY: test-vision-corpus-runner
-test-vision-corpus-runner: $(TEST_SERVER)
-	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER)
+test-vision-corpus-runner: $(TEST_SERVER) $(OCR_HELPER)
+	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER) $(OCR_HELPER)
+
+# REAL inference: the frozen vision corpus on one model through the production
+# host and page (tests/live/vision_corpus_live.mjs; options in
+# VISION_CORPUS_ARGS, e.g. "--ocr off --only p20,i21", "--expect text-only",
+# "--switch-sequence", "--resume RUN_DIR"). Loads real weights, refuses beside
+# another engine, no wall-clock cutoff; not in check-fast or check-real.
+.PHONY: test-vision-corpus-live
+test-vision-corpus-live: $(TEST_SERVER) $(OCR_HELPER)
+	@node tests/live/vision_corpus_live.mjs --binary $(TEST_SERVER) $(VISION_CORPUS_ARGS)
 
 # Real helper and Vision OCR on generated scans; no model. macOS only.
 test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)

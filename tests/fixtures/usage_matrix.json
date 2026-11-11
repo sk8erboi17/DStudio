@@ -294,6 +294,18 @@
               "target": "test-ui-browser",
               "evidence": "simulated",
               "covers": "After an authored answer from Qwen3.8-27B the composer picker loads Qwen3.6-35B-A3B with one start request; the next request names the new model and carries both earlier turns, and the saved chat holds all four messages."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Dry run of the corpus runner: the model picker switches a host-launched fixture engine from the vision to the text model; after a reload the restored conversation continues on the text engine with its attachments listed and no pixel of its history sent."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "--switch-sequence: vision, text and vision models in one host session through the picker, with the history probe on the text model. Not yet run on weights."
             }
           ]
         },
@@ -465,6 +477,12 @@
               "target": "test-frontend-unit",
               "evidence": "model-free",
               "covers": "Production error formatter: a generic prefill failure is not labelled as insufficient memory, real out-of-memory text is, and cloud or connection-refused errors are left unchanged."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Through the real relay an HTTP 500 for one corpus question is kept on the persisted message as the error; only that question fails and the next one starts a new conversation and passes."
             }
           ]
         },
@@ -504,6 +522,12 @@
               "target": "test-ui-chat-engine-death",
               "evidence": "simulated",
               "covers": "A scripted engine process behind the real host /v1 relay is killed with SIGKILL after two chunks, in close-delimited and chunked framing: the partial text is saved and shown with the incomplete or interrupted message, the host keeps answering and the next answer completes once an engine listens again."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "The scripted engine drops the connection after part of an answer, as a dying engine does: the partial text and \"Connection interrupted\" are persisted and only that question fails. No real process dies."
             }
           ]
         },
@@ -4445,6 +4469,37 @@
               "target": "test-llama-resident-live",
               "evidence": "real-model",
               "covers": "Qwen3.8-27B on llama.cpp only: a generated PNG sent as an image part must be answered with the colour of its left half."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "The frozen corpus (28 image items, 32 PDFs) through the production page on the selected vision model; each answer is graded and the request must carry the corpus file as an image part. Not yet run on weights."
+            },
+            {
+              "file": "tests/live/ui_live_vision_playwright_test.mjs",
+              "target": "test-ui-live-vision",
+              "evidence": "real-model",
+              "covers": "One corpus image (images/i21.png) attached in the live app and its answer graded with the corpus grader; the request must carry the file byte for byte. Not run since it was added."
+            }
+          ]
+        },
+        {
+          "id": "question-not-answerable-from-input",
+          "use": "The user asks about something the attached image or document does not show; the answer says so instead of inventing a value.",
+          "aspect": "boundary",
+          "tests": [
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "The 60 unanswerable corpus questions are graded: an honest refusal passes, an invented value or a guess after a refusal fails. Not yet run on weights."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Through the page, an invented fee fails as no_refusal and \"I cannot see it, but probably 5\" fails as refused_then_guessed (scripted answers; this checks the grading path, not a model)."
             }
           ]
         },
@@ -4471,6 +4526,12 @@
               "target": "test-pdf-ocr",
               "evidence": "model-free",
               "covers": "Real reader and the macOS Vision helper on generated scans: scanned pages are labelled OCR with recognised lines and a citation on a scanned page matches as an OCR line."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Real reader and macOS OCR helper on the corpus scan p20 through the page: page 1 travels as an OCR block, not as text layer, and the rows count as answerable from OCR, not as pixel-path evidence (scripted answers)."
             }
           ]
         },
@@ -4503,6 +4564,12 @@
               "target": "test-pdf-complete",
               "evidence": "model-free",
               "covers": "Real describe with native vision returns JPEGs for pages 1 and 2 plus the same complete text."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "The five-page corpus scan p26 through the page with vision active: pages 1-4 are rendered and sent as image parts, page 5 is not, and a wrong answer about it fails as evidence_page_not_sent (scripted answers)."
             }
           ]
         },
@@ -4777,6 +4844,18 @@
               "target": "test-qwen27-model-ui",
               "evidence": "model-free",
               "covers": "Production preparation returns nothing for Laguna, DeepSeek Flash, Qwen3.6, Qwen Next and the 27B MLX folder, keeping the attachment and showing a notice."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "With a text-only model the page refuses every corpus image question with the file kept and sends nothing; the runner removes the kept file before the next item, and PDFs travel as text only."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "--expect text-only on a real text model: images refused by the app with the file kept, any visual payload in any request fails the row, pixel-only facts graded as honest limitations. Not yet run on weights."
             }
           ]
         },
@@ -4892,6 +4971,12 @@
               "target": "test-pdf-ocr",
               "evidence": "model-free",
               "covers": "With the helper missing the read reports OCR unavailable, two scanned pages and no invented text."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Host without the OCR helper: the corpus scan p20 sends no OCR text; to a text-only model only an honest limitation passes and a stated value fails as pixel_fact_stated_without_pixels (scripted answers)."
             }
           ]
         },
@@ -7161,6 +7246,12 @@
               "file": "tests/unit/v1_relay_unit.c",
               "evidence": "simulated",
               "covers": "A client disconnect before response headers gives the engine socket a reset, not a silent close (make test-v1-relay)."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Stop pressed by the corpus run loop during a held answer: the partial text is kept with finishReason aborted, the scripted engine sees its connection closed, and the question is not asked again."
             }
           ]
         },

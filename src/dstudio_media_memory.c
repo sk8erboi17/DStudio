@@ -42,7 +42,7 @@ static int media_memory_should_yield(const char *purpose, char *reason, size_t r
 }
 
 static int media_memory_post(int begin) {
-    int port = g_cfg.port > 0 ? g_cfg.port : ENGINE_DEFAULTS.port;
+    int port = g_cfg.port > 0 ? g_cfg.port : engine_port_default();
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return 0;
     struct sockaddr_in a;

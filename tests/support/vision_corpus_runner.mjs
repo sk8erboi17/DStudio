@@ -10,10 +10,10 @@
 // Ownership stays with the caller: it starts the host, launches one model
 // alone, records identities and restarts a failed engine. This module starts
 // no host, engine or model, sets no wall-clock limit on model work, and never
-// retries a question. UNFINISHED: the only caller is the SIMULATED
-// tests/integration/vision_corpus_runner_test.mjs, which exercises Chat only.
-// The real-model caller (tests/live/vision_corpus_live.mjs) is not written,
-// and the Agent, Cowork and Learn paths below have never run.
+// retries a question. Callers: the real-model runner
+// tests/live/vision_corpus_live.mjs (not yet run on weights) and the
+// SIMULATED tests/integration/vision_corpus_runner_test.mjs, both in Chat
+// only. The Agent, Cowork and Learn paths below have never run.
 //
 // What a row can and cannot claim is derived from the requests, not from the
 // answer: which image parts were sent (and for a PDF which physical pages they
@@ -372,11 +372,26 @@ export class EngineFailure extends Error {}
 
 // ------------------------------------------------------- the run ----------
 
+// Statuses a question keeps once it has been asked (or refused before asking):
+// a resumed run never asks it again, whatever its outcome.
+export const FINAL_STATUSES = ['pass', 'fail', 'blocked', 'interrupted'];
+
 // options:
 //   runDir, baseUrl, corpus ({ root, manifest, manifestSha256 }), groups (selectQuestions)
 //   mode ('chat' | 'agent' | 'cowork' | 'learn'), expect ('vision' | 'text-only')
 //   settings ({ think, temperature, ctx }), freshPerQuestion, workspace (agent/cowork)
 //   browser (a Playwright Browser), prepareContext(context) (a simulated launcher installs its routes here)
+//   context: a BrowserContext the caller owns and keeps (one browser profile
+//     across model switches); the loop opens its own page in it, which is a
+//     reload of the app, and closes only that page
+//   previous: the results.json of an earlier session of the same run. Its
+//     asked questions keep their rows; a question left 'running' takes the
+//     row its receipt recorded, or fails as 'interrupted'. Only questions
+//     never asked are asked.
+//   historyProbe ({ item }): with expect 'text-only', first continue the
+//     conversation the page restores (the previous phase's last one, which
+//     holds that item's attachments) with a question about them, and check
+//     that no pixels of that history reach this model. Not graded as an answer.
 //   assertAlive() throws EngineFailure when the owned host or engine is gone
 //   afterFailure({ row }) restarts a failed engine or throws; resolves { reload: true } after a restart
 //   control ({ stopTurn, abortRun }), onProgress(report), onEvent(event), report (the caller's receipt object)
@@ -400,11 +415,29 @@ export async function runVisionCorpus(options) {
     selection: { items: groups.length, questions: rows.length, freshPerQuestion: options.freshPerQuestion === true },
     questions: rows, pageErrors: [] });
   const rowOf = (id) => rows.find((row) => row.id === id);
+  const receiptDir = (row) => path.join(runDir, 'questions', `${String(rows.indexOf(row) + 1).padStart(3, '0')}-${row.id}`);
+  if (options.previous) {
+    const before = new Map((options.previous.questions || []).map((row) => [row.id, row]));
+    let carried = 0, recovered = 0, interrupted = 0;
+    for (const row of rows) {
+      const old = before.get(row.id);
+      if (!old) continue;
+      if (FINAL_STATUSES.includes(old.status)) { Object.assign(row, old, { carried: true }); carried++; continue; }
+      if (old.status !== 'running') continue;
+      // The runner exited while this question ran. Its receipt is written
+      // before results.json; when it exists it holds the recorded outcome.
+      let receipt = null;
+      try { receipt = JSON.parse(fs.readFileSync(path.join(receiptDir(row), 'row.json'), 'utf8')); } catch { /* not written */ }
+      if (receipt && FINAL_STATUSES.includes(receipt.status)) { Object.assign(row, receipt, { carried: true, recoveredFromReceipt: true }); recovered++; }
+      else { Object.assign(row, old, { status: 'interrupted', class: 'interrupted', carried: true, error: 'the runner exited while this question was running; its outcome is unknown and it is not asked again' }); interrupted++; }
+    }
+    report.resume = { carried, recoveredFromReceipt: recovered, interrupted, toAsk: rows.filter((row) => !row.carried).length };
+  }
   const save = () => {
     const count = (status) => rows.filter((row) => row.status === status).length;
     const classes = {};
     for (const row of rows) if (row.class) classes[row.class] = (classes[row.class] || 0) + 1;
-    report.summary = { denominator: rows.length, passed: count('pass'), failed: count('fail'), notRun: count('not_run'), blocked: count('blocked'),
+    report.summary = { denominator: rows.length, passed: count('pass'), failed: count('fail'), notRun: count('not_run'), blocked: count('blocked'), interrupted: count('interrupted'),
       pending: count('pending') + count('running'), classes,
       // Evidence for the pixel path: passed pixel-only questions whose fact reached the model as pixels and in no text.
       pixelPathPasses: rows.filter((row) => row.status === 'pass' && row.pixelOnly && row.evidence?.path === 'pixels').length,
@@ -422,7 +455,8 @@ export async function runVisionCorpus(options) {
   for (const item of corpus.manifest.items) for (const file of item.files) known.corpus.set(file.sha256, file.path);
 
   const capture = new Capture();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const ownContext = !options.context;
+  const context = options.context || await browser.newContext({ viewport: { width: 1440, height: 960 } });
   let page = null, appStatus = null, conversations = 0;
   const pageFetch = (url) => page.evaluate(async (target) => { const res = await fetch(target); return res.ok ? res.json() : null; }, url);
   const state = () => page.evaluate(() => {
@@ -458,6 +492,8 @@ export async function runVisionCorpus(options) {
     await page.goto(`${baseUrl}/api/status`, { waitUntil: 'domcontentloaded' });
     appStatus = await pageFetch('/api/status');
     assert.ok(appStatus, 'the host did not answer /api/status');
+    // A shared profile (a later phase of a run) keeps the settings the page saved.
+    const profileExisted = await page.evaluate(() => localStorage.getItem('ds4web.settings.v2') !== null);
     const models = await pageFetch('/v1/models');
     const model = options.settings?.model || models?.data?.[0]?.id || null;
     const learnBlocks = options.freshPerQuestion ? rows.length : groups.length;
@@ -477,12 +513,18 @@ export async function runVisionCorpus(options) {
     await context.addInitScript(seedProfile, seed);
     report.app = { baseUrl, model, modelFile: appStatus.modelFile || null, mode: appStatus.mode || null, nativeVisionActive: appStatus.nativeVisionActive === true,
       deepseekVisionActive: appStatus.deepseekVisionActive === true, glmVisionActive: appStatus.glmVisionActive === true, config: appStatus.config || null,
-      seededSettings: seed.settings, learnSetup: mode === 'learn' ? 'a seeded roadmap with one neutral study block per conversation; questions are asked in its Tutor room' : undefined };
+      seededSettings: profileExisted ? undefined : seed.settings, profileKept: profileExisted || undefined,
+      learnSetup: mode === 'learn' ? 'a seeded roadmap with one neutral study block per conversation; questions are asked in its Tutor room' : undefined };
     save();
 
     const load = async () => {
       await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
       await page.locator('#composer-input').waitFor({ state: 'attached', timeout: 60_000 });
+      // The model the page itself has selected, which decides what it sends.
+      report.app.pageSettings = await page.evaluate(() => {
+        try { const s = JSON.parse(localStorage.getItem('ds4web.settings.v2') || 'null'); return s && { model: s.model ?? null, modelGguf: s.modelGguf ?? null, thinkLevel: s.thinkLevel ?? null, ctxSize: s.ctxSize ?? null, chatBackend: s.chatBackend ?? null }; }
+        catch { return null; }
+      });
       if (mode === 'chat') await page.locator('#composer-input').waitFor({ state: 'visible', timeout: 60_000 });
       if (mode === 'learn') { await page.locator('#tab-roadmap').click(); await page.locator('.roadmap-topic').first().waitFor({ state: 'visible', timeout: 60_000 }); }
       if (mode === 'agent' || mode === 'cowork') {
@@ -562,8 +604,26 @@ export async function runVisionCorpus(options) {
       }
     };
 
+    // The page keeps a file it refused (an image for a model without vision)
+    // in the composer, also across New chat. A user removes it before
+    // attaching the next item's files; without this the next item's tiles
+    // never matched and the loop waited for a count that could not occur.
+    const clearPending = async (turn) => {
+      const tiles = mode === 'learn' ? '#roadmap-study .roadmap-study__files .roadmap-study__file' : '#composer-files .composer__file';
+      const remove = mode === 'learn' ? '.roadmap-study__file-remove' : '.composer__file-remove';
+      const names = [];
+      for (let left = await page.locator(tiles).count(); left > 0; left = await page.locator(tiles).count()) {
+        const tile = page.locator(tiles).first();
+        names.push(await tile.locator(mode === 'learn' ? '.roadmap-study__file-name' : '.composer__file-name').textContent().catch(() => ''));
+        await tile.locator(remove).click();
+        await page.waitForFunction(([selector, n]) => document.querySelectorAll(selector).length < n, [tiles, left], { timeout: 30_000 });
+      }
+      if (names.length) turn.removedBeforeAttach = names;
+    };
+
     const attach = async (files, turn) => {
       const names = files.map((file) => file.name);
+      if (mode !== 'agent') await clearPending(turn);
       if (mode === 'chat' || mode === 'cowork') {
         await page.locator('#chat-file-input').setInputFiles(files.map((file) => file.abs));
         await page.waitForFunction((n) => { const tiles = [...document.querySelectorAll('#composer-files .composer__file')]; return tiles.length === n && tiles.every((tile) => tile.getAttribute('aria-busy') !== 'true'); }, names.length, { timeout: 120_000 });
@@ -746,6 +806,7 @@ export async function runVisionCorpus(options) {
         ...(pipe ? (turn.agent?._tools || []).filter((tool) => /^(?:view_image|see_image)$/.test(tool.name)).map((tool) => ({ request: 'runtime tool', tool: tool.name })) : [])];
       const forbidden = [...new Set([...turn.engineRequests.flatMap((r) => r.forbidden || []), ...(turn.hostCalls || []).flatMap((c) => c.forbidden || [])])];
       Object.assign(row, { conversation: conversations, promptSent: turn.promptSent, promptAdaptation: turn.promptAdaptation, attached: turn.attached, tiles: turn.tiles,
+        removedBeforeAttach: turn.removedBeforeAttach,
         elapsedMs: turn.elapsedMs, sentAt: turn.sentAt, outcome: turn.outcome || (turn.blocked ? 'blocked_by_page' : null), toasts: turn.toasts,
         requests, pdfReads: turn.pdfReads.map(({ _layerText, _ocrText, ...rest }) => rest), hostCalls: turn.hostCalls,
         agent: turn.agent ? { events: turn.agent.events, tools: turn.agent.tools } : undefined,
@@ -789,8 +850,7 @@ export async function runVisionCorpus(options) {
       return row;
     };
 
-    const writeReceipt = (row, turn) => {
-      const dir = path.join(runDir, 'questions', `${String(rows.indexOf(row) + 1).padStart(3, '0')}-${row.id}`);
+    const writeReceipt = (row, turn, dir = receiptDir(row)) => {
       fs.mkdirSync(dir);
       const write = (name, value) => fs.writeFileSync(path.join(dir, name), typeof value === 'string' ? value : `${JSON.stringify(value, (key, entry) => key.startsWith('_') ? undefined : entry, 2)}\n`, { flag: 'wx' });
       if (turn) {
@@ -804,13 +864,58 @@ export async function runVisionCorpus(options) {
       write('row.json', row);
     };
 
+    // ---- history probe (a model switch, then a reload) -------------------------
+    const historyProbe = async () => {
+      const { item } = options.historyProbe;
+      const probe = { item: item.id, status: 'running' };
+      report.historyProbe = probe;
+      const s = await state();
+      const activeId = await page.evaluate(() => { try { return JSON.parse(localStorage.getItem('ds4web.active.v2') || 'null')?.ids?.chat ?? null; } catch { return null; } });
+      const attachmentsOf = (store) => ((store?.chats || []).find((c) => c.id === activeId)?.messages || [])
+        .flatMap((m) => m.role === 'user' ? (m.attachments || []).map((a) => ({ name: a.name, kind: a.kind, internal: a.internal === true })) : []);
+      probe.restored = { conversation: activeId, users: s.users, assistants: s.assistants, attachments: attachmentsOf(await readStore()) };
+      if (mode !== 'chat' || !activeId || !s.users || !probe.restored.attachments.length)
+        return Object.assign(probe, { status: 'fail', class: 'no_restored_conversation', error: 'the reloaded page did not restore a conversation with attachments to continue' });
+      const kind = item.kind === 'pdf' ? (item.language === 'it' ? 'il documento' : 'the document') : (item.language === 'it' ? 'l\'immagine' : 'the image');
+      const prompt = item.language === 'it' ? `Guarda di nuovo ${kind} che ho allegato prima in questa conversazione e descrivi che cosa mostra.`
+        : `Look again at ${kind} I attached earlier in this conversation and describe what it shows.`;
+      const turn = await ask({ item, question: { prompt, expected: { type: 'unanswerable' } }, files: [], firstOfConversation: false, row: probe });
+      const violations = turn.engineRequests.filter((r) => r.visual?.any).map((r) => ({ request: r.kind, ...r.visual }));
+      Object.assign(probe, { prompt, outcome: turn.outcome, toasts: turn.toasts, elapsedMs: turn.elapsedMs,
+        requests: turn.engineRequests.map(({ _entry, _layerText, _ocrText, _pages, ...rest }) => rest), answer: turn.answer,
+        conversationAttachments: turn.conversationAttachments, visualPayload: violations,
+        pageErrors: turn.pageErrors.length ? turn.pageErrors : undefined });
+      // The conversation still lists every attachment it had: nothing dropped to make the request text-only.
+      probe.attachmentsAfter = attachmentsOf(await readStore());
+      const kept = probe.attachmentsAfter.length >= probe.restored.attachments.length;
+      if (violations.length) Object.assign(probe, { status: 'fail', class: 'pixels_sent_to_text_only_model' });
+      else if (turn.outcome !== 'ended') Object.assign(probe, { status: 'fail', class: turn.outcome || 'no_turn' });
+      else if (!turn.engineRequests.some((r) => r.kind === 'answer')) Object.assign(probe, { status: 'fail', class: 'no_request' });
+      else Object.assign(probe, { status: kept ? 'pass' : 'fail', class: kept ? 'history_isolated' : 'attachment_dropped' });
+      try { writeReceipt(probe, turn, path.join(runDir, 'questions', '000-history-probe')); } catch (error) { probe.receiptError = String(error.message); }
+      save();
+      return probe;
+    };
+
     // ---- the loop ----------------------------------------------------------
     let stopReason = capabilityBlock;
-    if (capabilityBlock) for (const row of rows) Object.assign(row, { status: 'blocked', class: 'capability_mismatch', error: capabilityBlock });
+    if (capabilityBlock) for (const row of rows) if (!row.carried) Object.assign(row, { status: 'blocked', class: 'capability_mismatch', error: capabilityBlock });
+    if (options.historyProbe && !capabilityBlock) {
+      assert.equal(expect, 'text-only', 'the history probe checks a text-only model');
+      try { await historyProbe(); }
+      catch (error) { Object.assign(report.historyProbe, { status: 'fail', class: error instanceof EngineFailure ? 'engine_failure' : 'runner_error', error: String(error.stack || error).slice(0, 4000) }); save(); }
+      if (report.historyProbe.status !== 'pass') await load();
+    }
     for (const { item, questions } of capabilityBlock ? [] : groups) {
       let files = null, clean = false;
       for (const question of questions) {
         const row = rowOf(question.id);
+        // Asked in an earlier session of this run: never asked again.
+        if (row.carried) {
+          clean = false;
+          if (row.class === 'interrupted' && !fs.existsSync(receiptDir(row))) try { writeReceipt(row, null); } catch { /* recorded in results.json */ }
+          continue;
+        }
         if (stopReason || control.abortRun) { Object.assign(row, { status: 'not_run', class: 'not_run', error: stopReason || 'the run was stopped' }); continue; }
         row.status = 'running'; row.started = new Date().toISOString(); save();
         let turn = null;
@@ -820,11 +925,17 @@ export async function runVisionCorpus(options) {
           if (fresh) await openConversation();
           turn = await ask({ item, question, files: fresh ? files : [], firstOfConversation: fresh, row });
           finishRow(row, item, question, turn);
+          // The operator ended the run during this answer: not a model failure, not asked again.
+          if (control.abortRun && turn.stopRequested && row.status !== 'pass')
+            Object.assign(row, { status: 'interrupted', class: 'interrupted_by_operator', error: 'the run was stopped during this answer' });
           // A turn that did not end normally leaves the conversation in an unknown state.
-          clean = turn.outcome === 'ended' && !turn.blocked;
+          // The page ends a turn whose engine failed like any other, keeping
+          // the partial text in its history: that is not a clean conversation either.
+          clean = turn.outcome === 'ended' && !turn.blocked && !turn.answer?.error && [null, undefined, 'stop', 'length'].includes(turn.answer?.finishReason);
         } catch (error) {
           clean = false;
-          Object.assign(row, { status: 'fail', class: error instanceof EngineFailure ? 'engine_failure' : 'runner_error', error: String(error.stack || error).slice(0, 4000) });
+          Object.assign(row, control.abortRun ? { status: 'interrupted', class: 'interrupted_by_operator', error: String(error.stack || error).slice(0, 4000) }
+            : { status: 'fail', class: error instanceof EngineFailure ? 'engine_failure' : 'runner_error', error: String(error.stack || error).slice(0, 4000) });
         }
         row.finished = new Date().toISOString();
         try { writeReceipt(row, turn); } catch (error) { row.receiptError = String(error.message); }
@@ -848,15 +959,16 @@ export async function runVisionCorpus(options) {
     }
     for (const row of rows) if (row.status === 'pending' || row.status === 'running') Object.assign(row, { status: 'not_run', class: 'not_run', error: stopReason || 'the run did not reach this question' });
     report.stopReason = stopReason || undefined;
-    const s = report.summary;
     save();
-    report.status = rows.every((row) => row.status === 'pass') && !report.pageErrors.length ? 'pass' : 'fail';
-    void s;
+    report.status = rows.every((row) => row.status === 'pass') && !report.pageErrors.length &&
+      (!report.historyProbe || report.historyProbe.status === 'pass') ? 'pass' : 'fail';
   } finally {
     report.finished = new Date().toISOString();
     for (const row of rows) if (row.status === 'pending' || row.status === 'running') Object.assign(row, { status: 'not_run', class: 'not_run', error: report.error || 'the run ended before this question' });
     save();
-    await context.close().catch(() => {});
+    // Routes a simulated launcher installed may be handling a poll right now.
+    if (ownContext) { await context.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {}); await context.close().catch(() => {}); }
+    else await page?.close().catch(() => {});
   }
   return report;
 }

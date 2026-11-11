@@ -49,8 +49,10 @@ function descendants(rows, rootPid) {
 }
 
 // Pure decision over a process table. `footprintOf(pid)` returns bytes or null.
+// `ownerPid` is one pid or a list: a runner that drives an already started
+// host owns that host's engine as well as its own children.
 export function classifyEngines(rows, { ownerPid, footprintOf, heavyBytes = HEAVY_FOOTPRINT_BYTES }) {
-  const owned = descendants(rows, ownerPid);
+  const owned = new Set([ownerPid].flat().flatMap((pid) => [...descendants(rows, pid)]));
   const foreign = [];
   for (const row of rows) {
     if (!isEngineProcess(row) || owned.has(row.pid)) continue;
