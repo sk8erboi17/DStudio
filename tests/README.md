@@ -115,4 +115,5 @@ directly to the corresponding guide and section.
 - <a id="vision-encoder-with-ssd-streaming-real-metal"></a>[Vision encoder with SSD streaming (real Metal)](docs/regression.md#vision-encoder-with-ssd-streaming-real-metal)
 - <a id="small-ssd-prefill-batches-real-metal-128k-context"></a>[Small SSD prefill batches (real Metal, 128k context)](docs/regression.md#small-ssd-prefill-batches-real-metal-128k-context)
 - <a id="model-free-checks"></a>[Model-free checks](docs/regression.md#model-free-checks)
+- <a id="frozen-vision-corpus"></a>[Frozen vision corpus (PDFs and images)](docs/regression.md#frozen-vision-corpus)
 - <a id="lan-sessions-ocr-and-cowork-limits-october-3-2026"></a>[LAN, sessions, OCR and Cowork limits (October 3, 2026)](docs/regression.md#lan-sessions-ocr-and-cowork-limits-october-3-2026)

@@ -156,6 +156,117 @@ direct quotation-to-page navigation and narrow-screen wrapping in both themes;
 the original quotation bytes still reach Poppler unchanged. Screenshots are in
 `tests/.artifacts/pdf-evidence/`.
 
+<a id="frozen-vision-corpus"></a>
+**Frozen vision corpus (PDFs and images).** `tests/fixtures/vision_corpus/`
+holds the public inputs that [PLAN.MD P4](../../PLAN.MD#p4) item 3 asks for,
+frozen on November 11, 2026: 32 PDFs (80 pages) and 28 image items (36 PNG
+files; four items are ordered sets of two to four images) with 282 questions,
+5.6 MB in total. Everything is synthetic and fictional. The questions' expected
+answers follow from the fixed data in `tests/support/vision_corpus_content.mjs`.
+No model wrote, answered or checked any of it, so the corpus qualifies no model
+yet: it is the input for the real answer checks of P4 item 4, which have not
+run.
+
+`manifest.json` (`dstudio.vision-corpus.v1`) is the authority. Per file it
+records the size and SHA-256 (and the pixel size of a PNG). Per item it records
+the language, the categories, and for a PDF the physical page count, the
+image-only pages (`scannedPages`), the printed page labels where they differ
+from the physical index (`pageLabels`), `/Rotate` (`pageRotations`) and how
+the content appears when the page is displayed (`contentRotations`). Per
+question it records the prompt, the expected result and the evidence:
+
+- `expected.type` is `exact` (the answer states this value), `number` (within
+  the absolute `tolerance`, zero when absent), `one-of` (any listed value),
+  `all-of` (every listed value) or `unanswerable` (the answer says that the
+  input does not contain it and gives no value). No grader exists yet; one has
+  to be written and tested before these types are scored.
+- `evidence.fact` is the literal the answer rests on, on physical page
+  `evidence.page` (or image `evidence.image` of a set). `pixelOnly: false`
+  means it is in that page's text layer. `pixelOnly: true` means it is drawn
+  only: on an image-only page, or in a picture placed on a page that also has
+  text. `also` lists further facts of the same question, `visual` describes a
+  property that is not a string (a colour, a count, a position), and an
+  unanswerable question records what is `missing`.
+- File names are opaque (`pdf/p24.pdf`, `images/s01-b.png`). Item ids such as
+  `p24-scan-upside-down` describe the content: do not show them to a model.
+
+| Coverage (items) | PDFs | Images |
+| --- | --- | --- |
+| English / Italian | 20 / 12 | 15 / 13 |
+| Text layer on every page / image-only / mixed | 20 / 8 / 4 | — |
+| Five or more pages, with physical-page and two-page questions | 7 | — |
+| Charts / tables / diagrams (flowchart, floor plan, map) | 5 / 11 / 4 | 4 / 2 / 3 |
+| Small text (7 pt on paper, 10 px in images) | 3 | 2 |
+| Rotated (`/Rotate` 90 and 180; content shown at 90, 180 and 270) | 5 | 2 |
+| Printed labels that differ from the physical index (iii, 47, 112, A-1) | 4 | — |
+| UI screens / handwriting-style / stylised fonts / low contrast | — | 5 / 2 / 2 / 2 |
+| Colour, shape, count and position / ordered sets | — | 6 / 4 |
+| With a pixel-only fact | 22 | 28 |
+| With an unanswerable question | 32 | 28 |
+
+Questions by type: 100 `number`, 90 `exact`, 22 `one-of`, 10 `all-of` and 60
+`unanswerable`. The PDFs carry 81 pixel-only facts and 67 text facts.
+
+`make test-vision-corpus` (in `check-fast`; needs Poppler and the model-free
+test host, no model, browser, OCR or network) runs
+`tests/integration/vision_corpus_test.mjs`. It proves, on the committed files:
+
+- every listed file exists with the recorded size and SHA-256, and no other
+  file is present;
+- every PDF goes through the production reader: `POST /api/pdf/describe` on
+  `tests/.build/dstudio-server-test`, with `DSTUDIO_OCR_HELPER` pointing at a
+  missing file so that only the text layer is read. The page count and the
+  set of pages with a text layer must match the manifest;
+- every pixel-only fact is absent from the reader's text of every page
+  (case and whitespace normalised, and again with all spaces removed), from
+  Poppler's own output and from the document information fields; every text
+  fact is in the reader's text of its stated physical page;
+- image-only pages have zero visible characters in `pdftotext`, and `/Rotate`
+  matches `pdfinfo`;
+- PNG files carry no metadata chunks;
+- the coverage floors in `MINIMUMS` (`tests/support/vision_corpus.mjs`) hold:
+  at least 30 PDFs, 20 images, 15 unanswerable questions and 12 PDFs with a
+  pixel-only fact, a minimum per category, both languages, and a quarter turn
+  and a half turn among the rotated items.
+
+The same test damages private copies and requires a refusal for each: a
+changed byte, a missing or unlisted file, a pixel-only fact that the page
+carries as text (on a scanned page and next to a chart), a text fact on the
+wrong page, a page recorded with the wrong kind, a wrong page count or
+`/Rotate`, fewer than 30 PDFs, fewer than 20 images, fewer than 15 unanswerable
+questions, a duplicated id, a single-question item and a missing category.
+`node tests/support/vision_corpus.mjs` prints the counts of a corpus.
+
+To regenerate, run `node tests/support/vision_corpus_build.mjs NEW_DIR`
+(Playwright Chromium; macOS for the system fonts of the handwriting-style and
+stylised images). It refuses a directory that is not empty. Native pages come
+from `page.pdf()`; a scanned page is a page rasterised to JPEG and placed as
+the only content of a PDF page; pixel-only facts and all images are SVG or HTML
+rasterised to PNG. Two runs with Chromium 148.0.7778.96 on the same Mac gave
+identical bytes. Another Chromium or font set will not, and then the hashes
+change: replacing the committed corpus is a new freeze that needs
+`make test-vision-corpus`, a look at the rendered pages and a note here.
+
+What the corpus and its test do not establish:
+
+- No vision checkpoint, encoder, projector or answer is qualified. Nothing has
+  been shown to a model, and P4 items 1, 2 and 4 are untouched.
+- "Pixel-only" is proven against the text layer. On macOS the reader also
+  runs local OCR on pages with fewer than 24 visible characters, so facts on
+  the 26 image-only pages can reach a model as labelled OCR text. The 37
+  pixel-only facts in 11 PDFs that sit in a picture on a page with a text
+  layer are never OCRed by the reader. A pixel-path run has to disable the
+  helper or report the two groups separately (`scannedPages` tells them apart).
+- The reader hands a native-vision model at most four rendered pages per read
+  (image-only pages first, 1100 px on the long side). In a plain whole-document
+  read, pixel-only facts of `p22`, `p26` and `p31` lie on pages outside that
+  handoff; reaching them needs a page range or is an honest omission.
+- The images are rendered scenes, not photographs, and the handwriting is a
+  font. Printed page labels are printed text; no PDF has a `/PageLabels` entry.
+- The absence proof covers extracted text and the information fields. The
+  PDFs were generated untagged, without outline, form or XMP stream; the test
+  does not look for such channels.
+
 Run `node tests/browser/ui_model_picker_playwright_test.mjs` (also with
 `DSTUDIO_TEST_BROWSER=webkit`) for the composer picker. This uses a simulated
 launcher, not model inference. It checks the popup's actual distance from the

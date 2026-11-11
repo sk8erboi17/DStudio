@@ -459,6 +459,18 @@ representation; it does not qualify a model's pixel path.
    to text cases: native/scanned/mixed/multipage, charts/tables/diagrams, small
    text, rotations, ordered images and unanswerable inputs. Include facts found
    only in pixels and independently prove they are absent from extracted text.
+   Since November 11 one authored corpus is frozen in
+   `tests/fixtures/vision_corpus/`: 32 PDFs (80 pages, 26 of them image-only)
+   and 28 image items (36 files, four ordered sets), English and Italian, with
+   282 questions of which 60 are unanswerable. `make test-vision-corpus`
+   proves on the committed files that each of the 81 pixel-only facts is
+   absent from what the production PDF reader extracts without OCR
+   ([what it checks](tests/docs/regression.md#frozen-vision-corpus)). Still
+   open: no model has seen it and no runner or grader for its expected-answer
+   types exists; on macOS the OCR helper can read the image-only pages, so a
+   pixel-path run must disable it or report those pages separately; a
+   whole-document read hands at most four rendered pages to native vision, so
+   some pixel-only facts on later pages need a page-directed question.
 4. Run real answer checks with the actual selected model/component in all four
    modes. Retain source/page hashes, physical numbering, original bytes,
    payloads, expected results, outputs and failures.
