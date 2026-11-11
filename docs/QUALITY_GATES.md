@@ -223,6 +223,11 @@ Real-run evidence is written below `tests/.artifacts/`:
 - `design-quality-real/` additionally contains desktop/mobile PNG evidence,
   artifact manifests and the complete project workspace.
 
+Each run writes a new `run-*` directory inside these folders and no earlier
+run is erased, failed ones included. A resumed Design run continues the most
+recent directory. Until November 11, 2026 the Design runner emptied its folder
+before every new run.
+
 When a gate fails, classify it before editing code:
 
 1. Runtime bug: reproduce with the smallest deterministic or targeted real case,
