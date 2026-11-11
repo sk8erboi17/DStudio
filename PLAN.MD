@@ -540,6 +540,12 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    corpus reruns on November 10.
 2. Complete current qualification of the other included selections, retaining
    development replays separately from first-exposure/held-out evaluations.
+   November 11: DeepSeek V4 Flash Vision-Exp IQ2XXS scored 51/100 on main
+   `890898c` (development replay, `engine-acceptance/run-8uAZCk`; long context
+   6/8, code 0/15: every program came inside Markdown fences, which the tasks
+   forbid). The Qwen3.8-Flash-Next Q4 run did not start because the native
+   runner refused beside a model-free test's client process; that check is
+   corrected and the run queued again (`run-MnogVK` retained).
    Retained from November 11: Laguna's common-100 run stopped at its first
    long-context case with `Metal command batch failed: Impacting
    Interactivity` in the second 16,384-token prefill batch (51/100, 12 not

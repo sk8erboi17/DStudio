@@ -16,37 +16,43 @@ quantizations and engines, so the bars are not a ranking.
 | Qwen3.8-27B UD-Q6_K_XL | llama.cpp `b11836` | 73 | 27 | 0 | [chart](qwen27-q6-llama.png) |
 | Qwen3.6-35B-A3B MXFP8 | MLX (mlx-lm 0.32.2) | 68 | 32 | 0 | [chart](qwen36-mxfp8-mlx.png) |
 | Qwen3.6-35B-A3B UD-Q6_K_XL | llama.cpp `b11836` | 67 | 33 | 0 | [chart](qwen36-q6-llama.png) |
+| DeepSeek V4 Flash Vision-Exp IQ2XXS | ds4 main `890898c` | 51 | 49 | 0 | [chart](deepseek-v4-vision-exp-iq2xxs.png) |
 | Laguna S 2.1 Q4_K_M | ds4 Laguna `448d569` | 51 | 37 | 12 | [chart](laguna-s21-q4.png) |
 
-Selections of the campaign without a published result yet: DeepSeek V4 Flash
-Vision-Exp IQ2XXS, Qwen3.8-Flash-Next Q4, DeepSeek V4.1 Flash 1017 Q2 (expert
-SSD streaming only) and Qwen3.8-Flash-Next Q2 (no weights on this machine:
-blocked). DeepSeek V4.1 Q4 and GLM 5.3 Flash are left to contributors with
+Selections of the campaign without a published result yet: Qwen3.8-Flash-Next
+Q4, DeepSeek V4.1 Flash 1017 Q2 (expert SSD streaming only) and
+Qwen3.8-Flash-Next Q2 (no weights on this machine: blocked). DeepSeek V4.1 Q4 and GLM 5.3 Flash are left to contributors with
 suitable hardware.
 
 ## What failed
 
 Passed tasks by category (passed / tasks):
 
-| Category | Qwen3.8-27B | Qwen3.6 MXFP8 (MLX) | Qwen3.6 Q6 (llama.cpp) | Laguna S 2.1 |
-| --- | ---: | ---: | ---: | ---: |
-| Arithmetic and units | 2 / 12 | 1 / 12 | 5 / 12 | 3 / 12 |
-| Reasoning | 6 / 12 | 6 / 12 | 7 / 12 | 7 / 12 |
-| Writing code | 12 / 15 | 13 / 15 | 7 / 15 | 6 / 15 |
-| Fixing bugs | 5 / 10 | 4 / 10 | 5 / 10 | 1 / 10 |
-| JSON structure | 9 / 10 | 9 / 10 | 8 / 10 | 9 / 10 |
-| Extracting facts | 9 / 10 | 9 / 10 | 9 / 10 | 9 / 10 |
-| Following instructions | 10 / 10 | 8 / 10 | 8 / 10 | 8 / 10 |
-| Italian and English | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 |
-| Long texts | 7 / 8 | 5 / 8 | 5 / 8 | 0 / 8 (7 not run) |
-| Recognising missing information | 5 / 5 | 5 / 5 | 5 / 5 | 0 / 5 (not run) |
+| Category | Qwen3.8-27B | Qwen3.6 MXFP8 (MLX) | Qwen3.6 Q6 (llama.cpp) | DeepSeek V4 Vision-Exp | Laguna S 2.1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Arithmetic and units | 2 / 12 | 1 / 12 | 5 / 12 | 2 / 12 | 3 / 12 |
+| Reasoning | 6 / 12 | 6 / 12 | 7 / 12 | 7 / 12 | 7 / 12 |
+| Writing code | 12 / 15 | 13 / 15 | 7 / 15 | 0 / 15 | 6 / 15 |
+| Fixing bugs | 5 / 10 | 4 / 10 | 5 / 10 | 1 / 10 | 1 / 10 |
+| JSON structure | 9 / 10 | 9 / 10 | 8 / 10 | 8 / 10 | 9 / 10 |
+| Extracting facts | 9 / 10 | 9 / 10 | 9 / 10 | 7 / 10 | 9 / 10 |
+| Following instructions | 10 / 10 | 8 / 10 | 8 / 10 | 8 / 10 | 8 / 10 |
+| Italian and English | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 | 8 / 8 |
+| Long texts | 7 / 8 | 5 / 8 | 5 / 8 | 6 / 8 | 0 / 8 (7 not run) |
+| Recognising missing information | 5 / 5 | 5 / 5 | 5 / 5 | 4 / 5 | 0 / 5 (not run) |
 
 Most failures are answers and formats, not transport: wrong arithmetic, a
 correct value wrapped in a JSON object the task did not ask for, code inside
 Markdown fences, and replies that are not the requested unified diff. A correct
 value in the wrong container **stays failed** and receives no partial credit;
 the aggregates count it separately (10 tasks for Qwen3.8-27B, 6 for Qwen3.6 on
-MLX, 2 for Qwen3.6 on llama.cpp, 6 for Laguna).
+MLX, 2 for Qwen3.6 on llama.cpp, 5 for DeepSeek V4, 6 for Laguna).
+
+DeepSeek V4 Flash Vision-Exp returned all fifteen programs, and seven of its
+ten patches, inside Markdown fences, although each task says to return only
+the source or the diff. The grader runs what was returned, so every one of
+those fails; the run says nothing about whether the code inside the fences was
+correct. All eight of its long texts completed (about five minutes each).
 
 The Laguna run is incomplete. On its first long text the engine answered
 HTTP 500 (`metal Laguna prefill failed at token 32768`) and the twelve tasks

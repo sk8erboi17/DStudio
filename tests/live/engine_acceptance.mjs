@@ -4,10 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import {spawn, spawnSync, execFileSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {freePort, sleep} from '../support/real_harness.mjs';
 import {createCommonQuality, runCommonQuality, finishCommonQuality} from '../support/common_quality_runner.mjs';
-import {preflight} from '../support/heavy_preflight.mjs';
+import {contamination,preflight} from '../support/heavy_preflight.mjs';
 import {weightIdentity} from '../support/campaign_identity.mjs';
 import {toolchain} from '../support/quality_baseline.mjs';
 
@@ -243,6 +243,12 @@ async function inference(id, entry) {
           }
           throw Error('replacement native engine failed to become ready within 900 seconds');
         }:undefined});
+      // A model that another process loaded while the corpus ran shared the
+      // memory and the GPU: the run stays recorded and is marked contaminated.
+      const after=preflight({dir:root});
+      entry.postflight={memory:after.memory,foreignEngines:after.foreignEngines,contamination:contamination(entry.preflight,after)};
+      save();
+      assert.deepEqual(entry.postflight.contamination,[],'contaminated by another engine during the run');
       assert.equal(qualityResult.status,'pass','common-100 contains failed or unexecuted cases');
       return;
     }
@@ -333,11 +339,12 @@ for(const id of engines){
       entry.quality=createCommonQuality(path.join(run,id+'-common-100'));
       entry.quality.report.evaluationUse=qualityUse;
       // Retained baseline of the machine before the model is started.
+      // A foreign engine is judged by the memory it holds, as in the host
+      // runner: a client or idle host without a model is recorded and allowed,
+      // a process holding a model (or one that cannot be measured) blocks.
       entry.preflight=preflight({dir:root});
       save();
-      const rows=execFileSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8',timeout:5000}).split('\n');
-      assert.deepEqual(rows.filter(row=>/\/(?:ds4|ds4-server|ds4-server-pld|ds4-agent|ds4-agent-jsonl|ds4-cowork|ds4-design|llama-server|DStudio|dstudio)$/.test(row.trim())),[],
-        'Another engine/app is present; do not launch a competing heavyweight model');
+      assert.ok(entry.preflight.ok,`BLOCKED, not a pass: ${entry.preflight.reasons.join('; ')}`);
     }
     if(install){
       const target=path.join(installedRoot,configs[id].dir);assert.ok(!fs.existsSync(target),'fresh install starts without checkout');

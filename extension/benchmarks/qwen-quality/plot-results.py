@@ -46,12 +46,18 @@ REVIEWED = {
         "name": "Laguna S 2.1 · Q4_K_M\nds4 Laguna",
         "caption": f"Laguna S 2.1 · Q4_K_M · ds4 Laguna 448d569 · {M2} · 11 November 2026",
         "footnote": "The engine failed on the first long text; the twelve tasks after it were not run and stay in the denominator."},
+    "765c3a25957c2618cb0394d0d5e7c87d588d92e9e72b4eff2af6950e74b850b6": {
+        "dir": CAMPAIGN, "results": "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json", "chart": "deepseek-v4-vision-exp-iq2xxs.png",
+        "name": "DeepSeek V4 Flash Vision-Exp · IQ2XXS\nds4 main",
+        "caption": f"DeepSeek V4 Flash Vision-Exp · IQ2XXS · ds4 main 890898c · {M2} · 11 November 2026",
+        "footnote": "All fifteen programs came inside Markdown fences, which the tasks forbid. Failed cases are not retried or replaced."},
 }
 # The family overviews compare reviewed runs graded by one corpus identity.
 FAMILIES = [{
     "dir": CAMPAIGN, "chart": "overview.png",
     "results": ["2026-11-11-qwen27-q6-llama.json", "2026-11-10-qwen36-mxfp8-mlx.json",
-                "2026-11-10-qwen36-q6-llama.json", "2026-11-11-laguna-s21-q4.json"],
+                "2026-11-10-qwen36-q6-llama.json", "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json",
+                "2026-11-11-laguna-s21-q4.json"],
     "title": "Tasks passed out of 100, by model selection",
     "caption": f"{M2} · one run each, thinking off · development replay · different quantizations: not a ranking",
 }]

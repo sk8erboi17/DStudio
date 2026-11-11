@@ -120,9 +120,13 @@ Both runners take a resource snapshot before starting a model
 (`tests/support/heavy_preflight.mjs`, checked by `make test-heavy-preflight`).
 It judges a foreign engine by the memory it holds: an idle router without a
 loaded model is recorded and allowed, a process holding a model or one whose
-footprint cannot be measured blocks the run. It never stops a process. The
-host runner repeats the snapshot afterwards and marks the run contaminated if
-another engine loaded a model meanwhile.
+footprint cannot be measured blocks the run. It never stops a process. Both
+runners repeat the snapshot afterwards and mark the run contaminated if
+another engine loaded a model meanwhile. Until November 11 the native runner
+also refused to start beside any process with an engine's name, whatever it
+held: a model-free test's Cowork client made it refuse the Qwen3.8-Flash-Next
+Q4 run (`engine-acceptance/run-MnogVK`, retained as not executed). It now
+applies the snapshot's verdict alone, like the host runner.
 
 `node tests/live/quality_multihardware.mjs status` is the campaign coordinator:
 it reads the ten selections of `tests/fixtures/quality_campaign.json` and every
