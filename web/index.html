@@ -23936,9 +23936,13 @@ Choose however many stages, branches, and topics the subject actually warrants; 
             Messages.finishAutoFollow(chat.id);
             openGeneratedFilesCanvas(generated.files);
           }
+          // The live region must agree with the visible marker: an answer cut
+          // at the token limit or ended by an error is not complete.
           Messages.announce(
             finishReason === 'aborted' ? 'Response interrupted'
             : finishReason === 'incomplete' ? 'Response incomplete'
+            : finishReason === 'length' ? 'Response truncated (token limit)'
+            : finishReason === 'error' ? 'Response failed'
             : 'Response completed'
           );
           if (liveTurn && !liveTurn.cancelled && liveTurn.pending.length && !error) {
