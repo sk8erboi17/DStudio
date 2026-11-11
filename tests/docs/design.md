@@ -93,6 +93,17 @@ reply or a reason made only of spaces; a follow indicator separate from the
 Follow/Unfollow control; a selection mark on the map or list; the last reason
 surviving an Undo; a message when the six-object limit refuses an addition.
 
+The audit of the first generated projects (November 12) found one defect in
+the shared layout check, not in the pages: text hidden on purpose was exempt
+only under the class name `.sr-only`, so a `.visually-hidden` header with the
+same 1px clipping rule failed reflow, and a skip link parked left of the page
+until focused failed as text outside the page while the packs' own skip link,
+parked above the page, passed. The check now recognises the visually-hidden
+box and a positioned element wholly outside the page by how they render;
+`make test-design-project-auditor` keeps both patterns passing and still
+rejects text partly outside the page, text cut by an ordinary container and
+content that widens the page, in Chromium and WebKit.
+
 Limits that are **still open** after the second pass:
 
 Shared helpers, used by every oracle. The second pass did not change them and
