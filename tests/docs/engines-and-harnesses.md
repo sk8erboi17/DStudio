@@ -306,8 +306,16 @@ a code read in the same session and a file-tool read outside the workspace,
 each checked independently, plus no surviving process after the host stops.
 Since November 11 `DSTUDIO_HARNESS_MODELS` also accepts `laguna`, `next`
 (Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2, started with expert
-SSD streaming; the row fails when that mode is not the effective one). These
-three have not been run yet.
+SSD streaming; the row fails when that mode is not the effective one). Their
+first run, November 11 (`harness-live/run-QcD4eH`, development check): on
+Qwen3.8-Flash-Next and V4.1 both harnesses wrote the CSV total and answered
+from the workspace file (8/8); the outside-workspace case passed once
+(OpenCode on Next) and was BLOCKED three times because the model attempted
+no read, so confinement was not exercised there (not a pass and not an
+escape). Both Laguna rows failed at startup: the runner did not select
+Laguna's checkout before the launch as the app does, so the bridge started
+main's `ds4-server` on Laguna's weights and it exited. The runner now selects
+the checkout the host's model catalog names; Laguna is to be run again.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed

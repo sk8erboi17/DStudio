@@ -183,4 +183,7 @@ external harnesses.
   `DSTUDIO_HARNESS_MODELS`, `DSTUDIO_HARNESS_CTX`). Besides the default
   `qwen36,qwen27,deepseek` the runner knows `qwen36mlx`, `laguna`, `next`
   (Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2 with expert SSD
-  streaming); the last three have not been run yet.
+  streaming). On Next and V4.1 both harnesses completed the file and recall
+  cases; the confinement case was exercised once and passed (three times the
+  model attempted no read). Laguna is to be run again after a runner fix
+  ([details](../tests/docs/engines-and-harnesses.md)).
