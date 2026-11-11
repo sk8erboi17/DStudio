@@ -33,10 +33,12 @@ test('completed condition leaves transport usable', async () => {
   assert.equal(c.report.cases[0].state, 'passed');
   assert.equal(c.streamFailure, null);
 });
-test('Qwen keeps its chunk while Laguna selects its supported native prefill', () => {
+// The runner covers Laguna only since the Qwen MoE engines were retired
+// (October 3, 2026): their family name is refused like any unknown one.
+test('Laguna selects its supported native prefill; every other family is refused', () => {
   const c = context();
   const selection = family => JSON.parse(JSON.stringify(vm.runInContext(`continuationPrefill('${family}')`, c)));
-  assert.deepEqual(selection('qwen35'), {chunk: 512, args: ['--prefill-chunk', '512']});
   assert.deepEqual(selection('laguna'), {chunk: null, args: []});
-  assert.throws(() => selection('unknown'), /Unsupported continuation engine family/);
+  for (const family of ['qwen35', 'main', 'unknown'])
+    assert.throws(() => selection(family), /Unsupported continuation engine family/);
 });

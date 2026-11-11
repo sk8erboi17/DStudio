@@ -2,6 +2,8 @@
 
 The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
 resumed it: complete every item below, then the final simplification step.
+**It is paused since November 11** at the owner's request; the order in which
+to resume is in [the plan](../PLAN.MD#pause).
 [PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
 its short index. A documentation, download-integrity or simulated UI pass does
 not close a model-quality gate.
@@ -30,7 +32,9 @@ changing a bundled pin does not transfer them. The [engine admission matrix](ENG
 tracks missing release receipts separately from test outcomes.
 The common-100 results reviewed so far are published, with their charts and
 failures, in [the campaign report](benchmarks/quality-multihardware/README.md):
-five selections measured, none at the required 100/100.
+seven selections measured (every one that runs on this machine), none at
+the required 100/100. That gate measures the models; it closes as a
+documented FAIL unless a model passes it ([why](../PLAN.MD#closure)).
 
 ### Pinned Qwen variants: five representative checks (NOT RUN)
 

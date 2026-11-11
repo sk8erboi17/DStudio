@@ -482,6 +482,17 @@ static void resident_bind_frontend(pid_t pid);
 static unsigned long long resident_rpc_owner(pid_t *pid, char *url, size_t cap, const char **model_id);
 static int resident_rpc_current(pid_t pid, unsigned long long generation);
 static const char *resident_served_model(void);
+/* dstudio_kv_snapshot.c: disk snapshots of the owned llama-server slot. */
+static int kvs_slot_dir_prepare(char *out, size_t cap);
+static void kvs_args_identity(char **args, char out[65]);
+static void kvs_runtime_line(const char *line, int is_err);
+static void kvs_turn_end(int interrupted);
+static void kvs_turn_failed(void);
+static int kvs_hold_model_request(void);
+static void kvs_completion_admitted(int relayed);
+static void kvs_completion_final(const char *frame);
+static void kvs_delete_session(int mode, const char *session);
+static void kvs_wipe(void);
 static int g_launch_adopt = 0;
 static char g_launch_executable[DSTUDIO_PATH_MAX];
 static volatile sig_atomic_t g_launch_worker_cancel = 0;
@@ -1477,6 +1488,7 @@ static unsigned long long dstudio_physical_memory_bytes(void);
 static long long current_model_file_size(void);
 static long long sysctl_iogpu_wired_limit_mb(void);
 static int setup_run_cmd_capture(const char *cwd, char *const argv[], char *out, size_t outsz);
+static pid_t g_setup_cmd_owner; /* dstudio_setup.c: owner of a background installation child */
 static int setup_ensure_server_metrics_runtime(char *err, size_t errsz);
 static int run_ext_script(const char *script, const char *action);
 static int run_build_server_pld(void);
@@ -1745,6 +1757,9 @@ typedef struct {
     model_rpc_call *calls;
     int call_count;
     size_t tool_bytes;
+    /* llama-server's final timings: prompt tokens reused from its cache and
+     * processed. -1: not reported (other servers, or no final chunk). */
+    long long cache_tokens, prompt_tokens;
 } model_rpc_job;
 
 static void model_rpc_sse_line(model_rpc_job *job, const char *line);
@@ -1842,6 +1857,9 @@ static int model_rpc_write_frame(model_rpc_job *job,
         const char *key = !strcmp(type, "model_error") ? "error" : "text";
         ok = ok && json_dyn_printf(&out, ",\"%s\":", key) && json_dyn_put_escaped(&out, text);
     }
+    /* Extra keys of the terminal receipt: the runtime reads type, id and text only. */
+    if (!strcmp(type, "model_done") && job->cache_tokens >= 0 && job->prompt_tokens >= 0)
+        ok = ok && json_dyn_printf(&out, ",\"cacheTokens\":%lld,\"promptTokens\":%lld", job->cache_tokens, job->prompt_tokens);
     ok = ok && json_dyn_puts(&out, "}\n");
     if (!ok) { free(out.ptr); return 0; }
     int terminal = !strcmp(type, "model_done") || !strcmp(type, "model_error");
@@ -4202,13 +4220,15 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
             acc[*acc_len] = '\0';
             if (*acc_len > 0) {
                 progress_from_line(acc);
+                kvs_runtime_line(acc, is_err);
                 /* keep the last substantive line so that, if the engine dies,
                  * reap_child can report WHY instead of a bare "unreachable". */
-                if (!strstr(acc, "+DWARFSTAR_") &&
+                if (!strstr(acc, "+DWARFSTAR_") && strncmp(acc, "+DSTUDIO_SESSION_", 17) &&
                     !(strstr(acc, "\"type\":\"status\"") &&
                       strstr(acc, "\"state\":\"prefill\"")))
                     snprintf(g_last_engine_line, sizeof g_last_engine_line, "%s", acc);
                 if (is_err && !strcmp(acc, "+DSTUDIO_TURN_ERROR")) {
+                    kvs_turn_failed();
                     if (g_active_turn_task) {
                         task_mark_failed(g_active_turn_task, "native runtime reported a turn error", "see its transcript");
                         g_active_turn_task = 0;
@@ -4225,7 +4245,10 @@ static void scan_lines(const char *data, size_t n, char *acc, size_t *acc_len, i
                     g_active_turn_compacting = 0;
                     g_agent_working = 0;
                     g_agent_session_working = 0;
+                    const int interrupted = g_interrupt_pending;
                     g_interrupt_pending = 0;
+                    /* Before a graph may write its next prompt: the engine is idle here. */
+                    kvs_turn_end(interrupted);
                     dtg_agent_owner_release_if_terminal();
                 } else if (g_active_turn_task && strstr(acc, "COMPACTING")) {
                     if (!g_active_turn_compacting) {
@@ -6867,10 +6890,13 @@ static int model_download_begin(const char *target, unsigned long long *task_out
             char installed[DSTUDIO_PATH_MAX], error[8600] = ""; int downloaded = 0;
             /* The engine that serves these weights is installed now (llama.cpp
              * build, or the bundled offline MLX wheels) so the first launch does
-             * not wait for it. */
-            if (!setup_install_engine(mlx ? "mlx" : "llama", install_root, installed, sizeof installed,
-                                      &downloaded, error, sizeof error)) {
-                fprintf(stderr, "%s\n", error); _exit(1);
+             * not wait for it. The installation is canceled if this host dies,
+             * and an ownerless child never goes on to transfer weights. */
+            g_setup_cmd_owner = getppid();
+            if (g_setup_cmd_owner <= 1 ||
+                !setup_install_engine(mlx ? "mlx" : "llama", install_root, installed, sizeof installed,
+                                      &downloaded, error, sizeof error) || getppid() != g_setup_cmd_owner) {
+                fprintf(stderr, "%s\n", error[0] ? error : "the DStudio host that started this download is gone"); _exit(1);
             }
             char helper[DSTUDIO_PATH_MAX + 64], store[DSTUDIO_PATH_MAX + 160];
             snprintf(helper, sizeof helper, "%s/scripts/download-qwen-variant.py", g_web_dir);
@@ -7125,6 +7151,7 @@ static int spawn_design(const engine_cfg *cfg, const char *workdir, char *err, s
 #include "dstudio_harness.c"
 #include "dstudio_launch.c"
 
+static void kvs_status_json(json_dyn_buf *out); /* dstudio_kv_snapshot.c */
 static void api_status(int fd) {
     reap_child();
     resident_tick();
@@ -7251,7 +7278,9 @@ static void api_status(int fd) {
     char lan_addr[80];
     int lan_on = lan_status(lan_addr, sizeof lan_addr);
 
-    char body[12288];
+    json_dyn_buf snapshots = {0};
+    kvs_status_json(&snapshots);
+    char body[16384];
     snprintf(body, sizeof body,
         "{\"mode\":\"%s\",\"running\":%s,\"ready\":%s,\"loadPct\":%d,\"stage\":\"%s\","
         "\"agentWorking\":%s,\"agentSessionWorking\":%s,\"agentDiskCheckpointsSupported\":%s,\"workdir\":\"%s\",\"config\":%s,"
@@ -7268,7 +7297,8 @@ static void api_status(int fd) {
         "\"glmVisionInstalled\":%s,\"deepseekVisionInstalled\":%s,"
         "\"nativeVisionActive\":%s,\"glmVisionActive\":%s,\"deepseekVisionActive\":%s,"
         "\"launchTaskId\":%llu,\"launchPhase\":\"%s\",\"launchRequestId\":\"%s\","
-        "\"contentOk\":%s,\"contentDownloading\":%s,\"residentPid\":%d,\"residentStopping\":%s}",
+        "\"contentOk\":%s,\"contentDownloading\":%s,\"residentPid\":%d,\"residentStopping\":%s,"
+        "\"llamaKvSnapshot\":%s}",
         mode_name(resident_running() && !MODE_IS_PIPED(g_mode) ? ENGINE_SERVER : g_mode), engine_running ? "true" : "false", g_ready ? "true" : "false",
         g_load_pct, stage_esc, g_agent_working ? "true" : "false",
         g_agent_session_working ? "true" : "false", agent_disk_checkpoints_supported() ? "true" : "false", wd_esc, cfg,
@@ -7290,7 +7320,9 @@ static void api_status(int fd) {
         !g_launch ? "" : g_launch->canceled ? "canceling" : g_launch->resident_started ? "loading" : g_launch->stopping ? "stopping" : "preparing",
         g_launch ? g_launch->request.request_id : "",
         content_present() ? "true" : "false", "false", resident_running() ? (int)g_resident.pid : 0,
-        resident_running() && g_resident.stopping ? "true" : "false");
+        resident_running() && g_resident.stopping ? "true" : "false",
+        snapshots.ptr && snapshots.len < 3072 ? snapshots.ptr : "null");
+    free(snapshots.ptr);
     send_json(fd, "200 OK", body);
 }
 
@@ -9046,6 +9078,9 @@ static void api_design_session(int fd, const char *body) {
         send_json(fd, "500 Internal Server Error", "{\"ok\":false,\"error\":\"write to engine failed\"}");
         return;
     }
+    /* The user deleted this conversation: its llama-server slot snapshot goes
+     * with it, whether or not the runtime still finds a transcript to delete. */
+    if (!strcmp(action, "del")) kvs_delete_session(g_mode, sha);
     /* Session commands may rebuild/prefill a large KV state. Keep send/session
      * callers serialized until the child announces its next WAITING marker. */
     g_agent_session_working = 1;
@@ -10190,12 +10225,13 @@ static void rm_rf(const char *path) {
         unlink(path);
     }
 }
-static void clear_dir(const char *path) {       /* delete the contents, keep the dir */
+/* Delete the contents, keep the dir (and the one child named keep). */
+static void clear_dir_except(const char *path, const char *keep) {
     DIR *d = opendir(path);
     if (!d) return;
     struct dirent *e;
     while ((e = readdir(d))) {
-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || !strcmp(e->d_name, keep)) continue;
         char child[4096];
         snprintf(child, sizeof child, "%s/%s", path, e->d_name);
         rm_rf(child);
@@ -10217,6 +10253,9 @@ static int api_wipe(int fd) {
 }
 static void chat_store_wipe_committed(int fd, long long clear_epoch) {
     int kv_cleared = 0;
+    /* llama-server slot snapshots belong to the wiped conversations whatever
+     * runs now; their own worker removes them, not this loop. */
+    kvs_wipe();
     if (g_child <= 0) {        /* the engine isn't running → the KV files are free */
         /* A crashed Agent leaves its completed output in the launcher's
          * in-memory pipe buffer. If that survives the wipe, the fresh empty
@@ -10225,7 +10264,7 @@ static void chat_store_wipe_committed(int fd, long long clear_epoch) {
         agent_buf_reset();
         char kvroot[2048];
         kv_root(kvroot, sizeof kvroot);        /* all per-model caches live under here */
-        clear_dir(kvroot);
+        clear_dir_except(kvroot, "llama-slots"); /* KVS_DIR_NAME: a running llama-server keeps its slot directory */
         kv_cleared = 1;
     }
     char out[144];
@@ -10247,6 +10286,7 @@ typedef struct {
 
 #include "dstudio_remote.c"
 #include "dstudio_lan_cowork.c"
+#include "dstudio_kv_snapshot.c"
 #include "dstudio_websearch.c"
 
 #include "dstudio_media_memory.c"
@@ -11442,26 +11482,36 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
     }
     int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : ENGINE_DEFAULTS.port;
     if (owned_qwen) eport = g_resident.spec.cfg.port;
+    /* A completion outside the model relay rewrites the slot unseen. */
+    if (owned_qwen && !strcmp(method, "POST")) kvs_completion_admitted(0);
     const char *eport_env = getenv("DS4UI_ENGINE_PORT");  /* override the engine port */
     if (!owned_qwen && eport_env && eport_env[0]) { int p = atoi(eport_env); if (p > 0 && p < 65536) eport = p; }
     /* ds4 is a single local inference engine. Immediately after a long response
      * its accept loop can be momentarily unavailable; one failed connect must
-     * not turn that normal handoff into a false "engine is not running" error. */
+     * not turn that normal handoff into a false "engine is not running" error.
+     * Only one attempt runs here, on the interactive owner: retrying with
+     * sleeps (up to 2.4 s) blocked /api/status and every other control request
+     * whenever no Chat engine listened, e.g. beside an Agent/Cowork/Design
+     * session. The remaining attempts run in the relay below. */
     /* llama-server has its own responsive HTTP acceptor; connect in the relay, never
      * sleep/retry on the interactive owner. Its endpoint cannot be redirected
      * by the legacy DS4 port override. */
+    const char *not_running = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
+#ifdef _WIN32
     int efd = owned_qwen ? -1 : connect_loopback_with_retry(eport, 25, 100);
     if (efd < 0 && !owned_qwen) {
         dstudio_log_event("error", "proxy", 0, "/v1 proxy could not connect to local engine port %d", eport);
-        const char *body = "{\"error\":{\"message\":\"the local ds4 engine is not running\"}}";
-        if (cors) {
-            send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
-                               body, strlen(body), 0, cors_headers());
-        } else {
-            send_json(client_fd, "503 Service Unavailable", body);
-        }
+        if (cors) send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                                     not_running, strlen(not_running), 0, cors_headers());
+        else send_json(client_fd, "503 Service Unavailable", not_running);
         return;
     }
+#else
+    int efd = owned_qwen ? -1 : connect_loopback_with_retry(eport, 1, 0);
+    const int retry_in_relay = !owned_qwen && efd < 0;
+    if (retry_in_relay)
+        dstudio_log_event("warn", "proxy", 0, "/v1 proxy: local engine port %d refused the first connection; the relay retries", eport);
+#endif
 #ifdef _WIN32
     relay_engine_exchange(client_fd, efd, eport, method, path,
                           req + header_len, got - header_len, clen, cors);
@@ -11483,6 +11533,15 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
                 send_json(client_fd, "503 Service Unavailable", "{\"error\":{\"message\":\"The llama.cpp endpoint disconnected\",\"code\":\"model_disconnected\"}}");
                 close(client_fd); _exit(1);
             }
+        } else if (retry_in_relay) {
+            efd = connect_loopback_with_retry(eport, 24, 100);
+            if (efd < 0) {
+                fprintf(stderr, "proxy: /v1 could not connect to local engine port %d\n", eport);
+                if (cors) send_response_hdrs(client_fd, "503 Service Unavailable", "application/json; charset=utf-8",
+                                             not_running, strlen(not_running), 0, cors_headers());
+                else send_json(client_fd, "503 Service Unavailable", not_running);
+                close(client_fd); _exit(1);
+            }
         }
         struct timeval tv = { 600, 0 };
         (void)setsockopt(efd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
@@ -11494,7 +11553,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
         _exit(0);
     }
     waitpid(pid, NULL, 0);   /* reap the immediately-exiting first child */
-    close(efd);              /* parent's copy; the relay grandchild has its own */
+    if (efd >= 0) close(efd); /* parent's copy; the relay grandchild has its own */
 #endif
 }
 
@@ -12307,6 +12366,7 @@ int main(int argc, char **argv)
         chat_store_tick();
         reap_child();
         resident_tick();
+        kvs_tick();
         drain_child(); /* also consumes a retained stdout suffix after upload pressure */
         launch_preparation_tick();
 #ifndef _WIN32
@@ -12315,8 +12375,8 @@ int main(int argc, char **argv)
         gsa_tools_install_reap();
         harness_install_tick();
         dtg_scheduler_tick(dstudio_now_ms());
-        /* server + 2 child streams + 3 model RPC + 4 resident (owner, 2 logs, probe) */
-        struct pollfd pfd[12];
+        /* server + 2 child streams + 3 model RPC + 4 resident (owner, 2 logs, probe) + 1 slot snapshot */
+        struct pollfd pfd[13];
         int nf = 0;
         pfd[nf].fd = g_srv_fd; pfd[nf].events = POLLIN; nf++;  /* rebindable: the LAN toggle swaps this */
         int oi = -1, ei = -1;
@@ -12325,16 +12385,18 @@ int main(int argc, char **argv)
 
         nf += model_rpc_pollfds(pfd + nf);
         nf += resident_pollfds(pfd + nf);
+        nf += kvs_pollfds(pfd + nf);
         /* Reaping a canceled helper must not delay the next admitted request.
          * Windows anonymous pipes have no writable poll event in this host;
          * their nonblocking writes are retried with a bounded active cadence. */
-        int poll_ms = g_store_write || (g_model_rpc && g_model_rpc->stopping) ? 10 : 200;
+        int poll_ms = g_store_write || (g_model_rpc && g_model_rpc->stopping) || kvs_fast_tick() ? 10 : 200;
 #ifdef _WIN32
         if (g_model_rpc) poll_ms = 10;
 #endif
         int prc = poll(pfd, (nfds_t)nf, poll_ms);
         if (prc < 0) { if (errno == EINTR) continue; perror("poll"); continue; }
         resident_tick(); /* revoke a dead model's lease before publishing RPC bytes */
+        kvs_tick();      /* a restore decision precedes the completion it held */
         model_rpc_tick();
 
         if ((oi >= 0 && (pfd[oi].revents & (POLLIN | POLLHUP))) ||
@@ -12357,6 +12419,7 @@ int main(int argc, char **argv)
     }
     sse_close_all();
     chat_store_shutdown();
+    kvs_shutdown();
     model_rpc_shutdown();
     launch_preparation_shutdown();
     image_runtime_shutdown();

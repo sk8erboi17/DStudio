@@ -694,6 +694,29 @@ test-resident-guard: $(TEST_SERVER)
 
 check-fast: test-resident-unit test-resident-guard
 
+# Disk snapshots of the llama-server slot (src/dstudio_kv_snapshot.c; off by
+# default, DSTUDIO_LLAMA_KV_SNAPSHOTS=1 opts in): its pure decisions, then the
+# production host against a scripted llama-server and a simulated runtime.
+# No model, no llama.cpp build, no inference.
+$(TEST_BUILD)/llama_kv_snapshot_unit: tests/unit/llama_kv_snapshot_unit.c $(SRC) $(SUBSRC) $(EXT_SUBSRC) $(GEN) $(LOADING_GEN) $(ANNOTATOR_GEN)
+	@mkdir -p $(TEST_BUILD)
+	$(CC) $(CFLAGS) tests/unit/llama_kv_snapshot_unit.c -o $@
+
+.PHONY: test-llama-kv-snapshot-unit test-llama-kv-snapshot test-llama-kv-snapshot-runtime
+test-llama-kv-snapshot-unit: $(TEST_BUILD)/llama_kv_snapshot_unit
+	@$(TEST_BUILD)/llama_kv_snapshot_unit
+test-llama-kv-snapshot: test-llama-kv-snapshot-unit $(TEST_SERVER)
+	@node tests/integration/llama_kv_snapshot_test.mjs $(TEST_SERVER)
+check-fast: test-llama-kv-snapshot
+# The announcements of the REAL runtimes (already built; simulated model
+# frames), read by the production parser:
+#   make test-llama-kv-snapshot-runtime REMOTE_TOOL_AGENT=ds4/ds4-agent-jsonl [DESIGN_BINARY=ds4/ds4-design]
+test-llama-kv-snapshot-runtime: $(TEST_BUILD)/llama_kv_snapshot_unit
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
+	@node tests/integration/llama_kv_snapshot_runtime_test.mjs $(TEST_BUILD)/llama_kv_snapshot_unit $(REMOTE_TOOL_AGENT) $(DESIGN_BINARY)
+# The real-weight check (tests/live/llama_kv_snapshot_live_test.mjs) is not
+# written yet; until it passes the store stays off by default.
+
 # scripts/install-llama.py recipes (static macOS, dynamic Linux/Windows),
 # receipts and leases; toolchains simulated, nothing compiled.
 .PHONY: test-llama-install-profile
@@ -734,6 +757,29 @@ test-mlx-model-ui:
 	@node tests/unit/mlx_model_ui_test.mjs
 
 check-fast: test-mlx-install-unit test-mlx-download-host test-mlx-model-ui
+
+# Upgrade, interruption and recovery of the engine installations (PLAN.MD P5):
+# the production installers, host CLI, launch worker, guard and HTTP host as
+# real processes in task-owned profiles with spaces, network denied. Toolchains
+# are SIMULATED (stand-in cmake, make and CPython); nothing is compiled, no
+# model. About two minutes in all on an M2 Max; macOS 26 on Apple Silicon.
+.PHONY: test-install-recovery
+test-install-recovery: $(TEST_SERVER)
+	@python3 tests/integration/engine_source_recovery_test.py "$(TEST_SERVER)"
+	@python3 tests/integration/llama_install_recovery_test.py "$(TEST_SERVER)"
+	@python3 tests/integration/mlx_install_recovery_test.py "$(TEST_SERVER)"
+	@node tests/integration/install_recovery_host_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-install-recovery
+
+# REAL offline upgrades over an earlier installation, network denied, no model.
+# Explicit, outside check-fast: llama.cpp compiles for a few minutes of CPU;
+# MLX creates a real virtual environment and installs the bundled wheels.
+.PHONY: test-llama-upgrade-real test-mlx-upgrade-real
+test-llama-upgrade-real:
+	@python3 tests/integration/llama_upgrade_real_build_test.py
+test-mlx-upgrade-real:
+	@python3 tests/integration/mlx_upgrade_real_test.py
 
 # Real offline build of the dynamic (Linux/Windows) layout on macOS: every CPU
 # variant and Metal as loadable modules. Explicit; a few minutes of CPU. Add
@@ -803,6 +849,17 @@ test-engine-upstream-manifest: $(TEST_SERVER)
 	@node tests/integration/engine_upstream_manifest_test.mjs "$(TEST_SERVER)"
 
 check-fast: test-engine-upstream-manifest
+
+# The main-track source-delta review (scripts/engine-delta-review.mjs): the
+# shipped inventory and reviews against the shipped files, the compiled path
+# rules against the macOS preprocessor, and the generator on a synthetic Git
+# history whose output goes through the real admission checker. No network,
+# no upstream history, no engine: a classification check, not a source review.
+.PHONY: test-engine-delta-review
+test-engine-delta-review:
+	@node tests/integration/engine_delta_review_test.mjs
+
+check-fast: test-engine-delta-review
 
 check-fast: test-engine-upstream test-engine-pins
 
@@ -895,6 +952,19 @@ test-v41-vision-pairing:
 test-v41-vision-pairing-live:
 	@node tests/live/v41_vision_pairing_live_test.mjs
 
+# Laguna prefill batch patch: lifecycle on copies of the bundled Laguna engine,
+# composition after the runtime stack, a CPU compile of ds4-server/ds4 and the
+# engine resolver from a DS4_TEST_HOOKS object. No model, no GPU work.
+.PHONY: test-laguna-prefill-chunk-patch test-laguna-prefill-chunk-live
+test-laguna-prefill-chunk-patch:
+	@node tests/integration/laguna_prefill_chunk_patch_test.mjs
+
+# Real Laguna Q4_K_M weights on Metal, one engine at a time: batch 16384 versus
+# the patched default on a ~12k-token prompt (logits and greedy tokens), then a
+# ~40k-token prompt with the default. Refuses beside another engine.
+test-laguna-prefill-chunk-live:
+	@node tests/live/laguna_prefill_chunk_equivalence.mjs $(if $(LAGUNA_MODEL),--model "$(LAGUNA_MODEL)") $(if $(LONG_TOKENS),--long-tokens $(LONG_TOKENS)) $(if $(LONG_CTX),--long-ctx $(LONG_CTX))
+
 .PHONY: test-search-evidence
 test-search-evidence:
 	@node tests/unit/search_evidence_test.mjs
@@ -984,6 +1054,17 @@ test-task-graph-http: $(TEST_SERVER)
 test-task-graph-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
 	@node extension/task-graph/bench/validate.mjs
+
+# The twenty held-out and twelve long/recovery cases of the six-agent lane
+# (PLAN.MD P9) graded without any agent or model: each oracle accepts its
+# reference result and rejects the untouched workspace and every listed wrong
+# result; default selections stay the fifty; the frozen case digests (fifty
+# included) still match. Needs node, python3 and git.
+.PHONY: test-agent-lane-cases
+test-agent-lane-cases:
+	@node tests/unit/agent_lane_cases_test.mjs
+
+check-fast: test-agent-lane-cases
 
 test-task-graph-real: $(TEST_SERVER)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-heavy.mjs $(TEST_SERVER)
@@ -1337,7 +1418,7 @@ test-ssd-prefill-batch-live:
 
 # Real PDF extraction/rendering and browser checks; no model or embeddings.
 .PHONY: test-pdf-evidence
-test-pdf-evidence: $(TEST_SERVER)
+test-pdf-evidence: $(TEST_SERVER) $(OCR_HELPER)
 	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
 
 .PHONY: test-pdf-complete
@@ -1356,13 +1437,23 @@ check-fast: test-pdf-benchmark-tools
 
 # Frozen public vision corpus (PLAN.MD P4 item 3): recorded bytes, page counts
 # and the proof that pixel-only facts are absent from the text the PDF reader
-# extracts (model-free host, OCR disabled, plus Poppler directly). Needs
-# Poppler, like the reader. No model, browser or network; it qualifies no model.
+# extracts (model-free host, OCR disabled, plus Poppler directly), then the
+# grader of its expected-answer types on authored answers and on the whole
+# manifest. Needs Poppler, like the reader. No model, browser or network; it
+# qualifies no model.
 .PHONY: test-vision-corpus
 test-vision-corpus: $(TEST_SERVER)
 	@node tests/integration/vision_corpus_test.mjs $(TEST_SERVER)
+	@node tests/unit/vision_corpus_grader_test.mjs
 
 check-fast: test-vision-corpus
+
+# SIMULATED and unfinished: the corpus run loop against the real test host and
+# its page in headless Chromium, with a scripted engine and status overlay.
+# One Chat scenario so far; not in a broad gate.
+.PHONY: test-vision-corpus-runner
+test-vision-corpus-runner: $(TEST_SERVER)
+	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER)
 
 # Real helper and Vision OCR on generated scans; no model. macOS only.
 test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)
@@ -1376,8 +1467,16 @@ test-ui-loading:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_startup_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_startup_playwright_test.mjs
 
+# The suites the test guides describe in both browsers also run in WebKit, the
+# engine of the macOS app, in this target and in test-ui-plan/-gsa/-rsa. The
+# other suites of this recipe run in WebKit through test-ui-simulated or with
+# DSTUDIO_TEST_BROWSER=webkit.
 test-ui-browser: test-ui-loading
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_model_picker_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_agent_design_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_think_max_context_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_settings_redesign_playwright_test.mjs
 
 .PHONY: test-ui-sidebar test-macos-window-theme
 test-ui-sidebar:
@@ -1481,12 +1580,16 @@ test-ui-live-vision:
 
 test-ui-plan:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_plan_mode_playwright_test.mjs && node tests/browser/ui_plan_mode_matrix_test.mjs; else echo "node missing: NOT RUN Plan mode UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_plan_mode_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_plan_mode_matrix_test.mjs
 
 test-ui-gsa:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_gsa_playwright_test.mjs; else echo "node missing: NOT RUN GSA UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_gsa_playwright_test.mjs
 
 test-ui-rsa:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_rsa_playwright_test.mjs; else echo "node missing: NOT RUN RSA UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_rsa_playwright_test.mjs
 
 # Production workflow UI with simulated native replies; never launches a model.
 .PHONY: test-ui-workflow
@@ -1518,6 +1621,14 @@ test-http-lan: $(TEST_SERVER)
 	@tests/integration/http_lan_test.sh $(TEST_SERVER)
 	@node tests/integration/http_lan_security_test.mjs $(TEST_SERVER)
 	@node tests/integration/http_lan_cowork_test.mjs $(TEST_SERVER) $(LAN_COWORK_ENGINE)
+
+# Production page beside a simulated host that runs Agent/Cowork/Design: the
+# page's Chat recovery must not stop the session. No model.
+.PHONY: test-ui-recovery-session
+test-ui-recovery-session:
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_recovery_keeps_session_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_recovery_keeps_session_playwright_test.mjs
+check-fast: test-ui-recovery-session
 
 .PHONY: test-ui-lan-cowork
 test-ui-lan-cowork: $(TEST_SERVER)

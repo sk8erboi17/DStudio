@@ -73,6 +73,9 @@ typedef struct {
     char *probe_buf;
     char last_log[256], error[256];
     char model_real[DSTUDIO_PATH_MAX]; /* MLX readiness: the admitted directory, resolved */
+    /* llama.cpp: the --slot-save-path this server was started with ("" when
+     * snapshots are off) and the SHA-256 of its arguments (dstudio_kv_snapshot.c). */
+    char slot_dir[DSTUDIO_PATH_MAX], args_identity[65];
 #ifdef _WIN32
     HANDLE job, lease;            /* kill-on-close job; shared installation lease */
 #endif
@@ -587,6 +590,7 @@ static int resident_guard_cli(int argc, char **argv) {
 typedef struct {
     char model[DSTUDIO_PATH_MAX + 1024], vision[DSTUDIO_PATH_MAX + 1024], binary[1200], workdir[1200];
     char context[16], port[16], identity[192];
+    char slots[DSTUDIO_PATH_MAX]; /* llama.cpp slot snapshots; "" = not offered */
 } resident_paths;
 
 static int resident_prepare(const resident_launch_spec *spec, resident_paths *p, char *error, size_t cap) {
@@ -621,6 +625,10 @@ static int resident_prepare(const resident_launch_spec *spec, resident_paths *p,
     snprintf(p->context, sizeof p->context, "%d", spec->cfg.ctx);
     snprintf(p->port, sizeof p->port, "%d", spec->cfg.port);
     cstr_copy(p->identity, sizeof p->identity, spec->binary_identity);
+    /* The server refuses to start with a missing directory, so it is offered
+     * only when it exists; without it the model runs as before, unsnapshotted. */
+    p->slots[0] = '\0';
+    if (spec->kind == RESIDENT_LLAMA) (void)kvs_slot_dir_prepare(p->slots, sizeof p->slots);
     return 1;
 }
 
@@ -659,6 +667,8 @@ static int resident_server_args(const resident_launch_spec *spec, resident_paths
     args[a++] = "--jinja"; args[a++] = "--reasoning-format"; args[a++] = "deepseek";
     args[a++] = "--host"; args[a++] = "127.0.0.1"; args[a++] = "--port"; args[a++] = p->port;
     args[a++] = "--no-webui";
+    /* Enables POST /slots/0?action=save|restore on file names in this directory. */
+    if (p->slots[0]) { args[a++] = "--slot-save-path"; args[a++] = p->slots; }
     args[a] = NULL;
     return a;
 }
@@ -796,7 +806,10 @@ static int resident_start_owned(const resident_launch_spec *spec, unsigned long 
     char *args[40]; int a = 0;
     args[a++] = g_launch_executable; args[a++] = "--resident-guard"; args[a++] = (char *)spec->install;
     args[a++] = p.identity; args[a++] = p.binary;
+    const int server_args = a;
     resident_server_args(spec, &p, args, a);
+    char args_identity[65];
+    kvs_args_identity(args + server_args, args_identity);
     /* Prepare the environment before fork. Injected libraries and engine
      * overrides must not silently alter the admitted runtime policy. */
     extern char **environ;
@@ -864,6 +877,8 @@ static int resident_start_owned(const resident_launch_spec *spec, unsigned long 
     close(pair[1]); close(output[1]); close(errors[1]);
     resident_publish(spec, task, pid, pair[0], output[0], errors[0]);
     cstr_copy(g_resident.model_real, sizeof g_resident.model_real, model_real);
+    cstr_copy(g_resident.slot_dir, sizeof g_resident.slot_dir, p.slots);
+    cstr_copy(g_resident.args_identity, sizeof g_resident.args_identity, args_identity);
     return 1;
 fail:
     for (int i = 0; i < 2; i++) { if (pair[i] >= 0) close(pair[i]); if (output[i] >= 0) close(output[i]); if (errors[i] >= 0) close(errors[i]); }

@@ -217,9 +217,13 @@ additionally holds the catalog response behind a barrier and checks the **first*
 launch request, in Chromium and WebKit with simulated engine replies.
 
 The included `make test-launch-preflight` invokes the real start handler with
-a task-owned pipe-echo process representing an already running engine. Twenty-four
-cases cover Qwen mode/checkout mismatches, missing model/PLE/drafter files and
-incompatible forced SSD settings, including remote runtimes. Each rejected
+a task-owned pipe-echo process representing an already running engine. Its
+cases (31 on November 11, 2026; the binary prints its own total) cover Qwen
+mode and memory-mode mismatches, throttled power, DSpark and hot-list requests
+for a llama.cpp model, a missing model, 27B projector or DSpark drafter file, a
+checkout whose receipt names another engine or none, and incompatible forced
+SSD settings, including Laguna and remote runtimes. There is no missing-PLE
+case. Each rejected
 request must leave that process responsive and keep configuration, credentials,
 effective memory settings, task admission and pending steering unchanged.
 The HTTP Design gate also checks a real child build failure **after** admission.
@@ -227,10 +231,12 @@ Neither test loads weights: these rejections do not qualify the supported Qwen
 modes. Real Qwen3.8 Agent/Cowork workflows have a separate gate below.
 
 `make test-agent-spawn` injects failures into the production launcher's three
-pipe allocations and fork, for both Agent and Cowork. All eight cases must
-release the prepared charter and every opened descriptor without publishing a
-child. The prepared executable and checkpoint are fixtures; no model or child
-process starts. This macOS-specific gate is included in `check-fast` on macOS.
+pipe allocations and fork, for both Agent and Cowork and for both launch paths
+(Qwen3.8 in ds4 itself, Qwen3.6 through the llama.cpp tools frontend). All
+sixteen cases must release the prepared charter and every opened descriptor
+without publishing a child. The prepared executable and checkpoint are
+fixtures; no model or child process starts. This macOS-specific gate is
+included in `check-fast` on macOS.
 
 `make test-launch-control` exercises the real HTTP host and owned subprocesses
 with FIFO-blocked builders and tiny fixture checkpoint files. Eleven scenarios

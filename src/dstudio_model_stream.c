@@ -146,6 +146,16 @@ static void model_rpc_sse_line(model_rpc_job *job, const char *line) {
     if (!model_rpc_json_open(&doc, json)) { model_rpc_fail(job, "invalid, ambiguous or oversized model JSON"); return; }
     int error = model_rpc_field(&doc, 0, "error");
     if (!model_rpc_null(&doc, error)) { model_rpc_fail(job, "model returned an error event"); goto done; }
+    /* On the last chunk, with or without choices. A report, never a control. */
+    int timings = model_rpc_field(&doc, 0, "timings");
+    if (timings >= 0 && doc.tokens[timings].type == DTG_JSON_OBJECT) {
+        int cached = model_rpc_field(&doc, timings, "cache_n"), processed = model_rpc_field(&doc, timings, "prompt_n");
+        long long cache_n, prompt_n;
+        if (cached >= 0 && processed >= 0 && dtg_json_token_int(json, &doc.tokens[cached], 0, INT_MAX, &cache_n) &&
+            dtg_json_token_int(json, &doc.tokens[processed], 0, INT_MAX, &prompt_n)) {
+            job->cache_tokens = cache_n; job->prompt_tokens = prompt_n;
+        }
+    }
     int choices = model_rpc_field(&doc, 0, "choices");
     if (choices < 0 || doc.tokens[choices].type != DTG_JSON_ARRAY || doc.tokens[choices].size > 1) goto invalid;
     if (!doc.tokens[choices].size) goto done; /* Separate usage chunk. */

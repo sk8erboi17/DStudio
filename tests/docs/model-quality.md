@@ -33,6 +33,10 @@ checks Qwen Q2/Q4 reuse main and that the retired Qwen Next setup route is gone 
 ## Common-100 answer quality
 
 `make test-common-quality-oracle` checks the evaluator without loading a model.
+Everything in it is test tooling, not app code: for example
+`http_deadline_test.mjs` checks the live runners' own HTTP client
+(`httpJsonRequest` in `tests/support/real_harness.mjs`) against a local server
+for explicit deadlines, the response bound and interrupted responses.
 It exercises all 100 authored reference answers, known-wrong answers, ten real
 before/after patch fixtures with preserved tests, strict JSON types/duplicates,
 and code input preservation. Binary search also has counted element reads at
@@ -230,8 +234,9 @@ requires both `DSTUDIO_REAL_ROADMAP_REUSE_RESEARCH=1` and
 match exactly. Reused research is labeled replay, not a fresh E2E measurement.
 For an explicitly non-thinking Learn diagnostic, set
 `DSTUDIO_REAL_ROADMAP_THINK_LEVEL=off`. The generation request and progress
-receipt now record that setting. Its default remains `max`, matching Learn's
-product generation path; an engine launch default of `think: off` alone does
+receipt now record that setting. Its default is `high`, the application
+default for Learn (`roadmap_request_test.mjs` asserts it); an engine launch
+default of `think: off` alone does
 not override a request that explicitly enables reasoning.
 
 ## Qwen real host workflows
@@ -426,8 +431,11 @@ Source prerequisites, locations and timing boundaries are in the
 `make test-search-evidence` executes query-aware page excerpt selection and
 the actual evidence-extraction request path with simulated model replies. It
 checks late-page/Unicode evidence, fixed input bounds and cancellation without
-publishing stale facts or issuing another call. Its loopback HTTP test verifies
-real request closure and independent deadlines. It is not an LLM quality test;
+publishing stale facts or issuing another call. Its loopback HTTP file,
+`research_http_cancel_test.mjs`, verifies real request closure and independent
+deadlines for the live-test harness's own HTTP client
+(`tests/support/real_harness.mjs`), not for the app's transport. It is not an
+LLM quality test;
 live research and competitor work is tracked in
 [the quality plan](../../docs/SEARCH_AGENT_QUALITY_PLAN.md).
 
@@ -446,8 +454,9 @@ moving the local engine's `chdir` later. No weights are loaded by this gate.
 
 `make test-web-visual-unit` executes the native same-page screenshot response
 adapter. `make test-web-visual-browser` additionally requires Chrome and Python
-Pillow: it compiles the browser helper against all four installed engine source
-trees, reads a public fixture in isolated headless Chrome, decodes the JPEG and
+Pillow: it compiles the browser helper against the two installed engine source
+trees (`ds4` and `ds4-laguna-s21`; `DSTUDIO_WEB_VISUAL_TREES` names one to four),
+reads a public fixture in isolated headless Chrome, decodes the JPEG and
 checks its actual colors, retained text, exact page-tab cleanup and aggregate
 fragmented-response limit. It preserves each run in a fresh ignored directory.
 Neither target loads weights or establishes that a model interpreted the image

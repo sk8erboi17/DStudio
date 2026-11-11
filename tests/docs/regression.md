@@ -59,6 +59,40 @@ sidecar; the patched engine opens each Q2 only with its own sidecar and refuses
 the two mixed pairs. Accepted pairs must print the V4.1 model summary. This
 qualifies pairing admission only, not image inference or model quality.
 
+### Laguna prefill batch size (patch lifecycle; real weights not yet run)
+
+```sh
+make test-laguna-prefill-chunk-patch   # copies of the bundled Laguna engine; CPU compile, no model
+make test-laguna-prefill-chunk-live    # real Laguna Q4_K_M on Metal; LAGUNA_MODEL=/path/to.gguf
+make test-laguna-prefill-chunk-live LONG_TOKENS=60000 LONG_CTX=65536
+```
+
+The lifecycle test applies `patch/ds4-laguna-prefill-chunk` to copies of
+`src/engines/ds4-laguna-s21` (never the snapshot or an installed checkout):
+check, apply, repeat apply, restore to exact bytes, drift and partial or
+edited patches refused with no file changed, unrelated local edits preserved,
+ds4 main skipped, and composition after the managed runtime patch stack. It
+then compiles the patched `ds4-server` and `ds4` on the CPU, checks the help
+text, links a `DS4_TEST_HOOKS` build of the patched `ds4.c` and executes the
+engine's own batch resolver (Metal default 4096, other backends 16384,
+`--prefill-chunk` before `DS4_METAL_PREFILL_CHUNK`, 16-16384 accepted, anything
+else refused), and checks that applying or restoring the patch makes the
+built binaries stale for `make`. It loads no model and does no GPU work; it
+does not show that the batch split is numerically equivalent or that long
+prompts now complete.
+
+The live script builds the patched engine in a new
+`tests/.artifacts/laguna-prefill-chunk/run-*` directory, refuses to start
+beside another engine (`tests/support/heavy_preflight.mjs`), and runs the
+`ds4` CLI one process at a time under a pseudo-terminal (so prefill commits
+one Metal command buffer per layer, as ds4-server does). On a ~12,000-token
+prompt it compares batch 16384 (twice, for repeatability) with the default
+4096: every vocabulary logit, top-20 order and 64 greedy tokens must be
+identical (exact tolerance; see the patch README). It then runs a ~40,000-token
+needle prompt with the default, which must complete without the Metal
+watchdog error; the needle answer is reported separately. Not run yet: the
+equivalence and long-context results remain open evidence.
+
 ### Vision encoder with SSD streaming (real Metal)
 
 ```sh
@@ -119,9 +153,12 @@ ignored `tests/.artifacts/ssd-prefill-*/`. This is a numerical layer regression,
 equivalence or a speed benchmark. The context allocation is 128k; each tested
 input contains at most 1024 tokens.
 
-`make test-glm53-m2max-patch` also exercises fresh apply/restore and installed
-legacy migration, with dry checks, partial-state refusal and unrelated-edit
-preservation. Native readiness and the PLD builder tests verify that Metal-only
+`make test-glm53-m2max-patch` also exercises fresh apply/restore on a copy of
+the bundled main sources, with dry checks, repeat apply/restore, drift and
+partial-state refusal and unrelated-edit preservation. It does not migrate an
+installed legacy port: the previously shipped port (wrong batch-resource bound)
+must be refused as drift by check, apply and restore without touching a file.
+Native readiness and the PLD builder tests verify that Metal-only
 source changes invalidate old binaries. Frontend behavior tests verify that a
 generic prefill failure is no longer mislabeled as an out-of-memory diagnosis.
 
@@ -143,9 +180,19 @@ is loaded. Reports/screenshots are kept in ignored `tests/.artifacts/pdf-complet
 See [the reading design and limits](../../docs/PDF_READING.md).
 
 For PDF evidence, run `make test-pdf-evidence`, also with
-`DSTUDIO_TEST_BROWSER=webkit`. This uses real synthetic PDFs, the native HTTP
+`DSTUDIO_TEST_BROWSER=webkit`: each invocation runs one browser (installed
+Chrome by default), and the target is explicit, not part of `check-fast`. It
+also needs the local OCR helper `build/dstudio-ocr`: without it the scanned
+fixture page stays OCR-pending, the host does not cache that description and
+the test fails at its cache assertion before the browser starts. Until
+November 11, 2026 the target did not build the helper and failed that way in a
+clean worktree; the helper is now its prerequisite. This
+uses real synthetic PDFs, the native HTTP
 endpoint and Poppler to verify passage matching, render geometry and clickable
-links. Repeated labels retain all distinct passages in a modal chooser; no
+links. Its browser part does not open the app: it loads the app's stylesheet
+and its `PdfEvidence` module into a blank page on the test host's origin, so
+the app's boot code and Chat flow are not exercised here. Repeated labels
+retain all distinct passages in a modal chooser; no
 unattached source or ambiguous calculation is silently accepted. Choosing a
 different page aborts the old request and a delayed reply cannot replace the
 current image/highlights. Invalid/truncated metadata is hidden with an honest
@@ -178,8 +225,8 @@ question it records the prompt, the expected result and the evidence:
 - `expected.type` is `exact` (the answer states this value), `number` (within
   the absolute `tolerance`, zero when absent), `one-of` (any listed value),
   `all-of` (every listed value) or `unanswerable` (the answer says that the
-  input does not contain it and gives no value). No grader exists yet; one has
-  to be written and tested before these types are scored.
+  input does not contain it and gives no value). The grader is described
+  [below](#vision-corpus-grader-and-run-loop).
 - `evidence.fact` is the literal the answer rests on, on physical page
   `evidence.page` (or image `evidence.image` of a set). `pixelOnly: false`
   means it is in that page's text layer. `pixelOnly: true` means it is drawn
@@ -267,6 +314,63 @@ What the corpus and its test do not establish:
   PDFs were generated untagged, without outline, form or XMP stream; the test
   does not look for such channels.
 
+<a id="vision-corpus-grader-and-run-loop"></a>
+**Vision corpus grader and run loop (model-free; the real runner is not
+written).** `tests/support/vision_corpus_grader.mjs`
+(`dstudio.vision-corpus-grader.v1`) grades one final answer against one
+question. A grade is pass or fail plus a diagnostic class, never partial
+credit. Its header states the exact rules. In short:
+
+- `number`: exactly one candidate number equal to `value` within `tolerance`.
+  `49,10` and `49.10` are the same number. `2.500` is read in the item's
+  language. Numbers from the question and from the evidence operands are
+  context, so "318 + 440 = 758" passes. "Alder 318, Birch 472 … together 758"
+  fails as `value_among_others`.
+- `exact`: case, whitespace, dashes, quotes and accents of the value are
+  normalised. Times, dates, weekdays, months, colours, ordinals, shapes and
+  compass points are compared by meaning in English and Italian, and another
+  member of the same family is a competitor. A name or code given as one
+  entry of a list of same-shaped guesses ("Marenka Dolvich, Petra Novak",
+  "BR-6093, BR-6039") fails as `value_among_others`. "X or Y" fails as
+  `hedged`.
+- `one-of`: any listed value under the `exact` rule; the other listed values
+  are synonyms.
+- `all-of`: every listed value, with no competitor. `partial` when some are
+  missing.
+- `unanswerable`: the answer says, in English or Italian, that the input does
+  not contain or show the thing. It passes as `honest_refusal`. It fails as
+  `refused_then_guessed` when a guess follows, as `refused_but_value_asserted`
+  when a clause affirms a value absent from the question and the known input,
+  and as `no_refusal` otherwise.
+
+`node tests/unit/vision_corpus_grader_test.mjs` (in `make test-vision-corpus`)
+grades 217 authored answers, English and Italian. They cover accepted forms,
+near-misses, hedged lists, hallucinated values and empty answers. On the
+whole manifest it checks that an answer built from each `expected` passes all
+282 questions, and that the answer to the next question with a different
+expectation fails all 282. The answers are written by hand and prove nothing
+about a model. Limit: a name elsewhere in a sentence, not listed beside the
+value, is not detected as a competitor. The raw answer stays in every receipt.
+
+`tests/support/vision_corpus_runner.mjs` is the run loop through the
+production page. It attaches the item's files by their opaque names, asks the
+question and reads the final answer from the persisted conversation. For each
+question it records the `/v1/chat/completions` bodies the page sent (image
+parts with SHA-256 matched to corpus files or rendered PDF pages, text-layer
+versus OCR page blocks, any vision payload), the PDF reads and which sent
+representation could carry the fact. It classifies `evidence_page_not_sent`
+and `answerable-from-ocr`. Simulated only, `make test-vision-corpus-runner`
+runs it against the real test host and its page in headless Chromium, with a
+scripted engine behind the host's `/v1` relay and a status overlay as
+launcher. Its single scenario passes 9/9 rows (Chat, `p01` and `i21`, authored
+correct answers): the files are attached in order under their opaque names,
+the image part is the corpus file byte for byte, the PDF fact travels in the
+text layer, and no item id reaches the engine. It is unfinished and in no
+broad gate. Not yet written: the real runner `tests/live/vision_corpus_live.mjs`;
+the simulated scenarios for OCR on and off, `evidence_page_not_sent`,
+hallucination, engine error, Stop, text-only isolation and vision → text →
+vision; Agent, Cowork and Learn (their code paths have never run).
+
 Run `node tests/browser/ui_model_picker_playwright_test.mjs` (also with
 `DSTUDIO_TEST_BROWSER=webkit`) for the composer picker. This uses a simulated
 launcher, not model inference. It checks the popup's actual distance from the
@@ -274,8 +378,10 @@ model button with a multiline draft, viewport bounds, keyboard/search behavior,
 outside-click dismissal and light/dark layouts.
 
 `make check-fast` runs local functional/browser/integration tests without a
-large language model. `make test-cowork`, `make test-frontend-unit`,
-`make test-pdf-evidence` and `make test-pld` select narrower suites. Stateful test
+large language model. `make test-cowork`, `make test-frontend-unit` and
+`make test-pld` select narrower suites of it; `make test-pdf-evidence` and
+`make test-pdf-complete` are separate explicit targets that `check-fast` does
+not run. Stateful test
 doubles remain useful for failure/recovery coverage but are labeled as such.
 `make test-video-open-weight` is separate: it compiles and runs a small real
 Metal attention-equivalence probe and requires the installed H3 checkout.
@@ -309,8 +415,11 @@ DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_model_picker_playwright_test.m
 
 It searches installed models by name/quantization, excludes manual engine-branch
 choices and support files, checks keyboard navigation and viewport fit in both
-themes, and verifies that selecting Qwen chooses its matching engine before
-launching. Catalog delays/errors and background download polling must preserve
+themes, and verifies that selecting a llama.cpp Qwen model sends one launch
+request for that exact file, at full power with SSD streaming off, and no
+checkout switch. The fixture lists a single main installation, so choosing
+between engine checkouts is not exercised. Catalog delays/errors and
+background download polling must preserve
 search input and focus. The launcher is simulated; this is not real inference.
 Screenshots and the request receipt go under `tests/.artifacts/model-picker/`.
 
@@ -353,8 +462,10 @@ stale rows/counters, shared assignees, auto-applied drafts, incomplete or
 out-of-order history, wrong item details, broken Retry, misaligned radios, symlink escape
 and incomplete provenance must fail. A forged successful-delivery flag with
 incomplete native capture is rejected; unstarted projects remain NOT RUN in the
-18-case denominator. The remaining fourteen scenario oracles and native
-eighteen-project generation are not yet qualified; see
+18-case denominator. Since November 11, 2026 the same target also qualifies
+the other seventeen scenario oracles on authored reference pages (see
+[interaction oracle qualification](design.md#interaction-oracle-qualification));
+native eighteen-project generation is not yet qualified; see
 [Design systems](../../docs/DESIGN_SYSTEMS.md). No manual benchmark HTML repair.
 
 `make test-design-project-resources` exercises actual Chromium/WebKit error
@@ -371,6 +482,16 @@ prevents Escape still fails. None of these fixture tests measures LLM quality.
 
 `make test-design-comparison-report` tests this accounting with synthetic
 receipts; it is not an inference or aesthetic-quality test.
+Four more targets in `check-fast` run only test-support code, not the Design
+runtime: `make test-design-controls` (the Chrome button probe of the live
+Design quality runner, on an authored page with one inert button),
+`make test-design-resume` (that runner's transcript-trimming and
+resume-manifest helpers), `make test-design-disclosure` (its fictional-demo
+disclosure grader, on authored HTML snippets) and `make test-design-release`
+(the standalone Pages release-evidence script against a local server,
+including a changed deployed asset). They qualify those helpers; a pass says
+nothing about the app's Design controls, resume or release behavior, or about
+a generated page.
 `node tests/live/design_generation_limit_test.mjs` explicitly loads real DS4
 weights and deliberately limits each round to one token. It checks three bounded
 continuations, an honest incomplete status, return to the input loop and prior
@@ -388,10 +509,12 @@ new, and an unclosed stanza is previewed but never executed. `make test-design-a
 without engine Git metadata and checks rebuilds after source changes. Neither
 test loads a model; the archive test does not download its fixture.
 `make test-design-build-freshness` executes the production native builder and
-script with an explicitly simulated compiler: 17 cases cover failed/incomplete
+script with an explicitly simulated compiler: 18 cases (the test requires
+exactly that number) cover failed/incomplete
 links, byte-bound freshness, compiler flags, untracked GPU/header changes,
 complete/partial patches, concurrent Agent/Chat builds, parent/group death,
-stale source rejection, directory replacement and symlink confinement. Failed
+stale source rejection, directory replacement, symlink confinement and a
+surrounding repository's Git identity that must not affect freshness. Failed
 and successful receipts are retained under `tests/.artifacts/design-build/`.
 The native archive gate supplies the separate real compilation/startup proof.
 
@@ -414,7 +537,9 @@ Windows' prebuilt-runtime path is separate and is not qualified by these macOS
 tests. Full cross-backend/toolchain qualification remains a separate gate.
 To limit the existing native build/tool gate to the changed Design path, use
 `DSTUDIO_NATIVE_DESIGN_ONLY=1 node tests/integration/agent_native_build_test.mjs
-MAIN_DIR LAGUNA_DIR QWEN38_DIR`; add `DSTUDIO_AGENT_BUILD_BACKEND=cpu` for CPU.
+MAIN_DIR LAGUNA_DIR` (the test accepts main and, optionally, Laguna; a third
+directory is refused, and Qwen3.8 uses main); add
+`DSTUDIO_AGENT_BUILD_BACKEND=cpu` for CPU.
 Each supplied checkout is copied into an isolated source fixture; weights are
 not copied or loaded. Runtime tool frames are simulated in this gate.
 See [Design systems and regression coverage](../../docs/DESIGN_SYSTEMS.md).
@@ -433,8 +558,15 @@ node tests/unit/product_artifact_server_test.mjs
 node tests/unit/product_design_grader_test.mjs
 ```
 
-`make test-search-evidence` also covers whole-loop work budgets and actual HTTP
-stream cancellation. Its model/page responses are simulated. In contrast,
+`make test-search-evidence` also covers whole-loop work budgets. Two of its
+files check test-support code, not the app: `research_http_cancel_test.mjs`
+exercises only the live-test harness's HTTP client
+(`tests/support/real_harness.mjs`: an aborted request closes the real loopback
+connection, an independent deadline is kept), and
+`search_quality_grader_test.mjs` checks the live benchmark's fact grader. The
+production pipeline's Stop during a blocked read is covered by
+`research_entrypoints_test.mjs` below. Its model/page responses are simulated.
+In contrast,
 `node tests/live/research_pipeline_benchmark.mjs --run` loads real weights and
 executes full Search/Research against public websites, including the final
 answer. Each invocation creates a fresh ignored receipt directory and preserves
@@ -578,8 +710,35 @@ the entry says otherwise.
   goals), pausing, revocation and restart. It needs a ds4 checkout with a
   built `ds4-cowork` (`LAN_COWORK_ENGINE`); without one it fails rather than
   passing.
-- `make test-ui-lan-cowork` runs the same flow through the production UI on
-  both sides (host Settings, device LAN shell) in Chromium and WebKit.
+- `make test-ui-lan-cowork` runs the production UI on both sides (host
+  Settings, device LAN shell) in Chromium and WebKit, with the same real host,
+  Cowork runtime and simulated model. It is a shorter flow than the HTTP test:
+  the host shares its running Cowork folder and shows a code, the device is
+  refused one wrong code, pairs, sends a prompt and reads the answer, and the
+  host lists the device and revokes it (the revoked token is then refused).
+  Single-use codes, the five-attempt limit, token scope, command refusal, the
+  forced upload folder, pausing and restart are checked only by the HTTP test.
+  It needs the same built `ds4-cowork`. On November 11, 2026 it failed in
+  Chromium before its first step (in a clean worktree and in the main
+  checkout): a System check dialog intercepted the Settings click. The cause
+  was two product defects. The page's automatic Chat recovery treated the
+  missing Chat engine beside a running Cowork session as a crash, started Chat
+  (which stops the session) and opened the System check when that failed. And
+  the host's `/v1` proxy retried its engine connection for about 2.5 s on the
+  control loop, so the page's status reads timed out and it never learned
+  that Cowork was running. Both are corrected (see
+  [runtime control](runtime-control.md) and the recovery test below); the test
+  now passes in Chromium and WebKit, closing no System check, and closes one
+  only if the environment raises it (the receipt counts them).
+- `node tests/browser/ui_recovery_keeps_session_playwright_test.mjs`
+  (`make test-ui-recovery-session`, Chromium and WebKit, in `check-fast`)
+  loads the production page beside a simulated host. A barrier holds every
+  status reply until the Chat probe has failed. It requires that no start
+  request is sent while the host runs Agent, Cowork or Design; that Chat is
+  still started when nothing runs; that dropped status reads are retried and
+  the running session is then shown; and that a host which never reports its
+  state gets no start request, only the System check. The unfixed page sent a
+  start request in all three running cases.
 - `make test-remote-session` runs the real Agent, Cowork and Design runtimes in
   remote-model (llama.cpp/MLX) mode across a process restart. The restored
   conversation must be resent byte for byte. An old tool-call ID must not run

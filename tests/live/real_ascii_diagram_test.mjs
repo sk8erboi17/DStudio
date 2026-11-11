@@ -8,6 +8,7 @@ import {
   jsonFetch,
   normalizeBaseUrl,
   startDStudio,
+  ensureChatModel,
   waitForModel,
   writeArtifact,
 } from '../support/real_harness.mjs';
@@ -336,6 +337,7 @@ try {
   } catch {
     ownedServer = await startDStudio({ binaryArg: process.argv[2], label: 'dstudio-ascii-real' });
     baseUrl = ownedServer.baseUrl;
+    await ensureChatModel(ownedServer);
     await waitForModel(baseUrl);
     models = await jsonFetch(baseUrl, '/v1/models', { timeoutMs: 5000 });
   }

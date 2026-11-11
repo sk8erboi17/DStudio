@@ -9,7 +9,8 @@ harness.
 
 **Status on November 11, 2026.** The Codex harness is implemented, and its
 protocol loop passes against a scripted server (`make test-codex-protocol`, 26
-cases, codex-cli 0.167.0, macOS on Apple Silicon). **No Codex run with a real
+cases, codex-cli 0.167.0, macOS on Apple Silicon; 26/26 again the same day
+after the CLI updated itself to 0.167.1). **No Codex run with a real
 model has been made.** Until one is recorded there is no Codex result to quote
 or compare. Linux and Windows were not run.
 
@@ -131,6 +132,38 @@ It does **not** prove:
   `api.github.com`. With `plugins` off no such attempt was seen. The Codex
   environment also names the proxy as its HTTP(S) proxy, which refuses and
   records any other destination.
+
+## Case sets: held-out and recovery
+
+Status on November 11, 2026: the cases, their oracles and their selection
+exist and are tested without any agent (`make test-agent-lane-cases`, 203
+checks). **No agent has run a held-out or recovery case**, so there is no result
+to quote. The six-agent runner `run-agent-lane.mjs` and its `--plan` mode exist
+but are not yet tested, and the publication scripts below still read the two
+published Pi/OpenCode and Native/checked results only.
+
+| Set | Cases | Selected by |
+| --- | --- | --- |
+| `development` | the fifty of `reliability-fixture.mjs`, unchanged | default of every runner |
+| `held-out` | twenty in `held-out-fixture.mjs`: ten kinds the fifty lack, two each | `run-agent-lane.mjs --set held-out` (or `all`) only |
+| `recovery` | twelve in `recovery-fixture.mjs`: dirty workspace, a tool that fails once, a half-applied change, steering, Stop/resume, two sessions in one workspace | `run-agent-lane.mjs --set recovery` only |
+
+`run-reliability.mjs` and `run-cli-competitors.mjs` run the fifty only. Every
+held-out and recovery oracle reads only what the task left (file bytes, the
+output and status of programs it runs itself with inputs the workspace never
+held, and git's own records), never what an agent said.
+
+**Held-out rule.** Do not run the held-out cases, read their transcripts or
+look at their outcomes while changing a prompt, an agent, a harness or a
+grader. The first execution of a case by an agent is that agent's held-out
+result; a run after such a change is a development replay and must be reported
+as one. Held-out and development results are never merged in one figure or
+total. `frozen-cases.json` records the digest of every case (files and every
+instruction); re-freezing a held-out case after agents were tuned turns its
+later results into development replays.
+
+The reference and wrong results that prove the oracles are in
+`case-references.mjs`, which no runner imports and no agent is shown.
 
 ## Open before a Codex comparison
 

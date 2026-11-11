@@ -34,11 +34,15 @@ uses its remote adapter over the same model RPC, with the tool schemas sent as
 structured function tools (`DS4UI_REMOTE_TOOL_PROTOCOL=openai`).
 
 `make test-resident-unit` compiles the production routing, preflight and
-`/props` readiness functions: model-to-engine routing, retired-checkout
-rejection, the 27B projector requirement, context/power/DSpark preflight, and
-readiness that must match the exact model path, alias, build, slot count,
-context and vision modality. A `/props` reply from another model or build is
-not ready.
+`/props` readiness functions: model-to-engine routing (the projector file is
+not a model), every mode admitted for the llama.cpp models, context/power/DSpark
+preflight and the refusal of SSD streaming, the llama.cpp/MLX install
+locations, and readiness that must match the exact model path, alias, build,
+slot count, context and vision modality (a 27B server without its projector
+loaded is not ready). A `/props` reply from another model or build is not
+ready. It has no retired-checkout or missing-projector-file case: the
+refusal of a checkout whose receipt names another engine, and of a 27B launch
+without its projector, is asserted by `make test-launch-preflight`.
 
 `make test-resident-guard` (`tests/integration/resident_guard_test.mjs`) runs
 the real `--resident-guard` process with a stand-in server script. Closing the
@@ -53,17 +57,20 @@ make test-llama-resident-live DSTUDIO_LLAMA_MODELS=qwen36   # or qwen27
 ```
 
 This explicit heavy gate builds or reuses the managed `llama.cpp`, launches the
-real host in a private profile with the existing verified weights and runs ten
-checks: an Agent CSV total computed with real tool calls, Agent recall, a
-Cowork summary of a saved file, Chat with thinking on (exact product plus
-reasoning present) and off (no reasoning), a 27B image question with pixel-only
-expected answers, and owner death releasing the server. It refuses to start
+real host in a private profile with the existing verified weights and runs six
+cases per selected model: an Agent CSV total computed with real tool calls,
+Agent recall, a Cowork summary of a saved file, a Design page saved with the
+exact requested heading, Chat with thinking on (exact product plus reasoning
+present) and off (no reasoning) and, in that same case, a 27B image question
+with a pixel-only expected answer on llama.cpp (27B on MLX must refuse the
+image), and owner death releasing the server. It refuses to start
 when port 28000 is already listening. Receipts, requests and answers stay in
 ignored `tests/.artifacts/llama-resident-live/`. The first Qwen3.6 attempt
 (`run-vaKmku`) is retained as a failure: with thinking off it computed
 4249045 instead of 4248045. The corrected case checks exact arithmetic with
-thinking on and a thinking-off reply without reasoning; both models then pass
-10/10 (`run-NFwKHF`). These are development regressions on Apple Metal, not
+thinking on and a thinking-off reply without reasoning; both models then passed
+10/10 (`run-NFwKHF`: five cases each, before the Design case existed). These
+are development regressions on Apple Metal, not
 held-out quality, numerical parity or CUDA/ROCm/Vulkan qualification.
 
 Those 10/10 runs used `b11371`. On `b11836` (October 23) Qwen3.6 passed the
@@ -92,6 +99,65 @@ and caught `__FILE__` source paths that the tested static build also contains;
 the corrected check reads `otool -l` load commands. This does not execute
 CUDA, ROCm, Vulkan, Linux or Windows; those paths were only cross-compiled with
 `zig cc` (x86_64/aarch64 Windows, x86_64 Linux).
+
+### Disk KV snapshots for llama.cpp (off by default)
+
+`src/dstudio_kv_snapshot.c` saves the owned `llama-server` slot of an Agent,
+Cowork or Design session to disk after a completed turn, using only the
+bundled server's `--slot-save-path` and `POST /slots/0?action=save|restore`,
+so that a session restored onto a freshly started engine could reuse its KV
+state instead of being prefilled again. It is **off by default** and not yet
+verified on real weights: without `DSTUDIO_LLAMA_KV_SNAPSHOTS=1` the server
+gets no slot directory and nothing is saved or restored. MLX, the ds4 engines,
+Chat through `/v1` and the pi/OpenCode harnesses are not covered.
+
+With the opt-in, a save follows the runtime's own end-of-turn transcript save
+(its `saved session` line for Agent/Cowork, a `+DSTUDIO_SESSION_SAVED` marker
+on stderr for Design) and the end of the turn; it is skipped while the engine
+is busy and discarded if a newer turn, a deletion, a wipe or an engine change
+overtakes it. The key covers the installer receipt's build, the reported
+server build, the model and projector file identities, the context, the served
+alias, the server arguments, the runtime and the session; a restore needs the
+same key, the recorded file size and the restored message count. Any mismatch
+removes the stale file and prefills as before. The store lives in
+`<KV root>/llama-slots` (mode 0700), with `DSTUDIO_LLAMA_KV_MAX_BYTES`
+(default 32 GiB), `DSTUDIO_LLAMA_KV_MAX_ENTRIES` (64) and
+`DSTUDIO_LLAMA_KV_MIN_FREE_BYTES` (8 GiB) and least-recently-used eviction.
+`/api/status` reports it as `llamaKvSnapshot`; the first completion after a
+restore is reported as "restored from disk snapshot (N tokens)" or "prefilled
+again", the latter also when the server reused none of the restored tokens.
+
+`make test-llama-kv-snapshot` (in `check-fast`) runs the C unit test of the
+pure decisions (names, announcements, key, record, admission, eviction, disk
+margin, server replies, reporting, default off) and then
+`tests/integration/llama_kv_snapshot_test.mjs`: the production host binary,
+its launch, guard, relay and HTTP API against a **scripted** `llama-server`
+(`tests/support/fake_llama_server.mjs`) and a **simulated** tools runtime
+(`tests/support/fake_session_runtime.mjs`). Its 24 cases cover a save after a
+completed turn and never during one; the restore before the first completion
+after an engine restart, with the right file; a still-live session not
+restored again; key mismatches (context, model file, build id) removing the
+stale file without asking the server; a refused restore and an unused restore
+reported as "prefilled again" with a successful turn; a blocked save and a
+blocked restore (deterministic barriers in the fake, not sleeps) leaving
+`/api/status` and Stop responsive; a superseded save, a save answered after
+its session was deleted or after the engine was stopped, neither published;
+deletion with the conversation and with a history wipe; the byte cap, the entry
+cap, LRU order and the free-disk margin; hostile session ids; a remote model;
+the default-off and zero-cap cases; and Design's stderr markers. The fake
+server models the HTTP contract, the single slot, prefix reuse by
+`timings.cache_n`, filename validation, a refused restore clearing the slot
+and its task order; it does not model weights, KV tensors, the state file
+format, tokenization, context checkpoints or the Qwen hybrid recurrent layers.
+A pass says nothing about whether a real model's state survives a restore.
+
+`make test-llama-kv-snapshot-runtime REMOTE_TOOL_AGENT=<ds4-agent-jsonl>
+DESIGN_BINARY=<ds4-design>` feeds what the real, already built runtimes print
+(simulated model frames, real restarts) to the production line parser. Not
+written yet: the real-weight check (one pinned Qwen model, a long
+conversation, engine restart, continuation at temperature 0 equal to the one
+after a normal re-prefill, both timed). Until it passes on both Qwen models the
+store stays off by default; the hybrid recurrent layers are the specific risk.
 
 ### Qwen3.6 on MLX (Apple Silicon)
 
@@ -279,11 +345,15 @@ through the app binary (`run-qzjivw`).
 `make test-harness-bridge` (in `check-fast`) executes the bridge's production
 classes with real processes and sockets; pi, OpenCode, the host's model RPC
 and ds4-server are explicitly simulated. It covers stdin framing and the
-200 ms prompt boundary, frames that cannot be forged by model text, the
+quiet-interval prompt boundary (the test sets the interval to 30 ms; the
+production 200 ms default is not timed), frames that cannot be forged by model
+text, the
 loopback endpoint's identity/sampling/thinking rules, one model request at a
 time, Stop failing in-flight and queued requests without letting a late frame
 through, pi RPC and OpenCode SSE event translation, user-echo exclusion and
-WAITING/turn-error markers. `make test-harness-patches` (in `check-fast`) runs
+the WAITING marker after finished and stopped turns. The turn-error marker is
+checked only as the bytes the output writer emits: no simulated harness run
+ends in a turn error. `make test-harness-patches` (in `check-fast`) runs
 real `git apply` on private copies: apply, repeat-apply rejection, exact
 reverse, drift rejection without changes, the receipt rule (a different patch
 set, pin or entry point is not current) and the bundled snapshots' identity.
@@ -295,8 +365,16 @@ a code read in the same session and a file-tool read outside the workspace,
 each checked independently, plus no surviving process after the host stops.
 Since November 11 `DSTUDIO_HARNESS_MODELS` also accepts `laguna`, `next`
 (Qwen3.8-Flash-Next Q4) and `v41` (DeepSeek V4.1 1017 Q2, started with expert
-SSD streaming; the row fails when that mode is not the effective one). These
-three have not been run yet.
+SSD streaming; the row fails when that mode is not the effective one). Their
+first run, November 11 (`harness-live/run-QcD4eH`, development check): on
+Qwen3.8-Flash-Next and V4.1 both harnesses wrote the CSV total and answered
+from the workspace file (8/8); the outside-workspace case passed once
+(OpenCode on Next) and was BLOCKED three times because the model attempted
+no read, so confinement was not exercised there (not a pass and not an
+escape). Both Laguna rows failed at startup: the runner did not select
+Laguna's checkout before the launch as the app does, so the bridge started
+main's `ds4-server` on Laguna's weights and it exited. The runner now selects
+the checkout the host's model catalog names; Laguna is to be run again.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
@@ -327,7 +405,9 @@ The host passes the admitted store's device/inode so a replacement directory
 cannot receive a stale download after engine preparation.
 
 `make test-ui-qwen27-download` exercises the actual Settings controls and native
-HTTP host with the same simulated installer/weights. Select WebKit or Chromium
+HTTP host with the same simulated installer/weights. Each run uses one browser
+and one theme (WebKit and light by default, as the Make target runs it). Select
+WebKit or Chromium
 with `DSTUDIO_TEST_BROWSER=webkit|chromium` and light/dark with
 `DSTUDIO_TEST_THEME=light|dark`. It covers confirmation, setup, transfer, hashing,
 Stop and Resume; download progress must never replace the composer model label.
@@ -399,8 +479,9 @@ available. See [upstream admission](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md) for
 checkouts, platform scopes, evidence format and limitations. A checker-fixture
 PASS is never an engine, inference or multi-platform qualification PASS.
 
-`make test-backend-link` executes GNU Make with each of the four local upstream
-Makefiles and compares native versus Agent/Chat-PLD/Design linker invocations
+`make test-backend-link` executes GNU Make with the two local upstream
+Makefiles (`ds4` and `ds4-laguna-s21`; other source trees only when passed as
+arguments) and compares native versus Agent/Chat-PLD/Design linker invocations
 for Metal, CPU, CUDA and ROCm. ROCm arguments come from the upstream target's
 actual recursive Make invocation, not a copied core-object list. The compilers
 and linkers are explicitly simulated; this checks backend routing and complete
@@ -448,17 +529,51 @@ suppressed to accommodate test initialization. The gear, context and attachment
 preview regressions also accept `DSTUDIO_TEST_BROWSER=webkit` (default Chromium).
 
 The model-picker browser gate checks light/dark at desktop, 390 px and 320 px:
-popover anchoring, exact model-to-engine selection, keyboard/search behavior,
+popover anchoring, the exact launched model file without a checkout switch
+(the fixture has one main installation), keyboard/search behavior,
 and the visible geometry and hit targets of **all** composer controls, including
 Send and the readable reasoning level. It waits for the real sidebar transition
 instead of disabling animations. Each attempt keeps a separate receipt and
 screenshots; failures also capture the visible page. These layout checks do not
 claim that a simulated engine generated a correct answer.
 
+### Engine source-delta review
+
+`make test-engine-delta-review` (in `check-fast`) checks the main-track review
+recorded in `docs/engine-upstream.json`, without a clone or network:
+
+- every review's evidence file exists inside the repository, is not a link and
+  hashes to its recorded SHA-256; every review names a commit of the
+  [inventory](../../docs/upstream/main-delta-2026-11-11.json) once, in the
+  inventory's order;
+- the production generator (`scripts/engine-delta-review.mjs --check`)
+  reproduces the manifest bytes from that inventory, after checking that
+  `src/engines/` still holds the files that were compared with upstream;
+- on macOS, the generator's compiled path rules equal the preprocessor's
+  include closure of upstream's default build, taken from a dry run of the
+  shipped Makefile on a private copy (elsewhere this part prints `NOT RUN`);
+- on a synthetic Git history made by the test, a commit that touches only a
+  CUDA file or only Makefile lines of another platform is not applicable, one
+  that touches a shared file is integrated, one whose path no rule covers or
+  whose runtime file the shipped tree does not have stays unclassified, and a
+  target built from its own branch gets no decision for a runtime change; a
+  second run writes identical bytes; the real
+  admission checker accepts the generated reviews and still reports each
+  unclassified commit; a shipped tree that differs from its pin (changed,
+  extra, missing, wrong executable bit, or a runtime file declared omitted) is
+  refused without output.
+
+It does not read upstream history and reviews no commit: a PASS says the
+recorded classification is the one the rules give, not that a classification
+is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review).
+
+
 ### Codex CLI Responses protocol (scripted server)
 
-`make test-codex-protocol` (in `check-fast`; `NOT RUN` and failing without the
-Codex CLI) runs the installed `codex exec` against a scripted loopback server
+`make test-codex-protocol` (explicit, not part of `check-fast`: the broad gate
+does not depend on a third-party CLI that updates on its own; `NOT RUN` and
+failing without the Codex CLI) runs the installed `codex exec` against a
+scripted loopback server
 that speaks the Responses API as the pinned `ds4-server` source does, through
 the third-party CLI benchmark's own proxy, configuration, command line, event
 parser and grading function. It checks file contents, exit status, the CLI's
@@ -467,6 +582,29 @@ split and Unicode frames, call identifiers, resume, compaction, Stop,
 truncated/malformed/refused responses, the sandbox, isolation from the user's
 environment and three fixture tasks graded by the benchmark. Every reply is
 scripted: it proves nothing about a model, about Codex as an agent or about
-the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS;
-other versions and platforms were not run. Scope, observations and what
+the running engine. November 11, 2026: 26/26 with codex-cli 0.167.0 on macOS,
+and 26/26 again the same day with codex-cli 0.167.1 (the CLI had updated
+itself); other versions and platforms were not run. Scope, observations and what
 remains open: [extension/task-graph/bench/README.md](../../extension/task-graph/bench/README.md).
+
+
+### Held-out and long/recovery agent cases (no agent)
+
+`make test-agent-lane-cases` (part of `check-fast`; needs node, python3 and
+git) grades the twenty held-out cases and the twelve long/recovery cases of the
+six-agent comparison (PLAN.MD P9) without any agent or model. For each case it
+runs a reference result and the plausible wrong results written for the test
+(shell commands in the case directory, from
+`extension/task-graph/bench/case-references.mjs`, which no runner imports) and
+asserts that the case's own oracle accepts the reference, stays inside the
+allowed changes, and rejects the untouched workspace and every wrong result,
+naming the failed check. For a two-phase case (steering, Stop/resume, two
+sessions) the first phase alone must reach the runner's trigger and must not
+be accepted. It also asserts that a run that names no set gets exactly the
+fifty development cases, that held-out and recovery cases are selected only by
+name, and that the frozen digests of all cases (the fifty as each published
+variant receives them included) still match `frozen-cases.json`.
+November 11, 2026: 203 checks passed (32 oracles, 102 wrong results rejected).
+
+It proves the oracles and the selection, not any agent: the reference results
+are written for the test, and no agent has run a held-out or recovery case.

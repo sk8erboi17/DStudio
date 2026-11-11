@@ -14,7 +14,8 @@ DSpark byte estimates and explicit confirmation, occupied ports, responsive
 small-window layouts, reduced motion, and explicit error recovery. Startup
 failures remain readable until the user opens DStudio. An activity animation
 changes the active arc without changing reported percentages or completed
-phases; it stops for errors, confirmation, readiness and reduced motion.
+phases; the tests assert that it stops after a terminal error and under reduced
+motion (stopping for confirmation and readiness is not asserted).
 Response barriers and browser clocks keep a preparation pending for a simulated
 hour: the single start request must remain connected, status polling must
 continue and old-engine readiness/counters must not finish the new attempt.
@@ -206,10 +207,17 @@ with **simulated native HTTP replies and filesystem bytes**. It covers the
 **Open RSA/GSA** header control, removal of duplicate controls from the composer
 menu, admission inputs and effective profile, phase-save barriers,
 pause/step/resume, Stop during preparation and save, retained committed effects,
-reload without replay, rejection, artifact previews and both themes at narrow
-and desktop sizes. No model or tool subprocess starts. Screenshots and receipts,
+reload without replay, rejection, artifact previews, the light theme at
+desktop and narrow (600 px) widths and the dark theme at desktop width only.
+No model or tool subprocess starts. Screenshots and receipts,
 including failed runs, remain under `tests/.artifacts/ui-workflow/`.
 See [workflow behavior](../../docs/workflow-ui.md) for ownership and limits.
+
+`make test-rsa-collectors` (in `check-fast`) is not a test of the app's RSA
+workflow. It runs the RSA benchmark comparison script
+`src/harness/rsa/bench/compare.mjs` with Playwright against three authored
+loopback pages (single-page app, sign-in, media) and checks that its detectors
+fire and that it writes its collector list, claim audit and quality gate.
 
 ## Image previews under the native HTTP policy
 
@@ -242,6 +250,17 @@ fixtures reject outbound requests and fail unknown endpoints. Clipboard writes
 are simulated in both browsers so the operator's clipboard remains untouched.
 Missing dependencies, browser errors, failed assertions and test-process
 deadlines fail the matrix; they are never counted as passing or skipped.
+
+`check-fast` does not run this matrix. It runs the same suites through their
+own targets, in both browsers except `ui_gear_popover`, `ui_attachment_preview`,
+`ui_video_generation` and the normal `ui_roadmap` scenario, which it runs in
+Chromium only (`ui_reasoning_spacing` also runs in Firefox there). The three
+Qwen Learn/Tutor replays run only in this matrix or through
+`make test-ui-qwen-learn`. Until November 11, 2026 `check-fast` also ran
+`ui_model_picker`, `ui_agent_design`, `ui_think_max_context`,
+`ui_settings_redesign`, the two plan-mode suites, `ui_gsa` and `ui_rsa` in
+Chromium only; their targets (`test-ui-browser`, `test-ui-plan`, `test-ui-gsa`
+and `test-ui-rsa`) now add the WebKit run.
 
 | Surface | Observable coverage |
 | --- | --- |
@@ -383,7 +402,10 @@ has the same character limit. Storage failure prevents claiming a saved step.
 `make test-roadmap-request` executes the production phase functions with
 simulated frames: exact and short-period cycles, productive long reasoning,
 serial request retirement, cancellation, stale results, invalid JSON, broken
-transport, source/id validation and saved-stage continuation. Run the focused
+transport, source/id validation and saved-stage continuation. Its first file,
+`roadmap_request_test.mjs`, is the exception: it checks only that the live
+Learn runner's request helpers under `tests/support/` send the selected
+reasoning setting to a simulated engine, not the app. Run the focused
 browser recovery case with
 `DSTUDIO_TEST_LEARN_RECOVERY=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs`
 (or `chromium`). It stops after the first saved stage, reloads, resumes without
@@ -394,8 +416,10 @@ to check effort/context changes across resume, and
 `DSTUDIO_TEST_LEARN_LEGACY_DRAFT=1` for an older saved draft followed by an empty
 failed restart. The fixture observes DOM mutations for overlapping cards,
 checks collapsed history and retained technical failures, and verifies that
-saved stages are not requested again. `make test-ui-learn-recovery` runs these
-cases on Chromium and WebKit. Tutor checks also exercise rapid warning
+saved stages are not requested again. `make test-ui-learn-recovery` runs the
+recovery case with the effort change on Chromium, and the same case with the
+legacy draft on WebKit; the other combinations are run by hand. Tutor checks
+also exercise rapid warning
 cancel/reopen/accept, including a queued close event from the prior dialog.
 These checks do not qualify real-weight Learn output or the broader P3/P6 gates.
 
@@ -660,7 +684,10 @@ eviction. Migration commits before deleting the old localStorage key; failure
 retains existing copies. Host saves admit one immutable candidate of at most
 64 MiB plus the previous snapshot, refuse concurrent writes/wipe as busy, and
 publish file/memory/revision only after preparation. Browser save callers are
-bounded to 64; excess calls return an explicit failure. Snapshot failure never
+bounded to 64; excess calls return an explicit failure. No test executes the
+64 MiB limit or the 64-caller bound: the native test saves and restores an
+8 MiB history and checks the busy refusals, and the browser test checks one
+serialized native writer with later save promises. Snapshot failure never
 trims text or disables settings. The existing 300,000-character native transcript
 tail limit is unchanged and separate from quota-failure handling.
 
@@ -678,11 +705,13 @@ durability or engine KV restoration.
 ## Reasoning Markdown spacing
 
 `make test-ui-reasoning-spacing` executes the production Markdown renderer and
-styles in real WebKit and Chromium using a synthetic standalone layout fixture.
+styles in real WebKit, Chromium and Firefox (all three when
+`DSTUDIO_TEST_BROWSER` is unset, as in the Make target) using a synthetic
+standalone layout fixture.
 It compares Chat and Agent reasoning paragraph/list geometry with ordinary
 Markdown and verifies code bytes, visible code indentation and explicit blank
 lines in plain-text summaries. The regression fails before the spacing fix in
-both browsers. It requires both Playwright browsers installed, is included in
+both browsers. It requires the three Playwright browsers installed, is included in
 `check-fast`, and writes screenshots and receipts under
 `tests/.artifacts/reasoning-spacing/`. This is a rendering check, not a full-app
 interaction or inference test.

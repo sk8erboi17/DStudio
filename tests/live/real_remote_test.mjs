@@ -11,6 +11,7 @@ import {
   startDStudio,
   startMode,
   waitForAgentText,
+  ensureChatModel,
   waitForModel,
   writeArtifact,
 } from '../support/real_harness.mjs';
@@ -58,6 +59,7 @@ async function assertRemoteWorkspaceWrite({ mode, workspace, file, content, prom
 }
 
 try {
+  await ensureChatModel(host);
   await waitForModel(host.baseUrl);
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dstudio-remote-workspaces-'));

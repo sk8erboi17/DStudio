@@ -142,6 +142,9 @@ current state.
 make test-task-graph-unit
 make test-task-graph-http
 make test-task-graph-bench-validate
+# Held-out and long/recovery cases of the six-agent comparison: oracles and
+# case selection, no agent (bench/README.md#case-sets-held-out-and-recovery)
+make test-agent-lane-cases
 
 # Explicit heavyweight test: starts a real local Agent with forced SSD streaming
 make test-task-graph-real

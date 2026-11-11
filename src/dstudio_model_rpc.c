@@ -18,6 +18,9 @@
 
 typedef struct {
     int id, runtime_fd, saved_flags, flags_changed;
+    /* held: admitted, but its worker starts only once the slot snapshot of
+     * the session it continues was restored or given up (dstudio_kv_snapshot.c). */
+    int held;
     pid_t runtime, worker;
     pid_t resident; /* optional owned-local endpoint, independent from the tool PID */
     unsigned long long resident_generation;
@@ -308,6 +311,7 @@ static int model_rpc_worker_cli(int argc) {
     } while (header[count++] != '\n');
     header[count] = '\0';
     model_rpc_job job = {0}; long id = -1, length = -1, encoded = 0;
+    job.cache_tokens = job.prompt_tokens = -1;
     if (json_get_int(header, "id", 0, INT_MAX, &id) <= 0 ||
         json_get_int(header, "bytes", 0, MODEL_RPC_BODY_MAX, &length) <= 0 ||
         json_get_string(header, "url", job.base_url, sizeof job.base_url) <= 0 ||
@@ -361,6 +365,11 @@ static int model_rpc_worker_cli(int argc) {
 
 static int model_rpc_spawn_worker(model_rpc_relay *j) {
     if (!model_rpc_owner_matches(j) || !g_launch_executable[0]) return 0;
+    if (j->resident) {
+        if (kvs_hold_model_request()) { j->held = 1; return 1; }
+        kvs_completion_admitted(1);
+    }
+    j->held = 0;
     if (!model_rpc_pipe_nonblock(j->runtime_fd, &j->saved_flags)) return 0;
     j->flags_changed = 1;
 #ifdef _WIN32
@@ -577,6 +586,12 @@ static void model_rpc_tick(void) {
         return;
     }
     if (j->stopping) return;
+    if (j->held) {
+        /* Stop, a failed envelope and owner loss were handled above; the
+         * runtime's upload stays in its bounded staging meanwhile. */
+        if (!model_rpc_spawn_worker(j)) model_rpc_relay_fail(j, "Could not start the model transport worker");
+        return;
+    }
     size_t budget = MODEL_RPC_PASS_BYTES;
     while (budget && j->input >= 0 && (j->metadata_sent < j->metadata_len || j->body_sent < j->body_len || j->upload_sent < j->upload_len)) {
         int metadata = j->metadata_sent < j->metadata_len;
@@ -636,14 +651,21 @@ static void model_rpc_tick(void) {
         j->frame_left -= (size_t)n; budget -= (size_t)n;
         if (j->final_frame) {
             j->final_len += (size_t)n;
-            if (!j->frame_left) { j->have_final = 1; model_rpc_stop_worker(j); return; }
+            if (!j->frame_left) {
+                if (j->resident) {
+                    char receipt[sizeof j->final + 1];
+                    memcpy(receipt, j->final, j->final_len); receipt[j->final_len] = '\0';
+                    kvs_completion_final(receipt);
+                }
+                j->have_final = 1; model_rpc_stop_worker(j); return;
+            }
         } else { j->bytes_len = (size_t)n; j->bytes_sent = 0; }
     }
 }
 
 static int model_rpc_pollfds(struct pollfd *fds) {
     model_rpc_relay *j = g_model_rpc;
-    if (!j || j->canceled) return 0;
+    if (!j || j->canceled || j->held) return 0;
     int count = 0;
     if (!j->stopping && j->input >= 0 && (j->metadata_sent < j->metadata_len || j->body_sent < j->body_len || j->upload_sent < j->upload_len))
         fds[count++] = (struct pollfd){.fd = j->input, .events = POLLOUT};

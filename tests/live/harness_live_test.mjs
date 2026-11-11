@@ -133,6 +133,21 @@ for (const harness of receipt.blocked ? [] : harnesses) for (const key of models
     const launch = { mode: 'agent', harness, model: 'standard', variant: 'flash', gguf: spec.file, port: server.enginePort,
       ctx: Number(process.env.DSTUDIO_HARNESS_CTX || 65536), power: 100, think: 'off', ssdStreaming: spec.ssdStreaming || 'off', workdir: workspace };
     writeArtifact(dir, 'launch.json', launch);
+    // As the app does: a model served by another checkout (Laguna) selects
+    // that checkout before the launch. Without it the bridge started the main
+    // ds4-server on Laguna's weights, which exits while loading.
+    if (!spec.mlx) {
+      const catalog = await jsonFetch(server.baseUrl, '/api/ggufs', { timeoutMs: 10_000 });
+      const entry = (catalog.ggufs || []).filter((g) => g.path === spec.file);
+      assert.equal(entry.length, 1, `${spec.file} appears once in the host's model catalog`);
+      const status = await jsonFetch(server.baseUrl, '/api/status', { timeoutMs: 5000 });
+      if (entry[0].engineDir && entry[0].engineDir !== status.ds4dir) {
+        const selected = await jsonFetch(server.baseUrl, '/api/engine/checkout', { method: 'POST', headers: csrfHeaders,
+          body: JSON.stringify({ dir: entry[0].engineDir }), timeoutMs: 30_000 });
+        assert.ok(selected.ok !== false, `engine checkout for ${spec.file} refused: ${JSON.stringify(selected)}`);
+        row.engineDir = path.basename(entry[0].engineDir);
+      }
+    }
     const t0 = performance.now();
     const startup = await startMode(server.baseUrl, launch);
     row.startupMs = Math.round(performance.now() - t0);

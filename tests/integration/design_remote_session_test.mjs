@@ -67,6 +67,13 @@ try {
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
   assert.equal(files.length, 1, 'the turn was saved');
   const sha = files[0].slice(0, 8);
+  // The durable autosave is announced once per turn on stderr, before WAITING,
+  // with the id and the message count the host binds a slot snapshot to
+  // (src/dstudio_kv_snapshot.c). The transcript on stdout carries no trace of it.
+  const messages = first.state.requests.at(-1).messages.length;
+  assert.deepEqual(first.state.stderr.match(/^\+DSTUDIO_SESSION_\S+.*$/gm), [`+DSTUDIO_SESSION_SAVED ${sha} ${messages}`]);
+  assert.ok(first.state.stderr.indexOf('+DSTUDIO_SESSION_SAVED') < first.state.stderr.lastIndexOf('+DWARFSTAR_WAITING'), 'announced before the runtime reports idle');
+  assert.equal(first.state.events.some((e) => JSON.stringify(e).includes('DSTUDIO_SESSION')), false);
   await first.send('/list');
   const listed = first.state.events.filter((e) => e.type === 'sessions').at(-1);
   assert.deepEqual(listed.sessions.map((s) => [s.sha, s.current, s.transcriptOnly]), [[sha, true, true]]);
@@ -77,7 +84,9 @@ try {
   const second = design(); live.push(second.child);
   await second.ready();
   await second.send(`/switch ${sha}`);
-  assert.ok(second.status(new RegExp(`^switched to ${sha}`)), 'switch reported');
+  assert.equal(second.status(/^switched to/), `switched to ${sha} (${messages} messages restored)`,
+    'the switch reports the restored transcript state, not what the model server will do with it');
+  assert.deepEqual(second.state.stderr.match(/^\+DSTUDIO_SESSION_\S+.*$/gm), [`+DSTUDIO_SESSION_RESTORED ${sha} ${messages}`]);
   second.state.reply = () => 'The notes say sea blue.';
   await second.send('What do the notes say?');
   const restored = second.state.requests[0].messages;
@@ -90,8 +99,10 @@ try {
   const file = path.join(dir, files[0]);
   const good = fs.readFileSync(file);
   fs.writeFileSync(file, good.subarray(0, good.length - 40));
+  const markers = second.state.stderr.match(/^\+DSTUDIO_SESSION_\S+.*$/gm).length;
   await second.send(`/switch ${sha}`);
   assert.ok(second.status(/^switch failed: session [0-9a-f]{8} is damaged or from another format; nothing restored/));
+  assert.equal(second.state.stderr.match(/^\+DSTUDIO_SESSION_\S+.*$/gm).length, markers, 'a failed restore announces nothing');
   second.state.requests.length = 0;
   second.state.reply = () => 'Still here.';
   await second.send('Are you there?');
@@ -101,6 +112,7 @@ try {
   await second.send(`/del ${sha}`);
   assert.ok(second.status(new RegExp(`^deleted ${sha}`)));
   assert.equal(fs.existsSync(file), false);
+  assert.equal(second.state.stderr.match(/^\+DSTUDIO_SESSION_\S+.*$/gm).at(-1), `+DSTUDIO_SESSION_DELETED ${sha}`);
   check('delete');
   report.status = 'PASS';
 } catch (error) {

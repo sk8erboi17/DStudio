@@ -15,6 +15,12 @@ makes the installation not current, so it is rebuilt instead of failing).
 Ownership: <root>/.dstudio-mlx-install.lock, taken exclusively to build or
 replace and held shared by every running DStudio MLX server, so a runtime in
 use is never replaced. Files this helper did not publish are never removed.
+The lease, the root and the inspected target are revalidated before
+publication; an existing installation is exchanged with the candidate
+atomically, so <root>/mlx is the complete earlier or the complete new runtime
+at every instant. A canceled installation removes its stage, a failed one
+keeps only its log (at most two), and a stage left by a killed installer is
+removed by the next installation that holds the exclusive lease.
 Requirements: macOS 26 or later on Apple Silicon and Python 3.12-3.14.
 """
 import argparse
@@ -32,6 +38,8 @@ import tempfile
 
 SCRIPTS = Path(__file__).resolve().parent
 ASSETS = SCRIPTS.parent
+sys.path.insert(0, str(SCRIPTS))
+import bundled_engine_sources as bundled  # noqa: E402
 SCHEMA = 'dstudio.mlx-install.v1'
 DIRECTORY, RECEIPT, LOCK = 'mlx', '.dstudio-mlx.json', '.dstudio-mlx-install.lock'
 STAGE_PREFIX = '.dstudio-mlx-stage-'
@@ -84,6 +92,7 @@ def verify_wheels(assets, manifest):
         info = path.lstat()
         if not stat.S_ISREG(info.st_mode) or info.st_size != meta['bytes'] or sha256(path) != meta['sha256']:
             raise RuntimeError(f'Bundled MLX wheel {name} differs from its manifest; nothing installed')
+        bundled.failpoint('wheels')
     return folder
 
 
@@ -131,13 +140,35 @@ def check_platform():
 class Child:
     current = None
     stage = None
+    target = None
+
+
+def ours(receipt):
+    """A receipt this installer wrote: the only directories it ever replaces."""
+    return bool(receipt) and receipt.get('schema') == SCHEMA and receipt.get('engine') == 'mlx'
+
+
+def installed_here(directory):
+    return ours(read_receipt(directory))
 
 
 def stop(_signal, _frame):
+    # Wait for the running tool before removing the stage it writes into: a
+    # tool still shutting down would otherwise leave a partial stage behind.
     if Child.current and Child.current.poll() is None:
         Child.current.terminate()
+        try:
+            Child.current.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            Child.current.kill()
+            Child.current.wait()
+    # A canceled installation has nothing to review. An installation that a
+    # two-step replacement had moved aside is put back, never deleted.
     if Child.stage is not None:
-        shutil.rmtree(Child.stage, ignore_errors=True)
+        try:
+            bundled.discard_stage(Child.stage, Child.target, installed_here)
+        except OSError:
+            pass
     raise SystemExit(130)
 
 
@@ -227,12 +258,11 @@ def lock(root, exclusive):
     return fd
 
 
-def build(root, assets, manifest, manifest_sha, wheels):
-    stages = [p for p in root.iterdir() if p.name.startswith(STAGE_PREFIX)]
-    if len(stages) >= 2:
+def build(root, assets, manifest, manifest_sha, wheels, retained):
+    if retained >= 2:
         raise RuntimeError(f'Two failed MLX installations are retained in {root}; inspect or remove them first')
     stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=root))
-    Child.stage = stage
+    Child.stage, Child.target = stage, root / DIRECTORY
     candidate = stage / DIRECTORY
     candidate.mkdir()
     env = environment()
@@ -275,13 +305,19 @@ def build(root, assets, manifest, manifest_sha, wheels):
             raise
         shutil.rmtree(candidate, ignore_errors=True)
         Child.stage = None
-        raise RuntimeError(f'{error}\nInstall log retained: {stage / "install.log"}') from error
+        # A failure before any command ran (no supported Python) has no log
+        # and nothing to review: its stage is not retained as a failed attempt.
+        if (stage / 'install.log').is_file():
+            raise RuntimeError(f'{error}\nInstall log retained: {stage / "install.log"}') from error
+        shutil.rmtree(stage, ignore_errors=True)
+        raise RuntimeError(str(error)) from error
 
 
 def install(root, assets=ASSETS):
     root = Path(root).resolve()
     if not root.is_dir():
         raise RuntimeError('The engine root is not a directory')
+    anchor = root.stat()
     check_platform()
     manifest, manifest_sha = load_manifest(assets)
     target = root / DIRECTORY
@@ -290,23 +326,43 @@ def install(root, assets=ASSETS):
     except Busy as busy:
         lease, exclusive, in_use = lock(root, False), False, str(busy)
     try:
-        previous = None
+        # With the exclusive lease no installer and no DStudio MLX server is
+        # alive: a stage holding more than a failed attempt's log was abandoned
+        # by a killed installer and is removed here.
+        retained = bundled.recover_stages(root, STAGE_PREFIX, target, ('install.log', 'requirements.txt'),
+                                          installed_here) if exclusive else 0
+        previous = inspected = None
         if target.exists() or target.is_symlink():
             if target.is_symlink() or not target.is_dir():
                 raise RuntimeError(f'{target} is not a directory DStudio installed; it is preserved')
             receipt = read_receipt(target)
+            if not ours(receipt):
+                raise RuntimeError(f'{target} contains files DStudio did not install; it is preserved')
             if receipt_current(target, receipt, manifest_sha):
                 return {'ok': True, 'engine': 'mlx', 'dir': str(target), 'python': receipt['python'], 'built': False, 'reused': True}
-            if not receipt or receipt.get('schema') != SCHEMA:
-                raise RuntimeError(f'{target} contains files DStudio did not install; it is preserved')
-            previous = receipt
+            previous, inspected = receipt, target.lstat()
         if not exclusive:
             raise RuntimeError(in_use)
         wheels = verify_wheels(assets, manifest)
-        stage, candidate = build(root, assets, manifest, manifest_sha, wheels)
-        if previous is not None:
-            os.rename(target, stage / 'previous')
-        os.rename(candidate, target)
+        stage, candidate = build(root, assets, manifest, manifest_sha, wheels, retained)
+        parent_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            bundled.failpoint('publish')
+            bundled.revalidate_publication(root, anchor, lease, root / LOCK, target, inspected, 'MLX')
+            if previous is None:
+                bundled.publish(candidate, target, parent_fd)
+            else:
+                # Only an installation with our receipt is replaced, while the
+                # exclusive lease proves no DStudio MLX server is using it.
+                bundled.replace(candidate, target, parent_fd)
+        except BaseException:
+            # Nothing was published: the candidate is discarded, not retained.
+            bundled.discard_stage(stage, target, installed_here)
+            Child.stage = None
+            raise
+        finally:
+            os.close(parent_fd)
+        bundled.failpoint('published')
         shutil.rmtree(stage)
         Child.stage = None
         return {'ok': True, 'engine': 'mlx', 'dir': str(target), 'python': read_receipt(target)['python'],

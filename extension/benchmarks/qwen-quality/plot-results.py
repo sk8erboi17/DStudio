@@ -51,11 +51,22 @@ REVIEWED = {
         "name": "DeepSeek V4 Flash Vision-Exp · IQ2XXS\nds4 main",
         "caption": f"DeepSeek V4 Flash Vision-Exp · IQ2XXS · ds4 main 890898c · {M2} · 11 November 2026",
         "footnote": "All fifteen programs came inside Markdown fences, which the tasks forbid. Failed cases are not retried or replaced."},
+    "dae41cded62d7e48f07bafac5bc956766385c23992a6d723e5a89cebfb292408": {
+        "dir": CAMPAIGN, "results": "2026-11-11-qwen38-next-q4.json", "chart": "qwen38-next-q4.png",
+        "name": "Qwen3.8-Flash-Next · Q4\nds4 main",
+        "caption": f"Qwen3.8-Flash-Next · single-file Q4 · ds4 main 890898c · {M2} · 11 November 2026",
+        "footnote": "Resident backbone; the original BF16 n-gram tables are read from SSD. Failed cases are not retried or replaced."},
+    "18c669859cab57773b48bd8ba45163aa2cf349362e44cc897d4c954518a980dd": {
+        "dir": CAMPAIGN, "results": "2026-11-11-deepseek-v41-1017-q2-ssd.json", "chart": "deepseek-v41-1017-q2-ssd.png",
+        "name": "DeepSeek V4.1 Flash 1017 · Q2\nds4 main, SSD streaming",
+        "caption": f"DeepSeek V4.1 Flash 1017 · IQ2_XXS/Q2_K (366 GB) · ds4 main 890898c · expert SSD streaming · {M2} · 11 November 2026",
+        "footnote": "Experts are streamed from SSD: the model is about four times the machine's memory. Failed cases are not retried or replaced."},
 }
 # The family overviews compare reviewed runs graded by one corpus identity.
 FAMILIES = [{
     "dir": CAMPAIGN, "chart": "overview.png",
-    "results": ["2026-11-11-qwen27-q6-llama.json", "2026-11-10-qwen36-mxfp8-mlx.json",
+    "results": ["2026-11-11-qwen38-next-q4.json", "2026-11-11-qwen27-q6-llama.json",
+                "2026-11-11-deepseek-v41-1017-q2-ssd.json", "2026-11-10-qwen36-mxfp8-mlx.json",
                 "2026-11-10-qwen36-q6-llama.json", "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json",
                 "2026-11-11-laguna-s21-q4.json"],
     "title": "Tasks passed out of 100, by model selection",

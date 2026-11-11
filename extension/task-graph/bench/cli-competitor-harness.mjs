@@ -216,47 +216,74 @@ export function terminateProcessTree(child, signal) {
   } catch {}
 }
 
-export async function runCli(command, args, options) {
+// A CLI process the caller can act on while it runs: `stop()` ends it the way
+// a timeout does, `child.stdin` is open when options.stdin is 'pipe', and
+// options.onStderr sees each chunk as it arrives. `done` resolves when the
+// process has closed. A timeoutMs of 0 sets no deadline.
+export function startCli(command, args, options) {
   const outputLimit = 32 * 1024 * 1024;
   const stopSignal = options.stopSignal || 'SIGTERM';
   const startedAt = performance.now();
-  return await new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    let overflow = false;
-    let spawnError = null;
-    const append = (target, chunk) => {
-      const text = chunk.toString('utf8');
-      if (target === 'stdout') stdout += text;
-      else stderr += text;
-      if (stdout.length + stderr.length > outputLimit && !overflow) {
-        overflow = true;
-        terminateProcessTree(child, stopSignal);
-      }
-    };
-    child.stdout.on('data', (chunk) => append('stdout', chunk));
-    child.stderr.on('data', (chunk) => append('stderr', chunk));
-    child.on('error', (error) => { spawnError = error.message; });
-    const timer = setTimeout(() => {
-      timedOut = true;
+  const child = spawn(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    detached: process.platform !== 'win32',
+    stdio: [options.stdin === 'pipe' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let timedOut = false;
+  let overflow = false;
+  let stopped = false;
+  let spawnError = null;
+  const end = () => {
+    terminateProcessTree(child, stopSignal);
+    setTimeout(() => terminateProcessTree(child, 'SIGKILL'), 5000).unref();
+  };
+  const append = (target, chunk) => {
+    const text = chunk.toString('utf8');
+    if (target === 'stdout') stdout += text;
+    else stderr += text;
+    if (stdout.length + stderr.length > outputLimit && !overflow) {
+      overflow = true;
       terminateProcessTree(child, stopSignal);
-      setTimeout(() => terminateProcessTree(child, 'SIGKILL'), 5000).unref();
-    }, options.timeoutMs);
+    }
+  };
+  child.stdout.on('data', (chunk) => append('stdout', chunk));
+  child.stderr.on('data', (chunk) => {
+    append('stderr', chunk);
+    if (options.onStderr) options.onStderr(chunk.toString('utf8'));
+  });
+  if (child.stdin) child.stdin.on('error', () => {});
+  child.on('error', (error) => { spawnError = error.message; });
+  const timer = options.timeoutMs > 0 ? setTimeout(() => {
+    timedOut = true;
+    end();
+  }, options.timeoutMs) : null;
+  const done = new Promise((resolve) => {
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       resolve({
-        code, signal, stdout, stderr, timedOut, overflow, spawnError,
+        code, signal, stdout, stderr, timedOut, overflow, spawnError, stopped,
         wallClockMs: rounded(performance.now() - startedAt),
       });
     });
   });
+  return {
+    child,
+    done,
+    output: () => ({ stdout, stderr }),
+    stop() {
+      if (child.exitCode !== null || child.signalCode !== null) return false;
+      stopped = true;
+      end();
+      return true;
+    },
+  };
+}
+
+export async function runCli(command, args, options) {
+  return await startCli(command, args, options).done;
 }
 
 export function parseEvents(stdout) {
@@ -540,5 +567,169 @@ export function codexPreflight(stdout) {
     ...result,
     ok: config?.status === 'ok' && result.model === 'ds4' && result.provider === 'dstudio' &&
       result.wireApi === 'responses' && result.providerReachability === 'ok',
+  };
+}
+
+// Isolated configuration and environment of the three CLIs for one run: no
+// file or variable of the user's own setup is read. `workspace` is the
+// directory the CLIs are started in.
+export function writeCompetitorConfigs({ configRoot, workspace, baseUrl, contextTokens, maxOutputTokens }) {
+  const piHome = path.join(configRoot, 'pi-home');
+  const piDir = path.join(piHome, '.pi', 'agent');
+  fs.mkdirSync(piDir, { recursive: true });
+  const piConfig = {
+    providers: {
+      dstudio: {
+        baseUrl: `${baseUrl}/v1`,
+        api: 'openai-completions',
+        apiKey: 'local-benchmark',
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+          maxTokensField: 'max_tokens',
+        },
+        models: [{
+          id: 'ds4',
+          name: 'DeepSeek V4 Flash via DStudio',
+          reasoning: false,
+          input: ['text'],
+          contextWindow: contextTokens,
+          maxTokens: Math.min(maxOutputTokens, Math.floor(contextTokens / 2)),
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        }],
+      },
+    },
+  };
+  fs.writeFileSync(path.join(piDir, 'models.json'), `${JSON.stringify(piConfig, null, 2)}\n`);
+
+  const openCodeHome = path.join(configRoot, 'opencode-home');
+  const openCodeConfigDir = path.join(openCodeHome, '.config', 'opencode');
+  const openCodeData = path.join(openCodeHome, '.local', 'share');
+  const openCodeCache = path.join(openCodeHome, '.cache');
+  fs.mkdirSync(openCodeConfigDir, { recursive: true });
+  fs.mkdirSync(openCodeData, { recursive: true });
+  fs.mkdirSync(openCodeCache, { recursive: true });
+  const openCodeConfig = {
+    $schema: 'https://opencode.ai/config.json',
+    model: 'dstudio/ds4',
+    small_model: 'dstudio/ds4',
+    enabled_providers: ['dstudio'],
+    autoupdate: false,
+    share: 'disabled',
+    lsp: false,
+    formatter: false,
+    mcp: {},
+    tools: {
+      bash: true,
+      read: true,
+      edit: true,
+      write: true,
+      question: false,
+      task: false,
+      skill: false,
+      todowrite: false,
+      todoread: false,
+      webfetch: false,
+      websearch: false,
+      codesearch: false,
+      glob: false,
+      grep: false,
+      list: false,
+      lsp: false,
+      batch: false,
+      apply_patch: false,
+    },
+    experimental: { openTelemetry: false },
+    provider: {
+      dstudio: {
+        npm: '@ai-sdk/openai-compatible',
+        name: 'DStudio local benchmark',
+        options: {
+          baseURL: `${baseUrl}/v1`,
+          apiKey: 'local-benchmark',
+          timeout: 1_200_000,
+          headerTimeout: 1_200_000,
+          chunkTimeout: 1_200_000,
+        },
+        models: {
+          ds4: {
+            name: 'DeepSeek V4 Flash via DStudio',
+            limit: {
+              context: contextTokens,
+              output: Math.min(maxOutputTokens, Math.floor(contextTokens / 2)),
+            },
+          },
+        },
+      },
+    },
+  };
+  const openCodeConfigPath = path.join(openCodeConfigDir, 'opencode.json');
+  fs.writeFileSync(openCodeConfigPath, `${JSON.stringify(openCodeConfig, null, 2)}\n`);
+
+  const codex = writeCodexConfig({ home: path.join(configRoot, 'codex-home'), baseUrl, contextTokens });
+
+  return {
+    codex: {
+      config: codex.config,
+      env: cleanEnvironment({ ...codex.env, PWD: workspace }),
+    },
+    pi: {
+      config: piConfig,
+      env: cleanEnvironment({
+        HOME: piHome,
+        PWD: workspace,
+        PI_CODING_AGENT_DIR: piDir,
+        PI_OFFLINE: '1',
+        PI_TELEMETRY: '0',
+      }),
+    },
+    opencode: {
+      config: openCodeConfig,
+      env: cleanEnvironment({
+        HOME: openCodeHome,
+        PWD: workspace,
+        XDG_CONFIG_HOME: path.join(openCodeHome, '.config'),
+        XDG_DATA_HOME: openCodeData,
+        XDG_CACHE_HOME: openCodeCache,
+        OPENCODE_CONFIG: openCodeConfigPath,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
+        OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+        OPENCODE_DISABLE_AUTOUPDATE: '1',
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
+        OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+        OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: '1',
+        OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
+        OPENCODE_DISABLE_MODELS_FETCH: '1',
+        OPENCODE_DISABLE_SHARE: '1',
+        OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: '1',
+        OPENCODE_PURE: '1',
+      }),
+    },
+  };
+}
+
+// One non-interactive task for one CLI: { command, args, env, stopSignal? }.
+export function competitorCommand({ harness, prompt, workspace, title, environments }) {
+  if (harness === 'pi') {
+    return {
+      command: 'pi',
+      args: [
+        '--print', '--mode', 'json', '--provider', 'dstudio', '--model', 'ds4',
+        '--api-key', 'local-benchmark', '--thinking', 'off', '--no-session',
+        '--tools', 'read,bash,edit,write', '--no-extensions', '--no-skills',
+        '--no-prompt-templates', '--no-context-files', '--approve', '--offline', prompt,
+      ],
+      env: environments.pi.env,
+    };
+  }
+  if (harness === 'codex') return codexCommand({ workspace, prompt, env: environments.codex.env });
+  return {
+    command: 'opencode',
+    args: [
+      'run', '--pure', '--auto', '--format', 'json', '--print-logs', '--log-level', 'INFO',
+      '--model', 'dstudio/ds4', '--agent', 'build', '--dir', workspace,
+      '--title', title, prompt,
+    ],
+    env: environments.opencode.env,
   };
 }
