@@ -69,7 +69,9 @@ held-out quality, numerical parity or CUDA/ROCm/Vulkan qualification.
 Those 10/10 runs used `b11371`. On `b11836` (October 23) Qwen3.6 passed the
 current six cases (`run-7Ad19x`); the first attempt (`run-RpFauU`) failed on a
 stale `agentDiskCheckpointsSupported` assertion written before transcript
-restoration and is retained. Qwen3.8-27B has not been rerun on `b11836`.
+restoration and is retained. On November 11, 2026 Qwen3.8-27B passed the six
+cases on `b11836` too (`run-vQz1Lv`, from a clean worktree at `11cd3cef`): the
+Design case took 3,367 s, inside the test's one-hour bound.
 
 `make test-llama-install-profile` (in `check-fast`) executes the installer's
 production build recipes, receipts and leases with simulated toolchains

@@ -57,7 +57,10 @@ On October 23, 2026 the bundled llama.cpp moved from `b11371` (`99b9548`)
 to `b11836` (`f5027fb`). On `b11836` Qwen3.6 passed the same six production-host
 checks again (`run-7Ad19x`); an earlier attempt (`run-RpFauU`) stopped on a
 stale test assertion that predated transcript restoration and is retained.
-Qwen3.8-27B has not been rerun on `b11836`; `b11371` results do not transfer.
+On November 11 Qwen3.8-27B passed the same six checks on `b11836`
+(`run-vQz1Lv`, clean worktree at `11cd3cef`; its Design case took 56 minutes).
+This is the development gate, not qualification; `b11371` results do not
+transfer.
 
 The retained Next Q4 common-100 result (75/100, including 8/8 long cases)
 belongs to main `0aaea5a`. It is not qualification of the current `890898c`
