@@ -1128,7 +1128,8 @@ plain **pi** with llama.cpp, MLX or a remote endpoint.
   runs with its model-catalog fetch, auto-update, sharing, LSP downloads and
   external skills disabled, in a private config directory.
 - **Limits.** pi and OpenCode replace Agent mode only; Cowork and Design keep
-  DStudio's tools. Mid-turn steering is not forwarded to them, their sessions
+  DStudio's tools, and GSA/RSA are refused while they run (only DStudio's own
+  Agent can submit a phase). Mid-turn steering is not forwarded to them, their sessions
   live in memory while the Agent runs (DStudio still saves the transcript), and
   very long sessions can exceed the model RPC's 32,768-token request validation.
 

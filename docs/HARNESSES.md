@@ -170,7 +170,12 @@ Known limits: model RPC validates at most 32768 JSON tokens per request, so a
 very long harness session can be refused rather than truncated; pi and
 OpenCode keep their sessions in memory for the lifetime of the Agent process
 (DStudio still saves the transcript); mid-turn steering is not forwarded to
-external harnesses.
+external harnesses. GSA and RSA need DStudio's own Agent: their phases advance
+only through its `gsa_submit_phase` tool, so the host refuses to start them
+while pi or OpenCode runs. Plan mode needs no DStudio-only tool (a text
+question form and a written Markdown file), so it stays available; it has not
+been run with a real model on them. If pi or OpenCode exits on its own,
+the turn fails, the bridge stops and Agent is started again.
 
 ## Tests
 

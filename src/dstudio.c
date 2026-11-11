@@ -11601,6 +11601,19 @@ static int read_request_body_alloc(int fd, const char *req, size_t got, size_t h
     return 1;
 }
 
+/* GSA and RSA advance only on the native runtime's structured gsa_phase event
+ * (its gsa_submit_phase tool). pi and OpenCode have no such tool, so a run
+ * started on them could never save a phase: refuse it before any preparation. */
+static int workflow_needs_dstudio_agent(int fd) {
+    if (g_mode != ENGINE_AGENT || g_child <= 0 || !g_harness[0]) return 0;
+    char out[400];
+    snprintf(out, sizeof out, "{\"ok\":false,\"code\":\"workflow_needs_dstudio_agent\",\"error\":"
+             "\"GSA and RSA need DStudio's own Agent: %s cannot submit their structured phase results. "
+             "Choose DStudio in Settings > Harnesses and start Agent again.\"}", g_harness);
+    send_json(fd, "409 Conflict", out);
+    return 1;
+}
+
 static int route_post_api(int fd, const char *path, const char *body) {
     /* Launch preparation reads these exact assets/checkouts. Other engine
      * mutations wait for that attempt; status and the current model keep working. */
@@ -11641,9 +11654,9 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); return 200; }
     if (!strcmp(path, "/api/updates/run")) { api_updates_run(fd, body); return 200; }
     if (!strcmp(path, "/api/iogpu-wired-limit")) { api_iogpu_wired_limit(fd, body); return 200; }
-    if (!strcmp(path, "/api/gsa/start"))   { api_gsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/gsa/start"))   { if (workflow_needs_dstudio_agent(fd)) return 409; api_gsa_start(fd, body); return 200; }
     if (!strcmp(path, "/api/gsa/phase"))   { api_gsa_phase(fd, body); return 200; }
-    if (!strcmp(path, "/api/rsa/start"))   { api_rsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/rsa/start"))   { if (workflow_needs_dstudio_agent(fd)) return 409; api_rsa_start(fd, body); return 200; }
     if (!strcmp(path, "/api/rsa/phase"))   { api_rsa_phase(fd, body); return 200; }
     if (!strcmp(path, "/api/stop"))        { api_stop(fd); return 200; }
     if (!strcmp(path, "/api/agent/send"))  { api_agent_send(fd, body); return 200; }

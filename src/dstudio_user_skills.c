@@ -191,6 +191,9 @@ static void api_user_skill_get(int fd, const char *path) {
     size_t len = 0;
     char *content = jsonl_read_file(md, &len);
     if (!content) { send_json(fd, "404 Not Found", "{\"ok\":false,\"error\":\"no such skill\"}"); return; }
+    /* The writer ends the file with one newline after the body: drop it, so
+     * the editor shows the saved text and a save-again does not grow it. */
+    if (len && content[len - 1] == '\n') content[len - 1] = '\0';
     send_skill_doc_json(fd, id, "user", content);
     free(content);
 }
@@ -205,6 +208,13 @@ static void api_user_skill_save(int fd, const char *reqbody) {
     json_get_string(reqbody, "description", desc, sizeof desc);
     json_get_string(reqbody, "modes", modes, sizeof modes);
     if (!json_get_string(reqbody, "body", skbody, sizeof skbody)) skbody[0] = '\0';
+    /* json_get_string stops at the buffer size: a longer value would be saved
+     * cut short. Refuse it; the editor keeps the text. */
+    if (strlen(skbody) >= sizeof skbody - 1 || strlen(name) >= sizeof name - 1 || strlen(desc) >= sizeof desc - 1) {
+        send_json(fd, "413 Content Too Large", "{\"ok\":false,\"error\":\"This skill is too long to save: "
+                  "instructions must stay under 32 KiB, the name under 255 bytes and the description under 599.\"}");
+        return;
+    }
     if (!name[0]) snprintf(name, sizeof name, "%s", id);
     if (!modes[0]) snprintf(modes, sizeof modes, "[agent]");
     /* frontmatter is line-based: keep name/description single-line. */
