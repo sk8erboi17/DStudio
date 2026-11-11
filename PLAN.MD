@@ -17,9 +17,10 @@ evening.** The resume follows this order:
    installer and every launch path and passes on real weights (see P6.2);
    the app-path check and Laguna's common-100 rerun are queued first.
 2. The cancelled real-model queue: the host runner's restart fault-injection
-   check (Qwen3.6 IQ4_XS, engine killed after case 6), pi/OpenCode on Laguna
-   (runner now selects its checkout), and the three `check-real` suites (now
-   starting Chat with explicit weights).
+   check passed on November 11 (engine killed during case 7, restarted in
+   3.3 s, 0 of 100 cases left unrun;
+   [details](tests/docs/model-quality.md)); pi/OpenCode on Laguna and the
+   three `check-real` suites are running.
 3. Design projects (P8): generate the thirteen briefs not yet run, keeping the
    five recorded outcomes, then audit all eighteen.
 4. Disk KV snapshots (P3.2): write and run the real-weight check on Qwen3.6

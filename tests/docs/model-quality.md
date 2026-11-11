@@ -113,7 +113,13 @@ and the engine, checks that the engine is gone and that weights and host
 binary are unchanged, starts both again in the same memory mode and goes on
 with the next case, at most eight times. The failed case is not retried and
 stays failed; each restart is recorded. Without the option the remaining cases
-stay not run, as in the native runner.
+stay not run, as in the native runner. Fault injection on real weights,
+November 11 (Qwen3.6 UD-IQ4_XS, a development check, not a campaign
+selection; `host-common-quality/run-bPjEZw`): the queue killed the run's own
+llama-server during case 7; the runner reaped both engine processes, started
+host and engine again in 3.3 s with SSD streaming still off, and completed the
+corpus with 0 cases not run (64/100 answers passed; the runner's exit status
+reports those answer failures).
 
 The native path now reads the engine revision from DStudio's
 `.dstudio-source.json` receipt. A managed engine is installed from bundled
