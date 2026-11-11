@@ -179,7 +179,7 @@
       },
       {
         "path": "src/harness/design/ds4_design.c",
-        "sha256": "f301b5488b34abdc2cb0e7a7370d67cdb5879f9a3be237541049fad4f33c5412"
+        "sha256": "387f935a767bf5847ee501cc36f848d427f34a6e3570517d6a46f56f8834d05a"
       },
       {
         "path": "src/harness/design/build-design.sh",
@@ -362,7 +362,7 @@
       },
       {
         "path": "src/harness/design/ds4_design.c",
-        "sha256": "f301b5488b34abdc2cb0e7a7370d67cdb5879f9a3be237541049fad4f33c5412"
+        "sha256": "387f935a767bf5847ee501cc36f848d427f34a6e3570517d6a46f56f8834d05a"
       },
       {
         "path": "src/harness/design/build-design.sh",

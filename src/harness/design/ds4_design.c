@@ -14054,6 +14054,15 @@ static int design_remote_run_turn(design_agent *a, const char *user_text) {
         free(structured_results);
         free(assistant);
         dsml_parser_free(&dsml);
+        /* question(), propose() and a registered artifact() hand the turn to
+         * the user, exactly as in the local loop: the results stay in the
+         * transcript, but no further model request is made in this turn. */
+        if (a->project.stop_after_tools) {
+            a->project.stop_after_tools = false;
+            out_text("\n", 1);
+            design_project_finish_run(&a->project, "stopped_after_tool");
+            return 0;
+        }
     }
 }
 
