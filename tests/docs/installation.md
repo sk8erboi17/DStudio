@@ -7,11 +7,11 @@ a historical pass is not a pass on a newer runtime.
 ## Clean installation and real inference
 
 ```sh
-make test-setup-live                  # Real GitHub downloads + builds: main, Laguna, Qwen3.8, Qwen3.6
+make test-setup-live                  # Bundled sources + real builds: main, Laguna, llama.cpp
 make test-first-launch-e2e            # Headless .app + real WebKit UI + fresh offline engine installation
 make test-inference-live              # Real resident Metal: installed DeepSeek + Laguna
-make test-inference-live ENGINES=qwen  # Requires downloaded Qwen base + PLE
-make test-engine-acceptance           # Fresh builds AND real inference for all four engines
+make test-inference-live ENGINES=qwen  # Requires the pinned single-file Qwen3.8-Flash-Next-Q4.gguf
+make test-engine-acceptance           # Fresh builds AND real inference: main and Laguna by default
 make test-qwen-chat-live              # Actual DStudio launch + Chat HTTP proxy, real Qwen
 make benchmark-qwen-decode            # Native generation tok/s, three exact-output checks
 ```
@@ -19,8 +19,16 @@ make benchmark-qwen-decode            # Native generation tok/s, three exact-out
 The setup gate calls DStudio's production headless installer, using the same
 bundled-source installer and runtime builders as app setup. It starts with no engine
 directory, verifies/copies pinned local sources, builds the executables,
-executes their help command, and checks that optional engines share the model
-store. It does **not** simulate a browser onboarding click. Existing user
+executes their help command (`--version` for `llama-server`, which must report
+the pinned build), and checks that Laguna shares the main model store. By
+default it installs main, Laguna and llama.cpp; MLX is not installed by this
+gate. The installer copies the bundled sources, not a GitHub download, but this
+gate does not deny the network: the offline proof is `test-first-launch-e2e`
+(the runner's own log line still calls the step a "network download").
+By default `test-engine-acceptance` adds real inference for main and Laguna;
+`ENGINES=qwen` selects Qwen3.8-Flash-Next on a fresh main build, and the runner
+refuses llama.cpp inference, which `make test-llama-resident-live` covers.
+It does **not** simulate a browser onboarding click. Existing user
 checkouts, models, preferences and running processes are not replaced or stopped.
 
 `test-first-launch-e2e` instead relocates the signed `.app`, starts its real
@@ -28,8 +36,11 @@ binary from `/` with an empty `DS4UI_DATA_DIR`, and uses headless WebKit to
 operate the first-run installation controls. `DS4UI_TEST_MODE` is **not** set.
 It clicks Install, chooses the optional models, and checks real setup responses,
 pinned revisions, compiled executable startup, automatic checkout selection,
-shared model storage and discovery after reload. It also reverses/reapplies six
-native main adaptations on a private source copy and requires exact file
+shared model storage and discovery after reload. It also reverses/reapplies the
+eight native main adaptations listed in `tests/support/native_patch_roundtrip.mjs`
+(visible downloads, media memory, server metrics, GLM runtime, the composed M2
+port, vision streaming, V4.1 vision pairing and Qwen prepare) on a private
+source copy and requires exact file
 preservation. This is not the complete Agent/server-PLD/web patch stack. The
 same focused check is `make test-native-patch-roundtrip`; it uses the production
 M2 build-hunk selector and metrics integrity checks. An existing engine-port listener (or a test-owned sentinel)
@@ -51,9 +62,14 @@ node tests/live/installed_models_e2e.mjs tests/.artifacts/first-launch-<successf
 This heavyweight gate requires the existing inference engine to be stopped
 explicitly. It uses the freshly built runtimes and links their empty task-owned
 GGUF directory to existing weights, without copying or moving them. Models are
-loaded **one at a time**, with 8k context, DSpark off, resident Qwen/Laguna and
-SSD expert streaming for main DeepSeek/GLM models. Qwen3.8 keeps its native SSD
-PLE. Each model must become ready, return exact arithmetic and JSON extraction
+loaded **one at a time**, with 8k context, DSpark off, resident Laguna and
+Qwen3.8-Flash-Next (its embedded BF16 n-grams read from SSD; a separate PLE
+file is listed as auxiliary and not loaded) and SSD expert streaming for main
+DeepSeek/GLM models. As written, the runner also requests SSD streaming for the
+Qwen3.6 files, which now run on llama.cpp; `make test-launch-preflight` shows
+that the host refuses that combination, so those rows are not qualified by this
+runner until it is corrected (read from the runner, not rerun). Each model must
+become ready, return exact arithmetic and JSON extraction
 answers through DStudio, then answer a checked prompt through the real Chat UI,
 including completed SSE and visible rendered text. No response is mocked.
 Auxiliary GGUFs and unsupported models are listed separately; missing weights,
@@ -81,8 +97,9 @@ not full-logit comparisons against BF16/CPU, and do not establish general model
 quality, tool-use quality, CUDA parity or exhaustive context-boundary correctness.
 
 Qwen3.8 has experimental **Chat, Agent and Cowork** integration on macOS Metal
-with the new engine pin. Its Design adapter is not implemented. Only Qwen3.8
-needs the SSD-backed PLE file. Qwen3.6 and Qwen3.8-27B run on the bundled
+with the new engine pin. Its Design adapter is not implemented. The pinned
+Qwen3.8-Flash-Next GGUFs are single files with embedded BF16 n-grams: the gates
+above pass no separate PLE file. Qwen3.6 and Qwen3.8-27B run on the bundled
 llama.cpp engine; see [Qwen3.6 and Qwen3.8-27B on llama.cpp](engines-and-harnesses.md#qwen36-and-qwen38-27b-on-llamacpp).
 
 The Qwen3.6 sections that followed here (fresh `ds4-qwen35` setup, its
@@ -95,13 +112,17 @@ fork and are no longer runnable.
 ## Bundled offline engine sources (September 30, 2026)
 
 `make test-engine-sources` executes the production verifier, source copy and
-exclusive publisher with real files. Its 18 cases cover byte/mode integrity,
+exclusive publisher with real files. Its cases (19 on November 11, 2026, as
+`unittest` reports) cover byte/mode integrity,
 missing/extra/altered inputs, linked files and parents (including a deterministic
 parent-switch barrier), source/manifest and target races, owner-lease replacement,
 independent preparations overlapping at a deterministic barrier,
 retained-candidate limits and interrupted durability acknowledgement. It also
-copies/verifies all three active source snapshots (main, Laguna, llama.cpp) and
-rejects copying or installing the retired Qwen Next source. `make test-macos-bundle`
+copies/verifies all three active source snapshots (main, Laguna, llama.cpp),
+rejects copying or installing the retired Qwen Next source and, in a Git
+checkout, requires Git to track exactly the shipped engine and harness snapshot
+files with the manifest's modes and exactly the manifest's MLX wheels.
+`make test-macos-bundle`
 checks that the relocated app materializes exactly those three snapshots with pins
 matching its native metadata. No inference is claimed by these cases.
 

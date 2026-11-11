@@ -1337,7 +1337,7 @@ test-ssd-prefill-batch-live:
 
 # Real PDF extraction/rendering and browser checks; no model or embeddings.
 .PHONY: test-pdf-evidence
-test-pdf-evidence: $(TEST_SERVER)
+test-pdf-evidence: $(TEST_SERVER) $(OCR_HELPER)
 	@node tests/integration/pdf_evidence_test.mjs $(TEST_SERVER)
 
 .PHONY: test-pdf-complete
@@ -1376,8 +1376,16 @@ test-ui-loading:
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_loading_startup_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_loading_startup_playwright_test.mjs
 
+# The suites the test guides describe in both browsers also run in WebKit, the
+# engine of the macOS app, in this target and in test-ui-plan/-gsa/-rsa. The
+# other suites of this recipe run in WebKit through test-ui-simulated or with
+# DSTUDIO_TEST_BROWSER=webkit.
 test-ui-browser: test-ui-loading
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_model_picker_playwright_test.mjs && node tests/browser/ui_agent_design_playwright_test.mjs && node tests/browser/ui_gear_popover_test.mjs && node tests/browser/ui_think_max_context_test.mjs && node tests/browser/ui_attachment_preview_playwright_test.mjs && node tests/browser/ui_roadmap_playwright_test.mjs && node tests/browser/ui_settings_redesign_playwright_test.mjs && node tests/browser/ui_video_generation_playwright_test.mjs; else echo "node missing: NOT RUN UI browser tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_model_picker_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_agent_design_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_think_max_context_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_settings_redesign_playwright_test.mjs
 
 .PHONY: test-ui-sidebar test-macos-window-theme
 test-ui-sidebar:
@@ -1481,12 +1489,16 @@ test-ui-live-vision:
 
 test-ui-plan:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_plan_mode_playwright_test.mjs && node tests/browser/ui_plan_mode_matrix_test.mjs; else echo "node missing: NOT RUN Plan mode UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_plan_mode_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_plan_mode_matrix_test.mjs
 
 test-ui-gsa:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_gsa_playwright_test.mjs; else echo "node missing: NOT RUN GSA UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_gsa_playwright_test.mjs
 
 test-ui-rsa:
 	@if command -v node >/dev/null 2>&1; then node tests/browser/ui_rsa_playwright_test.mjs; else echo "node missing: NOT RUN RSA UI tests"; exit 1; fi
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_rsa_playwright_test.mjs
 
 # Production workflow UI with simulated native replies; never launches a model.
 .PHONY: test-ui-workflow

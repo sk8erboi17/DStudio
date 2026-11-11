@@ -26,10 +26,10 @@ The detailed unfinished acceptance requirements remain in [PLAN.MD](../PLAN.MD).
 reached: by `check-fast`, by `check-real`, only by an explicit `make` target,
 only by a hand-run command given in a guide, or by nothing. It executes no test
 and judges no result (`make test-census` checks the census itself on a
-synthetic tree). On November 10, 2026 it counted 276 files: 172 reached by
-`check-fast`, 3 by `check-real`, 84 by an explicit target only and 13 by a
-documented manual command only. Four more are explicit diagnostics that no
-target starts; their commands are here so that they are accounted for:
+synthetic tree). On November 11, 2026 it counted 283 files: 179 reached by
+`check-fast`, 3 by `check-real`, 85 by an explicit target only and 16 by a
+documented manual command only. Four of those sixteen are explicit diagnostics
+that no target starts; their commands are here so that they are accounted for:
 
 - `node tests/live/main_decode_comparison.mjs LABEL ENGINE COMMIT MODE OUTPUT`:
   real sequential native prefill/decode measurement of one engine revision;
@@ -49,10 +49,11 @@ what the file and the recipe that runs it name (`--needs` prints them per
 file): the browsers a recipe actually selects, the host test binary or the
 app, Python modules outside the standard library, external tools such as
 Poppler, CMake, ffmpeg or Git, and real weights for everything under
-`tests/live/`. On November 11, 2026, of 282 files: 48 start a browser (16 in
-Chromium only, 26 in Chromium and WebKit, 4 in WebKit only, 1 in all three,
+`tests/live/`. On November 11, 2026, of 283 files: 49 start a browser (8 in
+Chromium only, 35 in Chromium and WebKit, 4 in WebKit only, 1 in all three,
 1 not determined), 49 need the host test binary, 50 a real engine or weights
-and 5 Matplotlib.
+and 5 Matplotlib. Before eight suites gained their WebKit run that day, 16
+ran in Chromium only.
 This is a reading aid derived from the sources, not a guarantee: a suite that
 lacks a prerequisite must still report itself as not run or blocked.
 

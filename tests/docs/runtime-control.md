@@ -10,9 +10,14 @@ a historical pass is not a pass on a newer runtime.
 deterministically simulates 601 silent poll intervals. It checks exact fragmented
 HTTP/error/binary bytes and a real TCP reset on an abandoned response rather
 than an ambiguous FIN. `make test-model-rpc-lifecycle` also exercises the actual
-owned local model worker's Stop/reset and reaping. `make test-roadmap-request`
-checks actual Learn harness HTTP requests against a simulated engine, including
-explicit thinking off. These are model-free regressions, not quality results.
+owned local model worker's Stop/reset and reaping. In `make test-roadmap-request`,
+`roadmap_request_test.mjs` checks only test-support code: the request helpers of
+the live Learn runner (`tests/support/real_harness.mjs` and
+`roadmap_generation_settings.mjs`) must send the selected reasoning setting,
+including explicit thinking off, to a simulated engine. It does not execute the
+app's Learn requests; the target's other files do run the production Learn
+phase functions (see the [UI guide](ui.md#complete-simulated-ui-matrix)).
+These are model-free regressions, not quality results.
 
 `make test-v1-proxy-exchange` builds and launches the real native host with an
 empty task-owned profile and a loopback engine fixture on a reserved ephemeral
@@ -22,7 +27,14 @@ while the backend is blocked, and Stop without duplicate effects or poisoning
 the next call. It retains the host relay's existing EOF-as-cancellation policy;
 request half-close is not supported here. The long-path test first failed with
 bytes sent beyond the old header buffer, then passed with the bounded shared
-exchange. Logs and receipts stay in `tests/.artifacts/v1-proxy-exchange/`.
+exchange. Since November 11, 2026 it also covers an engine port where
+nothing listens, as beside an Agent, Cowork or Design session: `/api/status`
+must answer within one second while the relay retries, and the request then
+gets the same 503. Before, those retries (25 × 100 ms) slept on the host's
+control loop and status waited about 2.4 s behind them (measured on the
+previous host: 2,394 ms); they now run in the forked relay after one
+non-blocking attempt. An engine that starts listening during the retries is
+still reached, once. Logs and receipts stay in `tests/.artifacts/v1-proxy-exchange/`.
 It starts no model, uses no weights, and does not contact or signal a user's
 engine. The executed platform is macOS; Windows execution remains not run.
 
@@ -62,7 +74,8 @@ these timings are not model speed or a published before/after comparison.
 
 `make test-model-rpc-input test-model-rpc-stream test-model-rpc-lifecycle test-model-rpc-interrupt test-remote-utf8` executes
 the production native HTTP/SSE relay and shared runtime pipe consumer. The
-61 stream/consumer scenarios use a simulated model, deliberately fragmented bytes,
+shared stream/consumer scenarios (62 on November 11, 2026; each run prints its
+total) use a simulated model, deliberately fragmented bytes,
 actual outgoing request bodies and replays of the resulting runtime frames.
 They cover Unicode, interleaved tool IDs, exact argument preservation, duplicates,
 invalid/oversized inputs, incomplete endings and errors. A tool batch is not
@@ -72,7 +85,8 @@ quality or proof that the structured dispatcher is integrated into every mode.
 The stream gate repeats the shared corpus through native request-envelope
 admission and the actual exec'd host worker
 over HTTP and HTTPS, with two additional held-connection cases on each path:
-Stop and death of the owning host (**63 cases per owner-relay path**). HTTPS
+Stop and death of the owning host (**two more than the shared corpus on each
+owner-relay path**: 64 on that date). HTTPS
 requires `curl` and `openssl`; it creates an isolated certificate and passes its
 CA to the test child, without disabling TLS verification. Worker/process-group
 exit, closed peer sockets and absence of named credential/body staging files
@@ -107,10 +121,12 @@ tool event. Their whole-record watchdog hashing/transcript publication still
 need critical-path review: input byte budgeting alone does not qualify that
 separate work or the complete P10 latency/memory profile.
 
-The six lifecycle scenarios force exact OS descriptor reuse, 200 rejected
+The seven lifecycle scenarios (the runner requires exactly seven passes) force
+exact OS descriptor reuse, 200 rejected
 duplicate admissions, credential changes after admission, a stopped helper
 requiring escalation, a full runtime pipe, worker death, actual connection failure,
-oversized body and a request queued before Stop. The HTTP Stop handler must
+oversized body, a request queued before Stop and a local Stop that resets the
+owned inference socket and reaps only the request worker. The HTTP Stop handler must
 remain usable under real pipe backpressure. The flag comparison uses an
 independent written-pipe oracle: Darwin may expose its kernel-owned
 `FWASWRITTEN` history bit, which is not a changed nonblocking policy. Original
@@ -148,20 +164,27 @@ resume recovery, FIFO, duplicate/stale/closed-turn rejection and append-before-A
 
 `make test-steering-patch` exercises apply and repeated/drift rejection on
 isolated copies of the installed main/Laguna sources, preserving unrelated edits.
-`make test-agent-patch-migration` adds all seven pinned source bases and independent
-Git apply/reversal. The three previous variants retain frozen legacy output
-parity after reversing the separately recorded renderer and remote-interrupt
-corrections solely for the historical oracle. Every variant first reverses its
-v100 readiness delta to its frozen v99 hash. Laguna and older MoE reverse their
-v99 continuation deltas, then the v98 publication delta, to recover their exact
-v97 bytes first. The
+`make test-agent-patch-migration` runs the native transformer on the two pinned
+source bases of `patch/ds4-agent-jsonl/bases.json` (main and Laguna) with
+independent Git apply/reversal, unrelated edits, CRLF input and
+repeat/partial/drift rejection. Each base first reverses its recorded deltas,
+newest first, each to its frozen predecessor hash: the two Cowork deltas on
+main, and on Laguna those two, then progress summary, durable summary, worker
+readiness, compaction continuation and the publication delta. Laguna alone
+retains frozen legacy output parity, after the separately recorded renderer and
+remote-tool-stop corrections are reversed solely for the historical oracle. The
 main variant has no fictitious legacy oracle. It requires local source
 objects or exact base files. It does not perform a network install.
+This guide earlier described seven bases with an older MoE variant; since
+October 27, 2026 the migration tests cover only the bundled main and Laguna
+(see the [test cleanup](installation.md#test-cleanup-october-25-2026)).
 
-`make test-agent-compaction AGENT_LAGUNA_TREE=ENGINE_LAGUNA
-QWEN35_AGENT_TREE=ENGINE_MOE` requires the already-built native cores.
+`make test-agent-compaction AGENT_LAGUNA_TREE=ENGINE_LAGUNA` requires the
+already-built native Laguna core. The test accepts `--family laguna` only: the
+Qwen MoE branch ran on the retired `ds4-qwen35` fork, and its results below are
+history.
 It executes actual compaction and control calls with deterministic session and
-tokenization fixtures under ASan/UBSan. Fourteen cases per branch check original
+tokenization fixtures under ASan/UBSan. Fourteen cases check original
 transcript and memory preservation during blocked preparation, failed summaries,
 failed rebuilds, cancellation/late Stop, stale identities, one owner-only
 publication, successful export, and an honestly reported export failure.
@@ -171,8 +194,9 @@ publication. A zero sub-microsecond reading means below timer resolution, not
 zero work. These are diagnostic fixture observations, not an inference speed
 benchmark or percentile study.
 
-The shipped v98 patches pass **28/28** (`run-KKPyWK`, `run-wGTgjx`); original
-v97 code passes **4/14 per branch** on the identical final harness
+With both branches at the time, the shipped v98 patches passed **28/28**
+(`run-KKPyWK`, `run-wGTgjx`); original
+v97 code passed **4/14 per branch** on the identical final harness
 (`run-XvWWAk`, `run-ZQ7QxN`). Earlier 12-case failures and the initial missing
 piped-mode warning are also retained under ignored `agent-compaction/`.
 `--source /path/to/frozen-derived-agent.c` runs that exact before/after input
@@ -183,19 +207,35 @@ loaded. Real-model continuation
 quality, multimodal state and other backends are separate gates.
 
 `make test-agent-continuation` adds native GGUF tokenizer and generation-loop
-regressions on the production patch output. Override
-`COMPACTION_LAGUNA_MODEL` / `COMPACTION_QWEN35_MODEL` for the installed GGUF
-locations. The native core reads vocabulary/metadata only: **no weight tensors,
-GPU inference or model-quality evaluation**. ASan/UBSan covers 50 Laguna and
-53 Qwen framing checks, preserving the exact original tail token IDs across
+regressions on the production patch output, for Laguna only. Override
+`COMPACTION_LAGUNA_MODEL` for the installed GGUF
+location. The native core reads vocabulary/metadata only: **no weight tensors,
+GPU inference or model-quality evaluation**. ASan/UBSan covers 50 Laguna
+framing checks, preserving the exact original tail token IDs across
 BPE/ChatML/tool/think boundaries. A scripted 18,000-token response crosses three
 compactions and must render identically to the non-compacted reference without
-renewing its output budget. Sixteen Laguna / fourteen Qwen loop checks also
+renewing its output budget. Eighteen Laguna loop checks (sixteen before the two
+v102 runtime-state checks) also
 cover native speculative orchestration, where supported, oversize admission,
 repeated memory export, Stop/failure and a partial tool followed by a complete
 retry that writes the actual file exactly once. The v100 addition latches Stop
 across the admission-to-dispatch gap; the earlier fifteen/thirteen-case receipts
-below remain historical rather than being assigned the new denominator.
+below remain historical rather than being assigned the new denominator. The
+Qwen MoE branch (53 framing and fourteen loop checks at that time) ran on the
+retired fork and is no longer runnable; its counts below are history.
+
+November 11, 2026 (macOS, an installed Laguna engine whose receipt names the
+bundled pin `448d569`): the target stopped at its
+prerequisite `test-agent-continuation-oracle`. One of the three cases of
+`agent_continuation_control_test.mjs` still expects a Qwen prefill selection
+that `tests/live/agent_continuation_live.mjs` now refuses, so it fails (2/3)
+and Make does not reach the probes; `make test-agent-continuation-live` has the
+same prerequisite. That case tested a branch removed with the retired Qwen MoE
+engines; it was corrected the same day to require what the runner does now
+(Laguna selects its native prefill, every other family is refused) and the
+prerequisite passes 3/3. Started directly with
+`node tests/integration/agent_compaction_test.mjs ENGINE_LAGUNA --family laguna --tokenizer-model GGUF`,
+the probes passed 14 publication cases, 50 framing checks and 18 loop checks.
 
 V99 production receipts `run-Jntg6Y` / `run-CGHiec` pass their checks plus the
 existing 14 publication cases each. The identical final loop harness on v98
@@ -289,11 +329,16 @@ least 4.5:1 notice contrast. Screenshots were visually reviewed. The original
 fixture-timing/ownership failures remain retained; these passes are UI evidence,
 not real-model or packaged-app qualification.
 
-`make test-runtime-patch-migration` does the same for the web bases and four
-server inputs (current/previous main, with/without native metrics). Exact raw
+`make test-runtime-patch-migration` does the same for the two web bases (main
+and Laguna) and two server inputs (current main without and with native
+metrics; no previous main). Only the Laguna web base keeps frozen legacy byte
+parity. Exact raw
 sources may be supplied in `DSTUDIO_RUNTIME_BASE_SOURCES`, named
-`web-main-current.c`, `web-main-previous.c`, `web-laguna.c`, `web-qwen38.c`,
-`server-main-current.c` and `server-main-previous.c`.
+`web-main-qwen.c`, `web-laguna.c` and `server-main-latest.c`. A managed
+installation has no Git objects and its `ds4_server.c` already carries native
+adaptations, so there the server inputs fail as missing unless that directory
+is supplied; the bundled `ds4_web.c` and `ds4_server.c` under `src/engines/`
+are the exact bases.
 The test applies the metrics prerequisite itself where required and checks all
 hashes against the committed base manifests. This is not model-quality evidence.
 `make test-steering-runtime` requires their already-built Agent/Cowork
