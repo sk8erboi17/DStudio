@@ -38955,7 +38955,8 @@ Choose however many stages, branches, and topics the subject actually warrants; 
         if (st.pausedDownload) {
           clearInterval(dlPoll); dlPoll = null;
           Store.setModelState({ download: modelDownloadStateFromStatus(st) });
-          if (st.downloadPhase === 'failed') toast('Download or verification failed. Partial files are kept for Resume.', 'error');
+          // The downloader's own last line names the cause (for example a full disk).
+          if (st.downloadPhase === 'failed') toast(`Download or verification failed${st.downloadError ? `: ${st.downloadError}` : ''}. Partial files are kept for Resume.`, 'error');
           return;
         }
         // finished (or stopped)
@@ -38973,7 +38974,7 @@ Choose however many stages, branches, and topics the subject actually warrants; 
                 : `${id} downloaded — select it from the model menu`, 'info');
           Settings.refreshModels();
         } else if (id) {
-          toast(st.downloadPhase === 'failed' ? `Installation, download or verification of ${id} failed` : `Download of ${id} stopped before completing`, st.downloadPhase === 'failed' ? 'error' : 'warn');
+          toast(st.downloadPhase === 'failed' ? `Installation, download or verification of ${id} failed${st.downloadError ? `: ${st.downloadError}` : ''}` : `Download of ${id} stopped before completing`, st.downloadPhase === 'failed' ? 'error' : 'warn');
         }
       }
 

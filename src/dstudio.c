@@ -2196,6 +2196,11 @@ static int g_dl_progress_fd = -1, g_dl_phase = 0, g_dl_stop_requested = 0;
  * whose encoder is the current download (status only). */
 static char g_dl_next[48] = "";
 static char g_dl_companion_of[48] = "";
+/* The log the running download writes, and the last line it wrote when it
+ * failed (for example "[Errno 28] No space left on device"): the reason the
+ * user can act on, read once when the child exits; never a success signal. */
+static char g_dl_log_path[128] = "";
+static char g_dl_error[256] = "";
 #ifndef _WIN32
 typedef struct {
     const char *status;            /* HTTP status line */
@@ -2210,6 +2215,36 @@ static const char *model_download_phase(void) {
     if (g_dl_pid <= 0) return g_dl_result > 0 ? "complete" :
         g_dl_result < 0 ? (g_dl_stop_requested ? "stopped" : "failed") : "";
     return g_dl_phase == 'I' ? "installing" : g_dl_phase == 'V' ? "verifying" : "downloading";
+}
+
+/* Bounded: the last 2 KiB of the download's log, one line of at most 255
+ * bytes, control characters blanked and a split UTF-8 sequence dropped. */
+static void model_download_read_failure(void) {
+    g_dl_error[0] = '\0';
+#ifndef _WIN32
+    if (!g_dl_log_path[0]) return;
+    int fd = open(g_dl_log_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return;
+    char tail[2049];
+    off_t end = lseek(fd, 0, SEEK_END);
+    off_t from = end > 2048 ? end - 2048 : 0;
+    ssize_t n = end > 0 ? pread(fd, tail, (size_t)(end - from), from) : 0;
+    close(fd);
+    if (n <= 0) return;
+    tail[n] = '\0';
+    while (n > 0 && (tail[n - 1] == '\n' || tail[n - 1] == '\r' || tail[n - 1] == ' ')) tail[--n] = '\0';
+    const char *line = tail + n;   /* curl progress lines end in \r, not \n */
+    while (line > tail && line[-1] != '\n' && line[-1] != '\r') line--;
+    while (((unsigned char)*line & 0xC0) == 0x80) line++;   /* cut at the 2 KiB start */
+    size_t j = 0;
+    for (; line[j] && j < sizeof g_dl_error - 1; j++)
+        g_dl_error[j] = (unsigned char)line[j] < 0x20 || line[j] == 0x7f ? ' ' : line[j];
+    if (line[j]) while (j > 0 && ((unsigned char)g_dl_error[j - 1] & 0x80)) {
+        unsigned char c = (unsigned char)g_dl_error[--j];
+        if ((c & 0xC0) == 0xC0) break;   /* a lead byte whose sequence was cut */
+    }
+    g_dl_error[j] = '\0';
+#endif
 }
 
 static void model_download_progress_tick(void) {
@@ -4483,9 +4518,12 @@ static void reap_child(void) {
         if (waitpid(g_dl_pid, &dst, WNOHANG) == g_dl_pid) {
             int code = WIFEXITED(dst) ? WEXITSTATUS(dst) : -1;
             printf("model: download of %s finished (exit %d)\n", g_dl_variant, code);
+            if (code != 0 && !g_dl_stop_requested) model_download_read_failure();
             if (g_active_download_task) {
+                char failed[300];
+                snprintf(failed, sizeof failed, "model download failed%s%s", g_dl_error[0] ? ": " : "", g_dl_error);
                 if (code == 0) task_mark_completed(g_active_download_task, "model download completed");
-                else task_mark_failed(g_active_download_task, "model download failed", g_dl_variant);
+                else task_mark_failed(g_active_download_task, failed, g_dl_variant);
                 g_active_download_task = 0;
             }
             g_dl_result = code == 0 ? 1 : -1;
@@ -6953,6 +6991,7 @@ static int model_download_begin(const char *target, unsigned long long *task_out
     if (progress[1] >= 0) close(progress[1]);
     g_dl_pid = pid;
     g_dl_progress_fd = progress[0]; g_dl_phase = q27 ? 'I' : 'D'; g_dl_stop_requested = 0;
+    cstr_copy(g_dl_log_path, sizeof g_dl_log_path, log_path); g_dl_error[0] = '\0';
     cstr_copy(g_dl_directory, sizeof g_dl_directory, ds4_abs);
     g_dl_result = 0;
     g_active_download_task = task_id;
@@ -7292,7 +7331,10 @@ static void api_status(int fd) {
         if (paused_pct > 99) paused_pct = 99;
     }
 
-    char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100];
+    char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100], dl_error_esc[1600];
+    /* The failed download's own reason, only while "failed" is the phase. */
+    const char *dl_error = !strcmp(model_download_phase(), "failed") ? g_dl_error : "";
+    json_escape_into(dl_error_esc, sizeof dl_error_esc, dl_error, strlen(dl_error));
     const char *effective_dir = resident_running() ? g_resident.spec.directory : g_ds4_dir;
     const char *effective_model = resident_running() ? g_resident.spec.model : current_model_rel();
     json_escape_into(d4_esc, sizeof d4_esc, effective_dir, strlen(effective_dir));
@@ -7316,7 +7358,7 @@ static void api_status(int fd) {
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,\"downloadPhase\":\"%s\","
-        "\"downloadCompanionOf\":\"%s\","
+        "\"downloadCompanionOf\":\"%s\",\"downloadError\":\"%s\","
         "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
         "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
@@ -7334,7 +7376,7 @@ static void api_status(int fd) {
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
         dl_bytes, g_dl_expected_bytes, model_download_phase(),
-        g_dl_variant[0] ? g_dl_companion_of : "",
+        g_dl_variant[0] ? g_dl_companion_of : "", dl_error_esc,
         paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
         err_esc, line_esc, mf_esc, g_skill, g_design_system,
         native_glm_vision_installed() ? "true" : "false",
