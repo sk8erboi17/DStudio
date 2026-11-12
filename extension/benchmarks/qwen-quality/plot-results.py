@@ -45,7 +45,12 @@ REVIEWED = {
         "dir": CAMPAIGN, "results": "2026-11-11-laguna-s21-q4.json", "chart": "laguna-s21-q4.png",
         "name": "Laguna S 2.1 · Q4_K_M\nds4 Laguna",
         "caption": f"Laguna S 2.1 · Q4_K_M · ds4 Laguna 448d569 · {M2} · 11 November 2026",
-        "footnote": "The engine failed on the first long text; the twelve tasks after it were not run and stay in the denominator."},
+        "footnote": "Unpatched engine: it failed on the first long text; the twelve tasks after it were not run and stay in the denominator."},
+    "8258553278f408d4af82c8088557aef3f0f419f80dd9128851293539786ffe4d": {
+        "dir": CAMPAIGN, "results": "2026-11-12-laguna-s21-q4-patched.json", "chart": "laguna-s21-q4-patched.png",
+        "name": "Laguna S 2.1 · Q4_K_M\nds4 Laguna, DStudio prefill patch",
+        "caption": f"Laguna S 2.1 · Q4_K_M · ds4 Laguna 448d569 + patch/ds4-laguna-prefill-chunk · {M2} · 12 November 2026",
+        "footnote": "Engine with the prefill patch, upgraded by the app's own Chat launch. Failed cases are not retried or replaced."},
     "765c3a25957c2618cb0394d0d5e7c87d588d92e9e72b4eff2af6950e74b850b6": {
         "dir": CAMPAIGN, "results": "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json", "chart": "deepseek-v4-vision-exp-iq2xxs.png",
         "name": "DeepSeek V4 Flash Vision-Exp · IQ2XXS\nds4 main",
@@ -67,8 +72,8 @@ FAMILIES = [{
     "dir": CAMPAIGN, "chart": "overview.png",
     "results": ["2026-11-11-qwen38-next-q4.json", "2026-11-11-qwen27-q6-llama.json",
                 "2026-11-11-deepseek-v41-1017-q2-ssd.json", "2026-11-10-qwen36-mxfp8-mlx.json",
-                "2026-11-10-qwen36-q6-llama.json", "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json",
-                "2026-11-11-laguna-s21-q4.json"],
+                "2026-11-10-qwen36-q6-llama.json", "2026-11-12-laguna-s21-q4-patched.json",
+                "2026-11-11-deepseek-v4-vision-exp-iq2xxs.json"],
     "title": "Tasks passed out of 100, by model selection",
     "caption": f"{M2} · one run each, thinking off · development replay · different quantizations: not a ranking",
 }]

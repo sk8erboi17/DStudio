@@ -13,9 +13,9 @@ an unfinished, failed or blocked requirement into a pass.
 **Paused on November 11, 2026 at the owner's request, resumed the same
 evening.** The resume follows this order:
 
-1. Laguna prefill (P6.2): done except the rerun. The patch is wired into the
-   installer and every launch path and passes on real weights (see P6.2);
-   the app-path check and Laguna's common-100 rerun are queued first.
+1. Laguna prefill (P6.2): done. The patch is wired into the installer and
+   every launch path, passes on real weights, and Laguna's common-100 on it is
+   62/100 with every task run (see P6.2).
 2. The cancelled real-model queue: the host runner's restart fault-injection
    check passed on November 11 (engine killed during case 7, restarted in
    3.3 s, 0 of 100 cases left unrun;
@@ -762,11 +762,15 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    engine's at batch 16384 and 4096; greedy decoding (tokens, top-20 order
    and logits) is identical across batch sizes and repeated runs; a
    40,153-token needle prompt at ctx 49152 completes with the needle
-   (`4183-KESTREL`), and so does a 60,689-token prompt at ctx 65536. Open:
-   Laguna's common-100 rerun on the patched installed engine, queued after an
-   app-path check (`tests/live/laguna_app_long_prompt_live.mjs`) that upgrades
-   the installed checkout through a Chat launch and answers a ~40,000-token
-   prompt through `/v1`.
+   (`4183-KESTREL`), and so does a 60,689-token prompt at ctx 65536. Through
+   the app (November 12, `laguna-app-long-prompt/run-3hJrvr`, after a first
+   run that upgraded the installed checkout and is retained) the installed
+   engine answered a 40,153-token needle prompt through `/v1` correctly. The
+   counted common-100 on the patched engine is **62/100 with every task run**
+   (`engine-acceptance/run-NTReUt`): long texts 6/8 (none failed in the
+   engine) and missing information 5/5; the other categories are identical to
+   the unpatched run, whose 51/100 stays published and counted for that
+   engine. Laguna remains FAIL for the 100/100 gate.
    Address software-caused failures and report answer/format failures honestly.
    Temperature-zero reruns of unchanged engines are not new evidence of a fix.
    Keep the retained llama.cpp Qwen3.6 thinking-off arithmetic error.
