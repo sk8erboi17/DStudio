@@ -89,6 +89,7 @@ release-summary work. These roadmaps do not authorize new platform/media runs.
 - [November 6 Learn evidence retrieval and final-project scope](changes/2026-11-06.md).
 - [November 8 Learn graph edits, draft access and bounded recovery](changes/2026-11-08.md).
 - [November 10 Learn workspace, messages during generation and resume](changes/2026-11-10.md).
+- [November 11–12: Laguna long prompts, the usage-case matrix and the defects they exposed](changes/2026-11-12.md).
 - [November 10–11 campaign resumed: baseline, coordinator, first corpus results](changes/2026-11-11.md).
 
 Private documents, prompts, transcripts, weights, personal paths and raw test
