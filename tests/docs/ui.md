@@ -566,6 +566,26 @@ scenarios:
 - `tests/unit/roadmap_view_test.mjs` executes the audit, hour, dependency,
   short-title and lossless checkpoint helpers.
 
+Three more scenarios of `ui_roadmap_playwright_test.mjs` run in Chromium and
+WebKit with simulated replies:
+
+- `make test-ui-learn-sources` (`DSTUDIO_TEST_LEARN_SOURCES=1`) attaches a PDF
+  (its reader is simulated here; `make test-pdf-limits` and
+  `make test-pdf-complete` exercise the real one) and puts a link in the Learn
+  prompt. It checks that the link is read first, that the PDF text and the
+  linked page reach the structure request and every stage request, and that
+  the factual audit checks the roadmap against both.
+- `make test-ui-learn-engine-error` (`DSTUDIO_TEST_LEARN_ENGINE_ERROR=1`) has
+  the engine answer one stage request with HTTP 500. The workspace shows one
+  status panel with how much is written, the readable written stage, a
+  *Resume draft* action and the engine message under *Technical details*;
+  Resume continues with the failed stage without regenerating the saved ones.
+- `make test-ui-learn-large` (`DSTUDIO_TEST_LEARN_LARGE=1`) generates ten
+  stages and 300 blocks, audits them in bounded batches, displays them, then
+  jumps with the stage map, marks a block complete and deletes one. The time of
+  each interaction is kept in `large-roadmap-timings.json`; each must stay under
+  five seconds.
+
 Host mocks used by browser tests acknowledge an accepted history write as
 `{"ok":true,"durable":true,"rev":N}`, as `src/dstudio_chat_store.c` does.
 A mock that omits `durable` produces a persistence warning, which layout

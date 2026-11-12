@@ -3006,7 +3006,14 @@
           "id": "generate-roadmap-from-attached-pdf-or-links",
           "use": "The user attaches PDFs, notes or links to the Learn prompt and the roadmap uses them as evidence.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-sources",
+              "evidence": "simulated",
+              "covers": "A PDF attached and a link pasted in the Learn prompt (simulated PDF reader and engine): the link is read first, the PDF text and the linked page reach the structure and every stage request, and the factual audit checks the roadmap against both before it is verified."
+            }
+          ]
         },
         {
           "id": "watch-learn-research-progress",
@@ -3407,7 +3414,14 @@
           "id": "very-large-roadmap",
           "use": "A roadmap with many stages and hundreds of blocks is generated, displayed and edited without losing responsiveness.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-large",
+              "evidence": "simulated",
+              "covers": "A ten-stage, 300-block roadmap is generated and audited in batches of at most four checks, then all blocks are displayed; a draft toggle during generation, a stage-map jump, marking a block complete and deleting one each finish in under five seconds and the edit is saved as unverified."
+            }
+          ]
         },
         {
           "id": "model-returns-unusable-roadmap-output",
@@ -3451,7 +3465,14 @@
           "id": "engine-error-shown-in-learn-workspace",
           "use": "An engine error during generation is shown in the Learn workspace with a readable explanation and a resume action.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-engine-error",
+              "evidence": "simulated",
+              "covers": "The engine answers one stage request with HTTP 500: the Learn workspace shows one status panel with the written share, the readable written stage, a Resume draft action and the engine message under Technical details; Resume continues with the failed stage and reaches a verified roadmap."
+            }
+          ]
         },
         {
           "id": "evidence-missing-for-claims",

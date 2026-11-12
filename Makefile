@@ -410,6 +410,19 @@ test-ui-learn-notes:
 	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
 	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
 
+.PHONY: test-ui-learn-sources test-ui-learn-engine-error test-ui-learn-large
+test-ui-learn-sources:
+	@DSTUDIO_TEST_LEARN_SOURCES=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_SOURCES=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
+test-ui-learn-engine-error:
+	@DSTUDIO_TEST_LEARN_ENGINE_ERROR=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_ENGINE_ERROR=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
+test-ui-learn-large:
+	@DSTUDIO_TEST_LEARN_LARGE=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_LARGE=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
 test-real-roadmap-audit: $(BIN)
 	@DSTUDIO_LIVE_ROADMAP_AUDIT=1 node tests/live/real_roadmap_audit_test.mjs $(BIN)
 
