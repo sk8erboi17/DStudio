@@ -38,6 +38,15 @@ assert.equal(coverage.cases, AREAS.length * ASPECTS.length);
 assert.deepEqual(coverage.uncovered, ['chat/normal-case']);
 assert.deepEqual(coverage.simulatedOnly, ['chat/boundary-case']);
 assert.deepEqual(coverage.byArea.chat, { cases: 4, covered: 3, withRealModel: 0 });
+assert.deepEqual(coverage.reasons, {}, 'no reason was recorded for the gap');
+
+// An uncovered case may say why no test can exercise it; a covered case may not.
+const why = 'Needs the native desktop session and Finder; not exercisable headlessly.';
+const explained = validateUsageMatrix(build((m) => { m.areas[0].cases[0].tests = []; m.areas[0].cases[0].uncoveredReason = why; }), root);
+assert.deepEqual(explained.errors, []);
+assert.deepEqual(usageCoverage(explained.rows).reasons, { 'chat/normal-case': why });
+assert.match(errorsOf((m) => { m.areas[0].cases[1].uncoveredReason = why; }).join('\n'), /only for a case without tests/);
+assert.match(errorsOf((m) => { m.areas[0].cases[0].tests = []; m.areas[0].cases[0].uncoveredReason = 'n/a'; }).join('\n'), /uncoveredReason is a sentence/);
 
 if (fs.existsSync('tests/fixtures/usage_matrix.json')) {
   const shipped = validateUsageMatrix(JSON.parse(fs.readFileSync('tests/fixtures/usage_matrix.json', 'utf8')), root);

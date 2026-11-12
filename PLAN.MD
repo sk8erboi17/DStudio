@@ -32,7 +32,7 @@ evening.** The resume follows this order:
    publication and the clean upstream build are done model-free (November 12,
    see P9); next the real lanes, starting with the first run of the three
    in-process drivers on development cases.
-7. P12 inputs: the 54 uncovered usage cases (not started). The opt-in,
+7. P12 inputs: the 54 uncovered usage cases (51 now have a test, three a recorded reason; see P12). The opt-in,
    bounded copy of the resident server's output is in place; the 27B MLX
    diagnostic rerun that uses it is queued.
 8. Everything else in P0–P13 that the sections below still list as open,
@@ -1071,7 +1071,14 @@ test files; it is a first complete pass, not yet reviewed row by row. Before
 anything is removed, the following inputs from that pass must be resolved:
 
 - The 54 uncovered cases each get a behavioral test, or an explicit recorded
-  reason why the case cannot be exercised on the maintainer's Mac.
+  reason why the case cannot be exercised on the maintainer's Mac. November
+  12: 51 have one (45 model-free or simulated, written with their fixes of 16
+  product defects found on the way; four real-model runners not yet run;
+  one existing real-model test), and the matrix records the reason for the
+  other three (`uncoveredReason`): instructions hidden in a web page need a
+  held-out real-model case, double-click launch needs the native desktop
+  (P7), and a whole-app upgrade over an earlier main engine checkout does not
+  exist (P5). The matrix now holds 629 cases, 626 with a test.
 - Tests that execute only test-support code and no production behavior:
   `research_http_cancel_test.mjs`, `roadmap_request_test.mjs`,
   `http_deadline_test.mjs`, `rsa_collectors_matrix_test.mjs`,

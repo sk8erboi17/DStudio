@@ -51,7 +51,10 @@ export function validateUsageMatrix(matrix, root) {
         if (test.evidence === 'real-model' && row.kind !== 'live') fail(`${where}: real-model evidence must come from tests/live, not ${test.file}`);
         if (typeof test.covers !== 'string' || test.covers.trim().length < 8) fail(`${where}: say what ${test.file} executes for this case`);
       }
-      rows.push({ area: area.id, id: item.id, aspect: item.aspect, tests: item.tests.length,
+      // A case no test can exercise here states why (PLAN.MD P12); a covered case states none.
+      if (item.uncoveredReason !== undefined && (item.tests.length || typeof item.uncoveredReason !== 'string' || item.uncoveredReason.trim().length < 20))
+        fail(`${where}: uncoveredReason is a sentence, and only for a case without tests`);
+      rows.push({ area: area.id, id: item.id, aspect: item.aspect, tests: item.tests.length, uncoveredReason: item.uncoveredReason || null,
         real: item.tests.filter((test) => test.evidence === 'real-model').length,
         modelFree: item.tests.filter((test) => test.evidence === 'model-free').length,
         simulated: item.tests.filter((test) => test.evidence === 'simulated').length });
@@ -64,13 +67,14 @@ export function validateUsageMatrix(matrix, root) {
 // are cases whose only evidence uses authored model replies.
 export function usageCoverage(rows) {
   const uncovered = rows.filter((row) => row.tests === 0).map((row) => `${row.area}/${row.id}`);
+  const reasons = Object.fromEntries(rows.filter((row) => row.tests === 0 && row.uncoveredReason).map((row) => [`${row.area}/${row.id}`, row.uncoveredReason]));
   const simulatedOnly = rows.filter((row) => row.tests > 0 && row.real === 0 && row.modelFree === 0).map((row) => `${row.area}/${row.id}`);
   const byArea = {};
   for (const row of rows) {
     const area = byArea[row.area] ||= { cases: 0, covered: 0, withRealModel: 0 };
     area.cases++; if (row.tests) area.covered++; if (row.real) area.withRealModel++;
   }
-  return { cases: rows.length, covered: rows.length - uncovered.length, uncovered, simulatedOnly, byArea };
+  return { cases: rows.length, covered: rows.length - uncovered.length, uncovered, reasons, simulatedOnly, byArea };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
@@ -82,7 +86,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   else {
     for (const [area, c] of Object.entries(coverage.byArea)) console.log(`${area.padEnd(26)} ${String(c.covered).padStart(3)}/${String(c.cases).padEnd(3)} covered, ${c.withRealModel} with real-model evidence`);
     console.log(`${coverage.covered}/${coverage.cases} usage cases have a test; ${coverage.uncovered.length} uncovered; ${coverage.simulatedOnly.length} with simulated evidence only`);
-    for (const id of coverage.uncovered) console.log(`UNCOVERED ${id}`);
+    for (const id of coverage.uncovered) console.log(`UNCOVERED ${id}${coverage.reasons[id] ? ` (reason recorded: ${coverage.reasons[id]})` : ' (no reason recorded)'}`);
     for (const error of errors) console.log(`INVALID ${error}`);
   }
   process.exitCode = errors.length ? 1 : 0;
