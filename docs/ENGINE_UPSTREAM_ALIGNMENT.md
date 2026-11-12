@@ -11,8 +11,10 @@ in progress. This check never updates a user's engine or downloads weights.
 receipts and unresolved source reviews. It must fail admission until those
 items are resolved. Its rows are requirements, not an announcement that all
 models, backends or modes work. Since November 11 the main track's recorded
-delta is [classified by changed path](#main-delta-review); Laguna's porting
-review and the commits upstream has added past the recorded tips are not.
+delta is [classified by changed path](#main-delta-review), and since
+November 12 Laguna's share of it has a [porting review](#laguna-port-review)
+that leaves 11 porting candidates open; the commits upstream has added past
+the recorded tips are not reviewed.
 
 Since November 11 the matrix declares ten macOS targets, **135 required gate
 slots and zero linked receipts**. These are missing bound qualification
@@ -50,7 +52,7 @@ every branch except Laguna's was ahead of its recorded tip
 | Engine | Recorded revision | Current evidence / remaining work |
 | --- | --- | --- |
 | ds4 main, including Qwen3.8 Next | [`890898c`](https://github.com/antirez/ds4/commit/890898cfb437ed256be58ebcf7c58a6dfa8f2f53) | [Unified-main migration](QWEN_NEXT_MAIN_MIGRATION.md) is implemented. The Next single-file Q4 baseline is 75/100, including 8/8 long cases, on `0aaea5a`. It does not qualify `890898c`; current-stack numerical/mode/desktop qualification and independent Q2 acceptance remain open. [V4.1 evidence and remaining work](DS41_UPDATE_CHECKPOINT.md) retain the scope of each recorded revision. |
-| Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits at the last recorded review; applicable main changes and complete macOS mode coverage remain open. Other backends are outside this campaign. |
+| Laguna | [`448d569`](https://github.com/antirez/ds4/commit/448d5695d1c86401a4e9447c440feb983b73e6de) | No new branch commits on November 12. Of main's 243 integrated commits, 11 are [porting candidates](#laguna-port-review), not yet ported; complete macOS mode coverage remains open. Other backends are outside this campaign. |
 | llama.cpp, Qwen3.6-35B-A3B and Qwen3.8-27B | [`f5027fb`](https://github.com/ggml-org/llama.cpp/commit/f5027fb21307eb264aed483242603d68c87b0fe3) (`b11836`, since October 23; `b11371` before) | Bundled unmodified in `src/engines/llama.cpp`; built offline with CMake on first use. Chat, Agent and Cowork passed the live gate on both models on `b11371` (Metal); on `b11836` only Qwen3.6 has been rerun (6/6); Design runs with structured tool calls (real page on Qwen3.6). No DStudio patch is applied. Full-model quality, long context and other backends remain open. |
 
 The vagrillo/ds4 Qwen3.6 fork (`73434c4`), Ninnix/q36 (`1305843`) and the
@@ -132,9 +134,14 @@ it fills no gate receipt.
 | Two llama.cpp targets (Qwen3.6, Qwen3.8-27B), each | 243 | 57 | 0 |
 | Laguna | 0 | 57 | 243 |
 
-No commit is classified `equivalent`. The matrix holds 2,457 review entries;
-each cites the [commit inventory](upstream/main-delta-2026-11-11.json) by
-SHA-256. The MLX target lists only its two MLX tracks, so it has none.
+No commit is classified `equivalent` by path. The matrix held 2,457 review
+entries on November 11; each cites the
+[commit inventory](upstream/main-delta-2026-11-11.json) by SHA-256. The MLX
+target lists only its two MLX tracks, so it has none. On November 12 the
+[Laguna porting review](#laguna-port-review) added 232 Laguna entries (231 not
+applicable, 1 equivalent), which also cite the review file: 2,689 in all.
+Laguna's row then reads 0 integrated, 288 not applicable, 1 equivalent and 11
+unclassified.
 
 ### Method
 
@@ -186,7 +193,7 @@ inventory.
    someone ports it. The 57 commits that touch nothing a macOS Metal runtime
    compiles or reads are not applicable; the other 243 are left unclassified,
    because whether Laguna needs each one is a source judgment no path rule can
-   make.
+   make. The [porting review](#laguna-port-review) of November 12 makes it.
 
 ### What this does not establish
 
@@ -198,8 +205,9 @@ inventory.
   for a CUDA code path counts as integrated; no `#if` analysis was done.
   Ten commits are integrated only through `Makefile` lines that make parses
   on macOS; whether they alter the default build was not analysed.
-- Anything about Laguna's 243 open commits, or about commits upstream added
-  after the recorded tips.
+- Anything about Laguna's 243 commits (the [porting review](#laguna-port-review)
+  covers them, with its own limits), or about commits upstream added after
+  the recorded tips.
 - Any gate. The 135 required gate slots still have zero receipts.
 
 ### Remote revisions on November 11, 2026
@@ -245,6 +253,141 @@ every run. Diff hashes use Git's 7-digit abbreviated blob ids, as the
 [September inventory](upstream/engine-deltas-2026-09-12.json) did; the seven
 commits the two inventories share have the same hashes.
 
+<a id="laguna-port-review"></a>
+## Laguna porting review of main's delta (November 12)
+
+Laguna S 2.1 builds from its own branch, so the path classification above left
+open the 243 commits that the main targets integrate. On November 12 each of
+them was read against that branch and given one verdict: its first-parent
+diff, compared with the Laguna sources at `448d569` and with DStudio's Laguna
+patches, not its message. The result is
+[`upstream/laguna-port-review-2026-11-12.json`](upstream/laguna-port-review-2026-11-12.json).
+It is a **source review**: no engine or model ran, nothing was ported, no
+patch was written and no gate receipt was added.
+
+| Verdict | Commits | Meaning |
+| --- | ---: | --- |
+| Present | 1 | Already in what DStudio builds for Laguna |
+| Porting candidate | 11 | Laguna has the same code path and lacks the change |
+| Not applicable | 231 | Laguna lacks the code, does not build it on macOS, or never runs it |
+| Unresolved | 0 | |
+
+The one **present** commit is `e33a5b2` (agent tasks continue across context
+compaction). It is not on the Laguna branch: DStudio's Agent/Cowork patch
+version 99 (`patch/ds4-agent-jsonl/laguna.patch`) backports its text-only
+part. The manifest records it as `equivalent`, citing that patch in its reason.
+`git cherry` finds no commit of the interval with an equivalent patch on the
+branch itself.
+
+The **not applicable** commits, by reason:
+
+- 124 change code the Laguna branch does not have: DeepSeek V4.1 (85) and
+  Qwen3.8 Flash Next (39), which reached main after Laguna forked at `efdadd4`
+  on July 20.
+- 45 change paths the Laguna engine refuses when it opens a model: SSD expert
+  streaming (11), tensor parallelism (19) and DSpark (15). The Laguna block of
+  `ds4_engine_open_internal` also refuses distributed inference, layer slicing
+  and multi-GPU placement.
+- 12 change another model family's graph, which a Laguna session never runs:
+  GLM (8) and DeepSeek V4 routed MoE or indexer (4). The Laguna graph calls its
+  own `laguna_*` kernels and the GLM routed-MoE entry points.
+- 7 are CUDA or ROCm only, and 7 concern image input (Laguna is text-only).
+- 20 touch the server, agent, build, downloads or a shared Metal kernel, but
+  only for code that Laguna does not run. Examples: DSML-only syntax, Qwen or
+  vision rendering, test targets for files Laguna lacks, downloads of other
+  checkpoints, and multi-slot routing.
+- 16 are merges that carry nothing beyond commits reviewed individually or
+  main commits before the base. Their conflict resolution was read with
+  `git show --remerge-diff`.
+
+Some of these verdicts rest on how DStudio runs Laguna today, and their reasons
+say so: Chat starts `ds4-server` with one slot and without `--dflash`, and
+Agent/Cowork run the JSONL agent on pipes rather than the terminal UI.
+Changing that reopens them, for example `82aa7e8`, `af7c02b` and `4ff3af6`
+(top-k kernels reached only through DFlash) and `4d7028e`/`ada805a`
+(multi-slot routing).
+
+### Porting candidates
+
+None has been ported. Each needs its own adaptation, tests and a versioned
+patch under `patch/`, scheduled separately.
+
+| Commit | What the main change fixes | Laguna at `448d569` |
+| --- | --- | --- |
+| `5b3cc8b` | The server's sampling tracker recognises GLM-syntax tool calls, so their names and keys are sampled greedily and argument values with the request's sampling | `ds4_server.c`'s `dsml_decode_tracker_update` finds only DSML starts, so Laguna's `<tool_call>` blocks are never tracked. A port must treat `SERVER_MODEL_SYNTAX_LAGUNA` like GLM (main tests only GLM) and bring `d077fa6` with it |
+| `759dd7c` | A tool call cut off by the output limit ends as `finish=length` instead of starting a tool-error continuation | `generate_job` runs the recovery for any unterminated call, and `decode_again` resets the budget, so a second full budget can be generated (non-streaming only) |
+| `fc6414c` | A literal `</tool_call>` or `</think>` inside an argument no longer ends or drops the call | `parse_glm_generated_message_ex`, which parses Laguna's calls, uses `strstr`/`find_last_substr`; decoding stops when `observe_tool_markers` sees `</tool_call>`. The marker part needs `5b3cc8b` first |
+| `d108ae4` | Tool argument text survives render, parse and streaming byte for byte | The parser and both tool streams decode every HTML entity (`dsml_unescape_text`); the agent's `agent_glm_tool_parse` rejects a value containing `</tool_call>`. Needs `ds4_tool_text.h`, which Laguna lacks |
+| `6eac69e` | The tool-error recovery stays within the remaining output budget and respects a client stop; a debug scan no longer reads past short output | Same recovery in `generate_job`; the scan bound `text.len - 20` underflows below 20 bytes (non-streaming recovery) |
+| `a8ce74a` | A blank `reasoning_content` echoed by a client renders like absent reasoning | `parse_messages` keeps it and `render_laguna_chat_prompt_text` emits it between think tags, so the replayed prompt misses the cached prefix and is prefilled again |
+| `67f2ca9` | `/v1/models` reports input and output modalities | Same `append_model_json_values` without them; additive metadata, no inference change |
+| `b36e26e` | Agent file tools replace files atomically and detect concurrent changes; reads, searches and background shell jobs stop truncating or stalling silently | Same tools in `ds4_agent.c`, but `laguna.patch` rewrites the read/write/list region and `agent_execute_tool_call`, so a port must be merged with that patch |
+| `a4c922c` | Buffers of a freed Metal session are released instead of staying referenced by the reading thread | `ds4_gpu_tensor_contents`/`_write`/`_read` in `ds4_metal.m` read buffer contents without an autorelease pool; the Laguna graph and its session save/restore use them. Upstream measured the leak with GLM 5.3; it was not measured on Laguna |
+| `c0a6119` | An in-memory session snapshot keeps its final byte | `ds4_session_save_snapshot` opens an `fmemopen` buffer of exactly the payload size. Latent for DStudio: only `ds4-bench` calls it on the Laguna branch |
+| `064bc22` | `ds4_metal.o` is rebuilt when `ds4.h` changes | The Makefile rule omits `ds4.h`, which `ds4_metal.m` includes. Build hygiene only: a clean build is unaffected, and DStudio's Laguna patches do not touch `ds4.h` |
+
+The server candidates overlap. `fc6414c` and `d108ae4` rework the same
+parser, and `759dd7c` and `6eac69e` rework the same recovery path. The
+continuation they bound runs only for non-streaming requests.
+
+Only some diffs apply as they stand, checked with `git apply --check` on an
+index of `448d569`, without and with each DStudio patch:
+
+- The `ds4_metal.m` part of `a4c922c` and the `ds4.c` part of `c0a6119` apply
+  both without and with `patch/ds4-laguna-prefill-chunk`.
+- The `ds4_server.c` part of `759dd7c` applies both without and with
+  `patch/ds4-server-metrics/usage-metrics.patch`.
+- The other server candidates do not apply as they stand, even to the
+  unpatched branch, and need adapting.
+
+### What this does not establish
+
+- That a candidate is a measured defect on Laguna weights, or that porting it
+  is safe; no Laguna run was made.
+- That a not-applicable commit could never matter: it would if Laguna's engine
+  stopped refusing streaming, tensor parallelism or DSpark, or if DStudio
+  started using DFlash or several server slots.
+- Anything about the 311 main commits between the merge base `efdadd4` and the
+  base `f4d03f6`, which the Laguna branch also lacks, or about commits after
+  the recorded tips. Neither group was reviewed for Laguna.
+- An independent second reading. The verdicts were recorded once and were not
+  re-reviewed. Commit titles are provenance, not verified claims.
+
+### Revisions read on November 12, 2026
+
+A fresh clone of `https://github.com/antirez/ds4` was made at 00:30 UTC into
+the ignored `tests/.artifacts/laguna-port-review/`. The main checkout's
+`tests/.artifacts/engine-delta-review/` held only the test's synthetic runs,
+not the November 11 review checkouts. In the clone:
+
+- `refs/heads/main` was `b3f50180ec2c7324892be1f50bc83555ccb8d5e7`, as on
+  November 11.
+- `refs/heads/laguna-s2.1` was `448d5695d1c86401a4e9447c440feb983b73e6de`,
+  unchanged.
+- The merge base of `890898c` and `448d569` is `efdadd4`. The branch has 17
+  commits after it (July 23–27, 2026).
+- `src/engines/ds4-laguna-s21` equals `448d569` file by file, apart from the
+  declared omissions.
+
+With main and Laguna checkouts at their recorded revisions (no other
+repositories, no app), admission's `UNCLASSIFIED_COMMIT` issues fell from
+1,055 to 823. All 232 fewer are Laguna's. Its remaining 127 are the 11
+candidates and the 116 main commits after the recorded tip. Admission still
+fails, as it must.
+
+### Revise it
+
+Edit a verdict in the JSON file, then run `node scripts/engine-delta-review.mjs`.
+The script regenerates the Laguna target's reviews and renders the file
+canonically. The target names the file in `portReview`. Only `present` (as
+`equivalent`) and `not-applicable` become reviews; a candidate or unresolved
+commit stays an admission issue until it is ported or decided.
+
+The script refuses a file that misses a verdict, adds one for a commit the
+path rules decide, gives a commit two verdicts, uses an unknown verdict or
+names other revisions or another inventory. `make test-engine-delta-review`
+checks all of this.
+
 ## Run the checks
 
 The model-free regression tests exercise real local Git histories, actual patch
@@ -261,7 +404,11 @@ names an inventoried commit once, and equals what the generator's rules give
 for the inventory and the files shipped in `src/engines/`. On macOS it also
 compares the compiled path rules with the preprocessor's include closure of
 upstream's default build, and it runs the generator on a synthetic Git history
-whose output goes through the real admission checker. It reviews no commit.
+whose output goes through the real admission checker. It also checks that
+Laguna's [porting review](#laguna-port-review) gives exactly one verdict to
+each commit the main targets integrate, for the pinned revisions and this
+inventory, and that the manifest's Laguna reviews follow those verdicts. It
+reviews no commit.
 
 To inspect the compiled installer's pins without creating a window, loading a
 profile or starting a model:
@@ -351,7 +498,8 @@ numerical oracle or complete build lock. It cannot establish that a source
 review's judgment is correct, that an omitted combination was intentionally
 excluded, or that arbitrary host/source changes outside the named inputs were
 tested. The main-track reviews are path classifications with
-[stated limits](#main-delta-review), not judgments about behaviour. The full inventory, independent graders, platform/driver and weight
+[stated limits](#main-delta-review), not judgments about behaviour; Laguna's
+are source verdicts of its [porting review](#laguna-port-review), not tests. The full inventory, independent graders, platform/driver and weight
 identities, suite revisions, final source freeze and release review are still
 required. Metal results do not qualify CUDA, ROCm or Vulkan, which are outside
 the macOS-only campaign.

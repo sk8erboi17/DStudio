@@ -55,6 +55,32 @@ try {
     assert.deepEqual(reviews.map(r => r.commit), ids.filter(id => seen.has(id)), `${target.id}: reviews are not in inventory order`);
     unresolved[target.id] = ids.length - seen.size;
   }
+  // Laguna's porting review: exactly one hand-written verdict for every commit
+  // the main targets integrate, none for any other, and the manifest carries a
+  // review only for `present` (equivalent) and `not-applicable` verdicts.
+  const laguna = manifest.targets.find(t => t.sourceTrack === 'laguna'), portCounts = {};
+  if (laguna?.portReview) {
+    const port = json(laguna.portReview), integrated = ids.filter(id => manifest.targets.find(t => t.sourceTrack === 'main').reviews
+      .some(r => r.track === 'main' && r.commit === id && r.decision === 'integrated'));
+    assert.equal(port.schema, 'dstudio.laguna-port-review.v1');
+    assert.deepEqual([port.sources.main.base, port.sources.main.tip, port.sources.laguna.tip], [track.base, track.recordedTip, laguna.revision]);
+    assert.deepEqual([port.inventory.path, port.inventory.sha256], [track.deltaInventory, sha(fs.readFileSync(track.deltaInventory))]);
+    assert.deepEqual(port.reviews.map(r => r.commit), integrated, 'the porting review must give one verdict to each integrated main commit, in inventory order');
+    const lagunaReviews = new Map(laguna.reviews.filter(r => r.track === 'main').map(r => [r.commit, r]));
+    for (const entry of port.reviews) {
+      portCounts[entry.verdict] = (portCounts[entry.verdict] || 0) + 1;
+      assert.equal(entry.title, row.commits.find(c => c.id === entry.commit).title);
+      assert.ok(entry.reason.trim().length >= 20 && entry.group);
+      if (entry.verdict === 'candidate') assert.ok(entry.fixes && entry.laguna, entry.commit + ': a candidate says what it fixes and what Laguna has');
+      if (entry.verdict === 'unresolved') assert.ok(entry.why, entry.commit + ': an unresolved verdict says why');
+      const expected = {present: 'equivalent', 'not-applicable': 'not-applicable'}[entry.verdict];
+      assert.equal(lagunaReviews.get(entry.commit)?.decision, expected, entry.commit + ': manifest review does not follow the porting verdict');
+      if (expected) assert.ok(lagunaReviews.get(entry.commit).evidence.some(e => e.path === laguna.portReview));
+    }
+    assert.equal(unresolved[laguna.id], (portCounts.candidate || 0) + (portCounts.unresolved || 0));
+    pass(`Laguna porting review: ${port.reviews.length} verdicts for ${integrated.length} integrated main commits, ${JSON.stringify(portCounts)}`, {portCounts});
+  }
+
   // The production generator, reviews only: it refuses when src/engines/ is no
   // longer the tree the inventory compared, and must reproduce the file bytes.
   const again = run({root, check: true});
@@ -201,6 +227,53 @@ try {
     write('docs/engine-upstream.json', JSON.stringify(other, null, 2) + '\n'); run({root: fixture});}, error => error.code === 'UNKNOWN_TARGET');
   fs.writeFileSync(manifestPath, generated[0]);
   pass('refused: a target whose relation to main is not recorded');
+
+  // A porting review for the separate target: its two runtime commits (core,
+  // build) get hand-written verdicts. Written out of order and indented
+  // differently; the generator renders it canonically.
+  const portPath = 'docs/upstream/laguna-port-review-2026-01-03.json', portFull = path.join(fixture, portPath);
+  const title = id => fact(id).title;
+  const portReview = (change = r => r) => change({schema: 'dstudio.laguna-port-review.v1', capturedAt: '2026-01-03',
+    sources: {repository: remote, readAt: '2026-01-03T00:00:00Z', main: {base, tip}, laguna: {tip}},
+    inventory: {path: first.inventory, sha256: sha(fs.readFileSync(path.join(fixture, first.inventory)))},
+    reviews: [
+      {verdict: 'candidate', commit: build, title: title(build), group: 'build', reason: 'The fixture branch has the same default build rules.', fixes: 'builds ds4-server', laguna: 'Makefile: all'},
+      {commit: core, title: title(core), group: 'engine-shared', verdict: 'not-applicable', reason: 'The fixture branch never executes this value.'}]});
+  const withPort = structuredClone(produced); withPort.targets[2].portReview = portPath;
+  fs.writeFileSync(manifestPath, JSON.stringify(withPort, null, 2) + '\n');
+  fs.writeFileSync(portFull, JSON.stringify(portReview(), null, 2) + '\n');
+  const ported = run({root: fixture}), portedManifest = json(manifestPath), canonical = json(portFull);
+  assert.deepEqual(ported.written.sort(), ['docs/engine-upstream.json', portPath]);
+  assert.deepEqual(canonical.reviews.map(r => [r.commit, Object.keys(r)]), [[core, ['commit', 'title', 'group', 'verdict', 'reason']],
+    [build, ['commit', 'title', 'group', 'verdict', 'reason', 'fixes', 'laguna']]], 'inventory order and fixed key order');
+  const portedLaguna = portedManifest.targets[2].reviews.find(r => r.commit === core);
+  assert.equal(portedLaguna.decision, 'not-applicable'); assert.match(portedLaguna.reason, /^Porting review against this target's own branch: /);
+  assert.deepEqual(portedLaguna.evidence.map(e => e.path), [first.inventory, portPath]);
+  assert.equal(portedLaguna.evidence[1].sha256, sha(fs.readFileSync(portFull)));
+  assert.ok(!portedManifest.targets[2].reviews.some(r => r.commit === build), 'a porting candidate is not a review');
+  assert.deepEqual(ported.targets[2].unclassified.map(u => u.commit), [build, ...open]);
+  assert.equal(ported.targets[2].unclassified[0].why, 'porting candidate: builds ds4-server');
+  assert.deepEqual(run({root: fixture, check: true}).stale, []);
+  const portAdmission = checkUpstream({manifest: portedManifest, root: fixture, repositories: {main: candidate, llama: candidate, laguna: candidate}});
+  assert.deepEqual(portAdmission.issueCounts, {MISSING_GATE: 3, UNCLASSIFIED_COMMIT: 10}, 'the candidate stays an admission issue; the decided commit does not');
+  pass('porting review: a not-applicable verdict becomes a review citing the file, a candidate stays unclassified, and the file is rendered canonically');
+
+  const portBytes = fs.readFileSync(portFull, 'utf8'), manifestBytes = fs.readFileSync(manifestPath, 'utf8');
+  const portRefused = (label, change, code) => {
+    fs.writeFileSync(portFull, JSON.stringify(portReview(change), null, 2) + '\n');
+    assert.throws(() => run({root: fixture}), error => error.code === code, label);
+    assert.equal(fs.readFileSync(manifestPath, 'utf8'), manifestBytes, label + ': a refused run wrote the manifest');
+    fs.writeFileSync(portFull, portBytes);
+    pass('refused porting review: ' + label);
+  };
+  portRefused('a runtime commit without a verdict', r => ({...r, reviews: r.reviews.slice(1)}), 'STALE_PORT_REVIEW');
+  portRefused('a verdict for a commit the path rules decide', r => ({...r, reviews: [...r.reviews, {...r.reviews[1], commit: cuda, title: title(cuda)}]}), 'STALE_PORT_REVIEW');
+  portRefused('another commit inventory', r => ({...r, inventory: {...r.inventory, sha256: '0'.repeat(64)}}), 'STALE_PORT_REVIEW');
+  portRefused('another Laguna revision', r => ({...r, sources: {...r.sources, laguna: {tip: base}}}), 'STALE_PORT_REVIEW');
+  portRefused('an unknown verdict', r => ({...r, reviews: [{...r.reviews[0], verdict: 'probably-fine'}, r.reviews[1]]}), 'INVALID_PORT_REVIEW');
+  portRefused('a candidate that does not say what Laguna has', r => ({...r, reviews: [{...r.reviews[0], laguna: ''}, r.reviews[1]]}), 'INVALID_PORT_REVIEW');
+  portRefused('a verdict twice', r => ({...r, reviews: [...r.reviews, r.reviews[1]]}), 'INVALID_PORT_REVIEW');
+  assert.deepEqual(run({root: fixture, check: true}).stale, []);
   report.passed = true;
 } catch (error) {report.error = String(error.stack || error); console.error(report.error); process.exitCode = 1;}
 finally {report.finished = new Date().toISOString(); writeArtifact(work, 'results.json', report); console.log(work);}

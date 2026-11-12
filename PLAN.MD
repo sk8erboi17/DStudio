@@ -392,10 +392,23 @@ patch migrations and retired-Next removal are implemented.
    comparison of the shipped tree with upstream
    ([method, limits and remote revisions](docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review)):
    243 integrated and 57 not applicable for each ds4 main and llama.cpp
-   target. Still open: Laguna's 243 commits, which need a porting review
-   against its own branch; the commits upstream added past the recorded tips
-   (116 main, 446 llama.cpp, 18 mlx-lm, 82 mlx on November 11; pins not
-   moved); and a behavioural review wherever a path rule is not enough.
+   target. November 12: Laguna's 243 have a porting review against its own
+   branch `448d569` (upstream refs unchanged since November 11;
+   [summary](docs/ENGINE_UPSTREAM_ALIGNMENT.md#laguna-port-review),
+   [data](docs/upstream/laguna-port-review-2026-11-12.json)): 231 not
+   applicable, 1 present through DStudio's Agent patch (`e33a5b2`), 0
+   unresolved, and 11 porting candidates, none ported yet: server tool-call
+   tracking and parsing for Laguna's GLM syntax (`5b3cc8b`, `fc6414c`,
+   `d108ae4`), the non-streaming tool-error recovery budget (`759dd7c`,
+   `6eac69e`), blank echoed reasoning (`a8ce74a`), `/v1/models` modalities
+   (`67f2ca9`), agent file tools (`b36e26e`), a Metal buffer leak on session
+   free (`a4c922c`), and two latent ones (`c0a6119` snapshot byte, `064bc22`
+   Makefile dependency). Still open: porting those candidates (separate,
+   maintainer-scheduled work); the 311 main commits between Laguna's fork
+   point `efdadd4` and the base, which no review has judged for Laguna; the
+   commits upstream added past the recorded tips (116 main, 446 llama.cpp, 18
+   mlx-lm, 82 mlx on November 11; pins not moved); and a behavioural review
+   wherever a path rule or a source verdict is not enough.
 2. Resolve the missing release receipts/reviews in
    [the matrix](docs/engine-upstream.json). Since November 11 it declares ten
    macOS targets with 135 required gate slots and zero linked receipts (nine

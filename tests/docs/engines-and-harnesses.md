@@ -635,11 +635,23 @@ recorded in `docs/engine-upstream.json`, without a clone or network:
   admission checker accepts the generated reviews and still reports each
   unclassified commit; a shipped tree that differs from its pin (changed,
   extra, missing, wrong executable bit, or a runtime file declared omitted) is
-  refused without output.
+  refused without output;
+- Laguna's hand-written [porting review](../../docs/upstream/laguna-port-review-2026-11-12.json)
+  is bound to the inventory's SHA-256 and the pinned main and Laguna
+  revisions, gives exactly one verdict to each commit the main targets
+  integrate (in inventory order) and none to any other, a candidate says what
+  it fixes and what Laguna has, an unresolved verdict says why, and the
+  manifest carries a Laguna review only for `present` (as `equivalent`) and
+  `not-applicable` verdicts; on the synthetic history a `not-applicable`
+  verdict becomes a review citing the file, a candidate stays an admission
+  issue, the file is rendered canonically, and a missing, extra, duplicated
+  or unknown verdict, another inventory or another Laguna revision is refused
+  without output.
 
 It does not read upstream history and reviews no commit: a PASS says the
-recorded classification is the one the rules give, not that a classification
-is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review).
+recorded classification is the one the rules and the recorded porting
+verdicts give, not that a verdict is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review),
+[porting review](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#laguna-port-review).
 
 
 ### Codex CLI Responses protocol (scripted server)
