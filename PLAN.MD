@@ -1,6 +1,6 @@
 # DStudio — remaining macOS completion work
 
-Updated November 11, 2026. This document contains only unfinished implementation
+Updated November 12, 2026. This document contains only unfinished implementation
 and acceptance work. The full campaign remains incomplete. On November 10, 2026
 the owner resumed it: complete every item of this plan and of
 [the WIP](docs/WORK_IN_PROGRESS.md), then perform the final simplification step
@@ -10,24 +10,39 @@ maintainer's Mac, including the owner-reserved quality reruns; it does not turn
 an unfinished, failed or blocked requirement into a pass.
 
 <a id="pause"></a>
-**Paused on November 11, 2026 at the owner's request, resumed the same
-evening.** The resume follows this order:
+**Paused again on November 12, 2026 at about 09:10 at the owner's request.**
+(The first pause, on November 11, was resumed the same evening.) Every
+campaign queue and real-model run was stopped; nothing is running and the
+frozen worktree is clean. Resume in this order:
 
 1. Laguna prefill (P6.2): done. The patch is wired into the installer and
    every launch path, passes on real weights, and Laguna's common-100 on it is
    62/100 with every task run (see P6.2).
-2. The cancelled real-model queue: the host runner's restart fault-injection
-   check passed on November 11 (engine killed during case 7, restarted in
-   3.3 s, 0 of 100 cases left unrun;
-   [details](tests/docs/model-quality.md)); pi/OpenCode on Laguna and the
-   three `check-real` suites are running.
-3. Design projects (P8): generate the thirteen briefs not yet run, keeping the
-   five recorded outcomes, then audit all eighteen.
-4. Disk KV snapshots (P3.2): write and run the real-weight check on Qwen3.6
-   and Qwen3.8-27B before enabling them by default.
-5. Vision corpus (P4): the real-model runner and its runs, the remaining
-   simulated scenarios, text-only isolation, and replacing the live vision UI
-   check.
+2. The cancelled real-model queue: done. The host runner's restart check,
+   pi/OpenCode on Laguna (3/6) and the `check-real` suites ran on November
+   11–12 (see the [change note](docs/changes/2026-11-12.md)); the real
+   remote suite failed and its cause is fixed, so it runs again (step 5).
+3. Design projects (P8): seventeen of the eighteen briefs have run and the
+   eighteenth was interrupted by this pause (see P8). Next, generate with no
+   time limit the eight briefs that have no result under the current
+   protocol: `signal-incident-triage`, `forma-room-reservation`,
+   `pulse-listening-queue`, `market-lamp-configurator`,
+   `commons-reading-circle`, `commons-community-review`,
+   `atlas-pocket-guide` and `canvas-poster-layers` (the prepared queue runs
+   exactly these). Then audit all eighteen
+   (`tests/support/design_project_audit.mjs DIR --completed-only` on each
+   generation folder).
+4. Disk KV snapshots (P3.2): rerun `make test-llama-kv-snapshot-live`, now
+   with greedy runtimes; the first run was uninterpretable (see P3.2).
+5. The queued real-model steps that did not start: the real remote suite
+   (`node tests/live/real_remote_test.mjs tests/.build/dstudio-server-test`), local image generation
+   (`make test-media-image-live`; its first run failed only because the
+   campaign worktree had no `node_modules`, now linked), the vision corpus on
+   DeepSeek V4 Flash Vision-Exp (pixel path, `--ocr off`) and its text-only
+   isolation run on Qwen3.6 Q6, the clean upstream `ds4-agent` build and the
+   first P9 development smoke (upstream agent, DStudio Agent, Task Graph).
+   The P4 items remain: the remaining simulated scenarios and replacing the
+   live vision UI check.
 6. Agent comparisons (P9): the scripted mechanics test, `--plan`, six-agent
    publication and the clean upstream build are done model-free (November 12,
    see P9); next the real lanes, starting with the first run of the three
@@ -41,9 +56,10 @@ evening.** The resume follows this order:
    (P10), the final build (P11; the installed app predates the November 11
    fixes) and the README and media (P13).
 
-The frozen campaign worktree `../DStudio-campaign` (detached at `afdeea2b`,
-receipts linked into this repository's ignored `tests/.artifacts/`) is kept
-for resuming; move it to the resume commit before the next real-model run.
+The frozen campaign worktree `../DStudio-campaign` (detached at `e9c90e0b`,
+clean; receipts and `node_modules` linked from this repository, both
+ignored) is kept for resuming; move it to the resume commit before the next
+real-model run.
 
 Completed tranches, superseded reconnaissance, original failures and exact
 receipt identities are in the [archived plan](docs/history/plan-through-2026-10-01.md).
@@ -924,7 +940,25 @@ The sixteen added systems require separate future generated-output qualification
    omits a changed setting, the page overflows at 390 px). The same audit
    first found a defect in the shared layout check (deliberately hidden text
    was exempt only under one class name), corrected before these results.
-   The thirteen briefs not run are queued (queue 10).
+   November 12: the thirteen briefs not yet run were generated in order
+   (`design-projects/p8-20261112-0316-deepseek-v4-vision-exp-rest`).
+   Six delivered a file (`grove-workshop-journey`, `grove-tool-library`,
+   `pulse-session-board`, `market-camera-compare`, `atlas-afternoon-route`,
+   `canvas-word-board`, each in 22–29 minutes); six reached the 30-minute turn
+   limit without a file (`forma-room-reservation`, `pulse-listening-queue`,
+   `market-lamp-configurator`, `commons-reading-circle`,
+   `commons-community-review`, `atlas-pocket-guide`); `canvas-poster-layers`
+   was interrupted after 16 minutes by the owner's pause. None of the six new
+   deliveries has been audited yet.
+   The same morning the owner removed the 30-minute turn limit, and with it
+   the 15-minute load limit: a slow machine must not fail a valid turn for
+   elapsed time ([the harness](tests/docs/regression.md)). A brief cut by
+   that limit is neither a pass (there is no page to audit) nor a model
+   failure (a rule that no longer exists stopped it); its receipt stays in its
+   folder, and its result is the one from a run without the limit. The runs
+   that ended before the limit are unaffected (it never fired) and stand. The
+   eight briefs without a result under the current protocol are listed in
+   [the resume order](#pause).
 3. Independently audit original immutable exports: actual controls, filters,
    forms/radio buttons/dialogs, item-specific state, Back/undo/persistence;
    standalone offline and the real opaque preview iframe without weakening CSP.

@@ -1,11 +1,12 @@
-# Remaining work — November 11, 2026
+# Remaining work — November 12, 2026
 
 The macOS/Apple Silicon campaign is incomplete. On November 10 the owner
 resumed it: complete every item below, then the final simplification step.
-It was paused on November 11 at the owner's request and resumed the same
-evening, in [the order the plan records](../PLAN.MD#pause). First resumed
-step: Laguna long prompts (two engine defects fixed and checked on real
-weights; its common-100 rerun is queued).
+It was paused on November 11, resumed the same evening, and **paused again on
+November 12 at about 09:10** at the owner's request, with nothing running.
+Resume in [the order the plan records](../PLAN.MD#pause): next come the eight
+Design briefs to generate without a time limit, the KV snapshot check with
+greedy runtimes, and the queued real-model steps that did not start.
 [PLAN.MD](../PLAN.MD) is the canonical detailed acceptance list; this page is
 its short index. A documentation, download-integrity or simulated UI pass does
 not close a model-quality gate.

@@ -652,8 +652,16 @@ remain available when capture fails. Each real case admits at most 128 MiB of
 stdout, 32 MiB of stderr, a 2 MiB line and 16,384 events / 16 MiB of structured
 events. One write per pipe is in flight; a slow disk applies backpressure, not an
 unbounded memory queue. These are explicit benchmark resource limits, not
-claims about native tool maxima. Startup/turn deadlines remain 15/30 minutes;
-overrides may shorten them, not hide failures by extending them. Generation
+claims about native tool maxima. There is no startup or turn deadline: the
+former 15/30-minute limits were removed on November 12 at the owner's request,
+because a slow machine must not fail a valid load or turn for elapsed time.
+A turn stays bounded by its structured events (every tool call is one), its
+output bytes and Stop; an explicit deadline remains available to
+fault-injection tests (`DESIGN_COMPARE_TIMEOUT_MS`,
+`DESIGN_COMPARE_STARTUP_TIMEOUT_MS`), and runs with and without deadlines are
+never compared. `make test-design-generation-process` records every timer the
+capture requests and fails if a default run arms a deadline (it fails on the
+earlier harness, which armed 900,000 and 1,800,000 ms). Generation
 latency ends at idle; teardown and total capture time are recorded separately.
 `tests/support/design_comparison_audit.mjs` operates completed generated pages;
 `tests/support/design_comparison_report.mjs` summarizes two full audits, retaining

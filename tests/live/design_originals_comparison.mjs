@@ -40,11 +40,13 @@ for(const key of ['dev','ino','size','mtimeMs','ctimeMs'])assert.equal(modelAfte
 const source=path.resolve(sourceArg||'src/harness/design/ds4_design.c');
 const capturedSource=path.join(capturedPacks,'ds4_design.c');
 fs.copyFileSync(source,capturedSource);
-const startupTimeout=Number(process.env.DESIGN_COMPARE_STARTUP_TIMEOUT_MS||900000);
-const turnTimeout=Number(process.env.DESIGN_COMPARE_TIMEOUT_MS||1800000);
-assert.ok(Number.isSafeInteger(startupTimeout) && startupTimeout>0 && startupTimeout<=designGenerationLimits.startupMs
-  && Number.isSafeInteger(turnTimeout) && turnTimeout>0 && turnTimeout<=designGenerationLimits.turnMs,
-  'Explicit deadlines may tighten, not exceed, the frozen benchmark limits');
+// No elapsed-time deadline unless one is set explicitly (fault-injection
+// fixtures): 0 is none. A run recorded with deadlines is never compared with
+// one without (tests/support/design_comparison_report.mjs).
+const startupTimeout=Number(process.env.DESIGN_COMPARE_STARTUP_TIMEOUT_MS||0);
+const turnTimeout=Number(process.env.DESIGN_COMPARE_TIMEOUT_MS||0);
+assert.ok([startupTimeout,turnTimeout].every(ms=>Number.isSafeInteger(ms) && ms>=0 && ms<=2**31-1),
+  'A deadline is 0 (none) or an explicit number of milliseconds');
 let engineIdentity;
 if(fs.existsSync(path.join(engine,'.git'))){
   assert.equal(fs.realpathSync(execFileSync('git',['-C',engine,'rev-parse','--show-toplevel'],{encoding:'utf8'}).trim()),fs.realpathSync(engine));

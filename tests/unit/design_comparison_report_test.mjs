@@ -55,6 +55,11 @@ for(const mutate of [
 ]) {
   changed=copy();mutate(changed);assert.throws(()=>compare(changed));
 }
+// A run without elapsed-time deadlines (0) compares with another such run,
+// never with one that had deadlines.
+const noDeadline=copy();noDeadline.run.startupTimeoutMs=0;noDeadline.run.turnTimeoutMs=0;
+assert.equal(compareDesignRuns(noDeadline,structuredClone(noDeadline),suite).results[1].satisfyAuditedRequirements,1);
+assert.throws(()=>compareDesignRuns(input,noDeadline,suite),/Different startupTimeoutMs/);
 const missingSettings=copy();delete missingSettings.run.inference.seed;
 assert.throws(()=>compareDesignRuns(missingSettings,missingSettings,suite));
 assert.throws(()=>compareDesignRuns(input,copy(),{...suite,schema:'dstudio.design-projects.v1'}),/Legacy comparison/);

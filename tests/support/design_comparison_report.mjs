@@ -48,7 +48,9 @@ export function compareDesignRuns(before,after,suite) {
   for(const key of ['context','thinkTokens','maxTokensPerRound','seed','temperature'])
     assert.ok(Number.isFinite(before.run.inference[key]),'Missing inference setting: '+key);
   for(const key of ['ds4.c','ds4.h','ds4_metal.m'])hash(before.run.engineSourceSha256[key]);
-  assert.ok(before.run.startupTimeoutMs>0 && before.run.turnTimeoutMs>0);
+  // 0 is no elapsed-time deadline (the default since November 12); the two
+  // runs must agree, as checked above.
+  assert.ok([before.run.startupTimeoutMs,before.run.turnTimeoutMs].every(ms=>Number.isSafeInteger(ms) && ms>=0));
   const results=[];
   let checkNames;
   for(const input of [before,after]) {

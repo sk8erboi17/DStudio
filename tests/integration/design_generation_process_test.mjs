@@ -25,7 +25,7 @@ async function check(id, test) {
   finally { save(); }
 }
 
-async function cli(id, mode) {
+async function cli(id, mode, {deadlines = true} = {}) {
   const dir = directory(id), engine = path.join(dir, 'engine'), packs = path.join(dir, 'extension');
   fs.mkdirSync(engine); fs.mkdirSync(path.join(packs, 'design-systems/folio'), {recursive: true});
   fs.mkdirSync(path.join(packs, 'craft'));
@@ -36,11 +36,12 @@ async function cli(id, mode) {
   const suite = path.join(dir, 'suite.json'); writeArtifact(dir, 'suite.json', {cases: [
     {id: 'fixture', entry: 'index.html', prompt, designSystemId: 'folio'},
   ]});
+  const env = {...process.env, DESIGN_COMPARE_SUITE: suite, DESIGN_COMPARE_MODEL: model, DESIGN_CAPTURE_FIXTURE: mode};
+  delete env.DESIGN_COMPARE_STARTUP_TIMEOUT_MS; delete env.DESIGN_COMPARE_TIMEOUT_MS;
+  if (deadlines) Object.assign(env, {DESIGN_COMPARE_STARTUP_TIMEOUT_MS: '10000', DESIGN_COMPARE_TIMEOUT_MS: '10000'});
   const result = spawnSync(process.execPath, [path.join(root, 'tests/live/design_originals_comparison.mjs'),
     'simulated-protocol', peer, engine, packs, path.join(dir, 'captured'), peer], {cwd: root,
-    env: {...process.env, DESIGN_COMPARE_SUITE: suite, DESIGN_COMPARE_MODEL: model,
-      DESIGN_COMPARE_STARTUP_TIMEOUT_MS: '10000', DESIGN_COMPARE_TIMEOUT_MS: '10000', DESIGN_CAPTURE_FIXTURE: mode},
-    encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024});
+    env, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024});
   writeArtifact(dir, 'process.json', {status: result.status, signal: result.signal, error: String(result.error || ''),
     stdout: result.stdout, stderr: result.stderr});
   return {result, report: JSON.parse(fs.readFileSync(path.join(dir, 'captured/report.json')))};
@@ -75,6 +76,48 @@ try {
         assert.equal(r.output[name].complete, true);
         assert.equal(fs.statSync(path.join(dir, name + '.txt')).size, r.output[name].receivedBytes);
       }
+    });
+    // Every timer the capture asks for is recorded. Without an explicit
+    // deadline none may be a startup or turn deadline: only the teardown
+    // grace after the run has ended (terminateMs, cleanupMs).
+    async function timersRequested(run) {
+      const original = globalThis.setTimeout, requested = [];
+      globalThis.setTimeout = (fn, ms, ...rest) => { requested.push(ms); return original(fn, ms, ...rest); };
+      try { return {receipt: await run(original), requested}; }
+      finally { globalThis.setTimeout = original; }
+    }
+    await check('no-elapsed-deadline-by-default', async row => {
+      const dir = directory('no-deadline-success');
+      const {receipt, requested} = await timersRequested(() => runDesignGeneration({binary: process.execPath,
+        args: [peer], cwd: dir, directory: dir, prompt,
+        env: {...process.env, DESIGN_CAPTURE_WORKSPACE: dir, DESIGN_CAPTURE_FIXTURE: 'success'}}));
+      row.receipt = receipt; row.requested = requested;
+      assert.equal(receipt.status, 'idle'); assert.equal(receipt.errorCount, 0); gone(receipt.pid);
+      assert.equal(receipt.limits.startupMs, 0); assert.equal(receipt.limits.turnMs, 0);
+      assert.ok(requested.every(ms => ms === receipt.limits.terminateMs || ms === receipt.limits.cleanupMs),
+        `a deadline was armed: ${requested}`);
+    });
+    await check('turn-without-deadline-runs-until-stop', async row => {
+      // The peer never finishes its turn. It is still running when Stop
+      // arrives after 1.5 s, and Stop, not a deadline, ends it.
+      const dir = directory('no-deadline-stop'), controller = new AbortController();
+      const {receipt, requested} = await timersRequested(original => runDesignGeneration({binary: process.execPath,
+        args: [peer], cwd: dir, directory: dir, prompt, signal: controller.signal,
+        env: {...process.env, DESIGN_CAPTURE_WORKSPACE: dir, DESIGN_CAPTURE_FIXTURE: 'turn-timeout'},
+        onReady: () => original(() => controller.abort(), 1500)}));
+      row.receipt = receipt; row.requested = requested;
+      assert.equal(receipt.status, 'interrupted'); assert.equal(receipt.errorCount, 0);
+      assert.equal(receipt.promptSubmitted, true); assert.equal(receipt.cleanupComplete, true); gone(receipt.pid);
+      assert.ok(receipt.terminalMs >= 1500);
+      assert.ok(requested.every(ms => ms === receipt.limits.terminateMs || ms === receipt.limits.cleanupMs),
+        `a deadline was armed: ${requested}`);
+    });
+    await check('runner-records-no-deadline-by-default', async row => {
+      const {result, report} = await cli('cli-no-deadline', 'success', {deadlines: false}); row.receipt = report.cases[0];
+      assert.equal(result.status, 0); assert.equal(row.receipt.generationPassed, true);
+      assert.equal(report.startupTimeoutMs, 0); assert.equal(report.turnTimeoutMs, 0);
+      assert.equal(report.captureLimits.startupMs, 0); assert.equal(report.captureLimits.turnMs, 0);
+      assert.equal(row.receipt.capture.limits.turnMs, 0);
     });
     await check('native-runner-entry-and-pack-after-capture', async row => {
       const {result, report} = await cli('cli-success', 'success'); row.receipt = report.cases[0];
@@ -192,7 +235,7 @@ try {
     });
     await check('invalid-capture-bounds-rejected-before-files', async () => {
       const dir = directory('invalid-bounds');
-      for (const limits of [{turnMs: 1800001}, {events: 0}, {unknown: 1}, {startupMs: Infinity}])
+      for (const limits of [{turnMs: 2 ** 31}, {turnMs: -1}, {startupMs: 1.5}, {events: 0}, {unknown: 1}, {startupMs: Infinity}])
         await assert.rejects(runDesignGeneration({binary: 'must-not-start', args: [], directory: dir, prompt, limits}));
       assert.deepEqual(fs.readdirSync(dir), []);
     });
