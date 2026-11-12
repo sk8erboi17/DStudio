@@ -207,8 +207,13 @@ resident server's output, so the server's traceback was not retained. Keep
 both failures. Since November 11 the host copies a resident server's output
 to the file named by `DSTUDIO_RESIDENT_LOG` (opt-in, at most 64 MiB per host
 process, then one truncation line; `make test-resident-unit`), and the live
-runners started through `startDStudio` keep it as `resident-server.log`; a
-diagnostic rerun of `qwen27-mlx-4bit` with it is open:
+runners started through `startDStudio` keep it as `resident-server.log`. The
+diagnostic rerun of `qwen27-mlx-4bit` with it (November 12,
+`llama-resident-live/run-vsRy40`) passed 6/6, including the Design heading
+and Chat through `/v1`, and its server log shows no error: the earlier
+`generation thread died` did not recur, so it is intermittent and its cause
+is still unknown. The earlier 4/6 stays the counted result; a rerun of
+unchanged work does not replace it:
 
 | # | Variant (id) | Download | What it represents |
 | --- | --- | ---: | --- |
