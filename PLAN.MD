@@ -775,8 +775,15 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    and remote tests; `make check` alone is not complete campaign coverage.
    On November 11 all three failed after their 30-minute wait without loading
    a model: a fresh profile selects no default model any more, and the tests
-   relied on one. They now start Chat with explicit weights and are queued
-   again; the failed logs are kept.
+   relied on one. They now start Chat with explicit weights. Rerun on November
+   12 on DeepSeek V4 Flash Vision-Exp: Search/Research passed (its own model
+   judge; a model's review is not an independent grader,
+   `search-research-real/run-aWY7bY`); ASCII diagrams 2/7 (five drawings fail
+   the geometric checks, `ascii-diagrams-real/run-Uklv9m`); remote failed:
+   the remote Agent's correct `write` call was refused by the runtime with
+   "unexpected or duplicate structured model tools" and no file was written
+   (`remote-real/run-jUEJaG`), a product defect under investigation. The
+   failed logs are kept.
 
 The frozen minimum text distribution remains:
 
