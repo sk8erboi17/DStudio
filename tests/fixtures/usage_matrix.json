@@ -4282,8 +4282,14 @@
           "id": "instructions-hidden-in-a-web-page",
           "use": "A web page contains instructions aimed at the model; extracted facts ignore them.",
           "aspect": "failure",
-          "tests": [],
-          "uncoveredReason": "Whether extracted facts ignore instructions on a page is decided by the model; a scripted extractor only returns what the test authors. It needs a held-out real-model case, not written yet."
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "Planner side only: a page tells the model to open another address and the scripted planner obeys; the address is never requested, the host is not asked to read it and the trace names it as refused. Whether a real model's extracted facts ignore the instructions is not covered (needs a held-out real-model case)."
+            }
+          ]
         },
         {
           "id": "no-internet-connection",

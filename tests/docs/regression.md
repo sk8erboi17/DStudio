@@ -884,8 +884,15 @@ the saved evidence; that the delivered answer's `[S1]` citation and source
 card open the read page and `[F1]` stays in the answer; and that with the
 network unreachable both Deep Research and Web Search end with a visible
 failure saying no search provider could be reached, without asking the model
-to write an answer. Receipts and screenshots go to ignored
-`tests/.artifacts/web-research-host/`.
+to write an answer. A third scenario serves a page that tells the model to
+open another loopback address carrying a `data=` query, and its scripted
+planner obeys: the address must never be requested (the test server's own
+request log), the host must not be asked to read it and the run's trace must
+name it as refused (the writer is held on a barrier so the trace is still on
+screen). Before the November 12 fix the page opened that address. This covers
+the planner side of page-injected instructions only; whether a real model's
+extracted facts ignore them needs a held-out real-model case. Receipts and
+screenshots go to ignored `tests/.artifacts/web-research-host/`.
 
 For a new measured replay, `--before COMMIT` records the intended historical
 runtime; `--variants after` keeps all four questions without re-running that
