@@ -360,5 +360,34 @@ Correctness comes first; retain failures even when throughput looks better.
   work offline. Preserve provenance and applicable notices for dependencies that
   remain; removing an optional catalog does not remove other license obligations.
 - Before an authorized push, review the staged diff for secrets/private artifacts,
-  update relevant docs and check whitespace. Use a descriptive commit and normal
-  non-force push. Verify the remote revision before reporting it as published.
+  update relevant docs and check whitespace. Organize the commits as described
+  below and use a normal non-force push. Verify the remote revision before
+  reporting it as published.
+
+## Commits and history
+
+The owner reorganized `main` into milestone commits on November 12, 2026 and
+asked that every later commit follow the same shape:
+
+- One commit is one milestone: a coherent, reviewable change such as a feature,
+  a fix with its regression test, or a verified result with its documentation.
+  It is not each intermediate step. Combine work-in-progress commits, fixups,
+  hash refreshes, reverts and their reapplications into that commit before
+  pushing; do not publish a series of partial steps. When work must be pushed
+  before its milestone is complete (a pause or a hand-off), push it as one
+  commit that states what remains unfinished.
+- The subject is one imperative English sentence naming the outcome, about 100
+  characters at most. The body says what changed and why, the verification run
+  and what remains open. A commit that combines several steps lists them.
+- Keep `main` linear: no merge commits. Integrate a branch or a pull request by
+  rebasing it onto `main`.
+- Contributors keep their authorship. Never fold another person's or another
+  tool's commits into the owner's: keep each as its own commit with its
+  original author, dates and message. Keep every `Co-Authored-By` trailer of
+  the commits that a combined commit replaces.
+- Pushes are normal and non-force. Combine commits only while they are
+  unpublished. Rewriting published history needs the owner's explicit request
+  each time; then the new history's final tree must equal the old one, the old
+  history stays on an `archive/history-YYYY-MM-DD` branch, and
+  [the historical reports index](docs/history/README.md) says where cited
+  hashes live.
