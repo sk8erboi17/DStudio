@@ -273,7 +273,11 @@ read back through `/api/task-graph` from its durable journal, must end
 `succeeded`, and `total.txt` must hold the total computed by the test from the
 same rows. The transcript, graph nodes and journal size are kept in
 `tests/.artifacts/task-graph-real-turn/run-*`. No wall-clock cutoff; refuses
-beside another engine. Not run yet.
+beside another engine. Passed on November 12 on Qwen3.6 UD-Q6_K_XL
+(`run-AEamdN`): the request took the automatic route ("workspace write
+request"), the graph's three nodes (Agent turn, gate, join) succeeded with 20
+journal events, and `total.txt` held 150.45, the computed total, after three
+tool calls in 12 s.
 
 ## Qwen real host workflows
 
