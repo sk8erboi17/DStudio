@@ -7,6 +7,13 @@ engines. Relative links were rebased when reports moved. References to removed
 patches point to the last source snapshot before their deletion, without
 restoring obsolete code.
 
+**Commit identities.** On November 12, 2026 the history of `main` was
+rewritten into 51 milestone commits (the code is unchanged; contributors'
+commits keep their authors). Commit hashes cited by reports, plans, change
+notes, benchmark results and receipts written before then, such as
+`32894bd6` or `afdeea2b`, belong to the earlier history, which is kept on the
+branch `archive/history-2026-11-12`; look them up there.
+
 Use [PLAN.MD](../../PLAN.MD) for unfinished acceptance work, [the short WIP](../WORK_IN_PROGRESS.md)
 for navigation, [bundled engines](../BUNDLED_ENGINES.md) for installation and
 [test guides](../../tests/README.md) for commands and scope. Completed checkbox
