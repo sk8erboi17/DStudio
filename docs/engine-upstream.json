@@ -18,6 +18,7 @@
     "Since November 11, 2026 the MLX Qwen3.6-35B-A3B MXFP8 selection has a target. MLX is installed from verified PyPI wheels (src/engines/mlx), not built from an archive: its tracks record the upstream revisions those wheels were released from (mlx-lm 0.32.2 and mlx 0.32.4), with no later commit under review, and its patch set is the three versioned mlx-lm adaptations. The same day the three host-served targets (llama.cpp Qwen3.6, llama.cpp Qwen3.8-27B and MLX) gained the gates the campaign requires of every selection: numerics, quality-100, install-upgrade, learn, desktop and design-runtime, plus textual-isolation for the text-only ones and vision-pdf-50 for 27B. No receipt was added.",
     "On November 11, 2026 thirteen patch-set entries (seven files of the main and Laguna sets) no longer matched their recorded SHA-256: the patches had changed without this manifest being refreshed, so the checker would have reported CONTENT_CHANGED. The hashes were refreshed to the files shipped at that commit. No receipt existed that was bound to the earlier patch-set digests.",
     "Also on November 11, 2026 the Laguna patch set gained patch/ds4-laguna-prefill-chunk. It now carries three changes: a requested prefill batch (--prefill-chunk / DS4_METAL_PREFILL_CHUNK, default 4096 rows on Metal instead of the fixed 16384), prefill attention in passes of at most 4096 keys per dispatch (a serial walk of ~20,000 keys per GPU thread group is what macOS ends with kIOGPUCommandBufferCallbackErrorImpactingInteractivity; smaller batches alone still failed at token 20,480), and a sliding-window ring commit that writes each slot once (the unpatched commit races when a batch is longer than the 512-slot ring). The managed installer, every Chat launch, local harness launches and the Agent/Cowork/Design builds apply it, and a Laguna ds4-server built without it is rebuilt. Real weights (tests/.artifacts/laguna-prefill-chunk/run-fbEHUg): final logits bit-identical to the unpatched engine, greedy decoding identical across batch sizes and repeated runs, and 40,153- and 60,689-token prompts complete. Earlier receipts of the unpatched Laguna engine stay bound to the earlier patch-set digests.",
+    "On November 12, 2026 patch/ds4-agent-jsonl/remote-agent.cfrag (main and Laguna sets) changed: the remote DSML Agent path now emits the tool_call and tool_result records the local path emits, so the automatic correctness graph accepts a remote turn instead of retrying it; the client host also delivers a remote ds4 model's DSML tool call once, as text, when the request offered no tools (real_remote_test failed on that, remote-real/run-jUEJaG). Receipts made with the earlier fragment stay bound to its digest.",
     "On November 11, 2026 the 300 main-track commits of f4d03f6..890898c were classified for the nine targets that list main (scripts/engine-delta-review.mjs, docs/upstream/main-delta-2026-11-11.json). The classification is by changed path, against a file-by-file comparison of src/engines/ds4 with upstream 890898c (498 shipped files identical; 2990 declared omissions, none compiled or read by the macOS build): 243 integrated and 57 not applicable for each of the six ds4 main and two llama.cpp targets, the latter because their Agent, Cowork and Design frontends are built from the main checkout. Laguna, built from its own branch, has 57 not applicable and 243 left unclassified: whether it needs a main change is a source judgment. This is not a behavioural review and adds no receipt. The same day the remote refs of main, llama.cpp, mlx-lm and mlx were 116, 446, 18 and 82 commits past their recorded tips (b3f5018, aa75ff3, 56230fa, fc344c9); no pin was moved and those commits are not reviewed."
   ],
   "tracks": [
@@ -106,7 +107,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
-        "sha256": "00085238ca97e1154082108be9390f8708bd4c95a11388e64a62ec959dda5d48"
+        "sha256": "631664421ab41759c640099d81f8b6626da587939298993b6dddde5c14c2a6d8"
       },
       {
         "path": "patch/ds4-web-runtime/browser-main.patch",
@@ -293,7 +294,7 @@
       },
       {
         "path": "patch/ds4-agent-jsonl/remote-agent.cfrag",
-        "sha256": "00085238ca97e1154082108be9390f8708bd4c95a11388e64a62ec959dda5d48"
+        "sha256": "631664421ab41759c640099d81f8b6626da587939298993b6dddde5c14c2a6d8"
       },
       {
         "path": "patch/ds4-web-runtime/browser.patch",
