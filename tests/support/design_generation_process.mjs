@@ -7,12 +7,20 @@ import {spawn} from 'node:child_process';
 
 // Per case, not per tool or per chunk. Exceeding a bound fails the run; raw
 // prefixes and exact byte counts remain evidence, never a truncated PASS.
+// startupMs and turnMs are elapsed-time deadlines and default to 0, none: a
+// slow machine must not fail a valid model load or Design turn because time
+// passed (the owner removed the former 15/30-minute limits on November 12).
+// A turn stays bounded by its structured events (every tool call is one),
+// its output bytes and Stop. A positive value is an explicit deadline, for
+// fault-injection tests.
 export const designGenerationLimits = Object.freeze({
   stdoutBytes: 128 * 1024 * 1024, stderrBytes: 32 * 1024 * 1024,
   lineBytes: 2 * 1024 * 1024, eventBytes: 16 * 1024 * 1024,
   events: 16384, promptBytes: 64 * 1024,
-  startupMs: 900000, turnMs: 1800000, terminateMs: 5000, cleanupMs: 10000,
+  startupMs: 0, turnMs: 0, terminateMs: 5000, cleanupMs: 10000,
 });
+const deadlineKeys = new Set(['startupMs', 'turnMs']);
+const longestTimerMs = 2 ** 31 - 1; // setTimeout fires at once beyond this
 
 export async function runDesignGeneration({binary, args, cwd, env, directory,
   prompt, signal, onEvent = () => {}, onReady = () => {}, limits = {}}) {
@@ -20,7 +28,8 @@ export async function runDesignGeneration({binary, args, cwd, env, directory,
   const bound = {...designGenerationLimits, ...limits};
   for (const [key, value] of Object.entries(bound))
     assert.ok(Object.hasOwn(designGenerationLimits, key) && Number.isSafeInteger(value)
-      && value > 0 && value <= designGenerationLimits[key], `invalid Design capture bound: ${key}`);
+      && (deadlineKeys.has(key) ? value >= 0 && value <= longestTimerMs
+        : value > 0 && value <= designGenerationLimits[key]), `invalid Design capture bound: ${key}`);
   assert.ok(bound.cleanupMs > bound.terminateMs, 'cleanup must allow termination grace');
   assert.ok(typeof prompt === 'string' && Buffer.byteLength(prompt + '\n') <= bound.promptBytes,
     'Design brief exceeds the admitted input size');
@@ -48,9 +57,10 @@ export async function runDesignGeneration({binary, args, cwd, env, directory,
       message: String(error?.message || error).slice(0, 2048)});
     finish(status);
   };
+  // 0 arms nothing; arming the turn also clears the startup deadline.
   const arm = (ms, status) => {
     clearTimeout(timer);
-    timer = setTimeout(() => { fail(status, `Original ${ms} ms deadline expired`); }, ms);
+    if (ms > 0) timer = setTimeout(() => { fail(status, `Explicit ${ms} ms deadline expired`); }, ms);
   };
   const abort = () => { interrupted = true; finish('interrupted'); };
   const killOwnedGroup = sig => {
