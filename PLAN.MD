@@ -797,8 +797,15 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    the geometric checks, `ascii-diagrams-real/run-Uklv9m`); remote failed:
    the remote Agent's correct `write` call was refused by the runtime with
    "unexpected or duplicate structured model tools" and no file was written
-   (`remote-real/run-jUEJaG`), a product defect under investigation. The
-   failed logs are kept.
+   (`remote-real/run-jUEJaG`). Cause, fixed the same night: for a request
+   that offered no tools, ds4-server streams a DSML call as text and then
+   sends it again as `tool_calls`; the client host published that second copy
+   as a structured batch, which the text-protocol runtime refuses. The host
+   now delivers such a call once, as text, and the remote DSML Agent path
+   emits the tool records the automatic graph needs, so it no longer retries
+   the turn (`make test-model-rpc-stream`, `make
+   test-remote-ds4-text-tools`). The rerun on weights is queued. The failed
+   logs are kept.
 
 The frozen minimum text distribution remains:
 
