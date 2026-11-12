@@ -137,6 +137,53 @@ fresh for each response. The Agent IDE test holds background re-reads of the
 file it changes on disk, so its conflict step always exercises the host's
 digest refusal instead of depending on timing.
 
+`make test-ui-task-graph` (in `check-fast` through `test-ui-browser`) runs
+WebKit and Chromium with every `/api/task-graph*` request forwarded to the real
+test host, whose scheduler, journal and synthetic executor (nodes that only
+wait) run the graphs; the Agent session status is simulated and no model runs.
+The user opens the live Task Graph from the ⌘K palette, starts a ready graph,
+watches the node cards follow the host's states, pauses (the running node
+finishes and the next stays pending while paused), resumes to success and sees
+the durable events. A second graph is paused, the window closes and the host
+process stops; after both start again the dialog lists the paused and the
+finished graph from their journals with no new event, and the paused graph
+resumes and finishes without rerunning its completed step.
+
+`make test-ui-skills-editor` (in `check-fast` through `test-ui-browser`) runs
+WebKit and Chromium with `/api/user-skills*` forwarded to the real test host
+under a task-owned `HOME`. A skill written in the editor (quotes, backslashes,
+a tab, non-ASCII text and a `---` line) is saved byte for byte as
+`SKILL.md` in the folder the Agent runtime reads, selected for the next turn
+without a restart, reloaded exactly for editing, rewritten in place, and listed
+again in a new window with an empty browser profile. A skill over the size the
+host can store is refused in the editor with its text kept; before November 12,
+2026 the host saved it cut to 32 KiB and reported success, and each
+edit-and-save added a trailing newline.
+
+`make test-ui-plan` also acts on finished plans with simulated replies: Stay in
+plan mode sends nothing and the next request is planned into its own file;
+Implement plan turns Plan off and sends the execution turn for that file; Chat
+about this turns Plan off and the next message is a plain turn.
+
+`make test-ui-design-flow` runs `tests/browser/ui_design_flow_playwright_test.mjs`
+in WebKit and Chromium against the same host in Design mode, with the real
+`/api/design/files`, `/api/design/file` and `/api/design/preview/` handlers. The
+Design stream is **simulated** with the events `ds4-design` emits for
+`question()`, `propose()` and `write` (the shapes `make test-design-turn-gates`
+receives from the real runtime), and the test performs the writes. It checks that the designer's
+questions appear numbered above the composer, that **Continue** is held while
+the turn still runs and then sends the exact `§QUESTION_ANSWER` turn once, that
+the form closes, the reply after it renders and a reload does not ask again;
+that three proposed directions render side by side as sandboxed live previews
+of the host-served files, open full size and step between screens, and that
+**Use this** sends the lock prompt for the chosen one and marks only it chosen;
+and that the canvas **Export** saves every project file (nested folders, binary
+bytes, a non-ASCII name) in `project.zip`, which Python's `zipfile` verifies CRC
+by CRC and byte for byte. A file the host refuses to serve (larger than its
+8 MiB limit) stops the export with a message instead of being archived as the
+error text, which the page used to do. Receipts go to
+`tests/.artifacts/ui-design-flow/`; no model or design engine runs.
+
 `make test-ui-native-titlebar` runs WebKit and Chromium with the 28px
 title-bar inset that DStudio.app injects (`--native-titlebar-height`, top frame
 only). It checks that no operable control in the main window or the Learn study
@@ -159,7 +206,9 @@ overlapping nodes and every node inside its lane; the SVG escapes every author
 string; the prompt names the file, schema and evidence contract; the Design
 hand-off lists every part and relationship and stays under 26k characters for
 the largest spec the schema keeps; the implement prompt follows the blueprint
-basis.
+basis; Workflow, Data flow and Lifecycle each get their own prompt and node
+types, a node-type fallback, a default relationship type (control, data,
+event) and their layout direction.
 
 `make test-ui-blueprint` runs WebKit and Chromium against the real host
 workspace handlers and the real `/api/fs/mkdir` on a task-owned workspace. The
@@ -169,12 +218,24 @@ path, the diagram building from the streamed JSON, verification of each kind of
 citation outcome against the workspace bytes, node evidence, upstream and
 downstream trace, routes (including none), lens, find, opening a citation in the
 IDE at its lines and returning, the standalone HTML export opened in a fresh
-page, the new-blueprint card, a sequence diagram, an invalid file, reopening
-the last blueprint after a reload, **Implement code** (the implement prompt in
-the same conversation, on the running engine, without a new session) and
-**Send to Design** (Design starts on `design/` inside the project, the blueprint
-card waits for the user's brief and goes with the first message only). Design
-startup is simulated too: no design engine or model runs.
+page, the SVG export opened from disk (same parts, verification marks and its
+own styles; no script or external reference) and the JSON export reopened with
+the same evidence (a blueprint shown as its group overview still exports every
+part, not the overview boxes, which it used to do), **Refresh** after the cited
+code changed (the rewritten quote is reported as not found, the shifted ones at
+their new lines, the file untouched), the new-blueprint card, Workflow, Data
+flow and Lifecycle maps requested from it and drawn with their node and
+relationship types, a sequence diagram, an invalid file, a map turn that ends
+without saving its file (the panel reports it instead of returning to a blank
+form, which it used to do) or saves one with no nodes, reopening the last
+blueprint after a reload, **Implement code** (the implement prompt in the same
+conversation, on the running engine, without a new session) and **Send to
+Design** while the Agent still works (the engine switch is confirmed first:
+Cancel starts and interrupts nothing; then Design starts on `design/` inside
+the project, the blueprint card waits for the user's brief and goes with the
+first message only). The simulated host replies to each send with the turn's
+real `from`/`at` offsets, as `api_agent_send` does. Design startup is simulated
+too: no design engine or model runs.
 
 `make test-blueprint-live` is **real inference**: an isolated DStudio host
 starts the Agent with actual DeepSeek V4 Flash weights (one instance; run it
@@ -350,6 +411,33 @@ thread identity stay in their existing owners; the domain callback revalidates
 the displayed conversation before rendering. All five modes run the same mouse,
 keyboard, completion, reading-position and persistence regressions.
 
+The Agent/Design suite (`ui_agent_design`, Chromium and WebKit in
+`make test-ui-browser`) holds the simulated Design `/new` session command until
+the test releases it; nothing releases it on a timer. A prompt sent meanwhile
+must be queued. The barrier is the page's "Preparing the fresh Design context;
+your prompt will start automatically." notice, which only a send waiting behind
+the unsettled session command shows. No `/api/agent/send` with that prompt may
+arrive before the release; afterwards it arrives exactly once, and the fixture
+records that the hold had ended. A page that sends without waiting for the
+session command fails this check. Until November 12, 2026 the fixture released
+the hold after 15 seconds and the check waited 250 ms. With a load average
+near 20, the gallery steps between the hold and the prompt took about
+16 seconds in both browsers, so the hold had already ended, the page rightly
+sent the prompt at once and the test reported a race. The WebKit failure
+recorded on November 10 has the same message and also ran under load; its
+timeline was not recorded. The same fixture delivers one `/list` engine line
+in two halves, as two polls can. The annotation step now writes its own
+`proposal` event only between whole lines: written between the halves, it
+formed a stream no engine produces, the page dropped the proposal and showed
+the second half as text. That happened in two of four loaded WebKit runs once
+the first correction let the test reach that step, and again when the write
+was forced between the halves. Both corrections are to the simulated host; the
+page is unchanged, and no real Design prefill runs. One loaded Chromium run of
+the corrected file failed earlier, in Agent, with "selection fixture should
+start selected": the programmatic selection of the written diff was empty when
+read back. Sixteen traced replays of that step kept the selection; its cause is
+not established and no fix is claimed.
+
 The Learn fixture also holds its first source-read HTTP response until the
 current URL appears in the loading panel. It checks real trace updates, elapsed
 and quiet-interval feedback, and the single shared composer Stop. A simulated
@@ -505,6 +593,26 @@ scenarios:
 - `tests/unit/roadmap_view_test.mjs` executes the audit, hour, dependency,
   short-title and lossless checkpoint helpers.
 
+Three more scenarios of `ui_roadmap_playwright_test.mjs` run in Chromium and
+WebKit with simulated replies:
+
+- `make test-ui-learn-sources` (`DSTUDIO_TEST_LEARN_SOURCES=1`) attaches a PDF
+  (its reader is simulated here; `make test-pdf-limits` and
+  `make test-pdf-complete` exercise the real one) and puts a link in the Learn
+  prompt. It checks that the link is read first, that the PDF text and the
+  linked page reach the structure request and every stage request, and that
+  the factual audit checks the roadmap against both.
+- `make test-ui-learn-engine-error` (`DSTUDIO_TEST_LEARN_ENGINE_ERROR=1`) has
+  the engine answer one stage request with HTTP 500. The workspace shows one
+  status panel with how much is written, the readable written stage, a
+  *Resume draft* action and the engine message under *Technical details*;
+  Resume continues with the failed stage without regenerating the saved ones.
+- `make test-ui-learn-large` (`DSTUDIO_TEST_LEARN_LARGE=1`) generates ten
+  stages and 300 blocks, audits them in bounded batches, displays them, then
+  jumps with the stage map, marks a block complete and deletes one. The time of
+  each interaction is kept in `large-roadmap-timings.json`; each must stay under
+  five seconds.
+
 Host mocks used by browser tests acknowledge an accepted history write as
 `{"ok":true,"durable":true,"rev":N}`, as `src/dstudio_chat_store.c` does.
 A mock that omits `durable` produces a persistence warning, which layout
@@ -581,6 +689,39 @@ progress and on retained writer output after a transport failure, recording
 The local persistence fixture returns the native host's JSON object in `data`;
 the Chat controls test consumes a produced snapshot from a fresh browser context
 and checks the restored conversation against its original complete contents.
+Since November 12, 2026 `make test-ui-chat-controls` also covers Chat's
+boundaries on the same simulated fixture, in WebKit and Chromium. Send and
+Enter with an empty, spaces-only or tabs-and-newlines composer issue no request
+and add no message. An authored stream that ends with `finish_reason: length`
+shows "Response truncated (token limit)" with Continue; one that ends without
+`data: [DONE]` shows "Response incomplete". In both, Continue sends the retained
+text verbatim as the previous assistant turn followed by `Continue.`, and the cut
+answer stays saved unchanged. HTTP 400 context refusals worded as ds4-server and
+llama-server word them are shown with Retry; the refused request carried every
+earlier message and none is trimmed from the saved conversation. A
+`dstudio-files` block becomes a file tile whose canvas renders the Markdown,
+downloads the exact bytes and reopens after a reload. Deleting a conversation
+from its row menu removes it from the sidebar, the browser history and the
+fixture host store (with a tombstone) and it stays deleted after a reload. The
+test first failed against the previous page: the screen-reader status announced
+a token-limit cut (and an error) as "Response completed"; it now announces
+"Response truncated (token limit)" and "Response failed". The engine replies
+are authored; this is not model behavior at a real context or token limit.
+
+`make test-ui-chat-engine-death` runs the production page in WebKit and
+Chromium against the real test host (`tests/.build/dstudio-server-test`). The
+host's `/v1` relay forwards the completion to a scripted engine process (no
+model) that streams two chunks and is then killed with SIGKILL. With
+close-delimited SSE (ds4-server framing) the page keeps the partial text and
+shows "Response incomplete" with Continue. With chunked SSE (llama-server
+framing) Chromium reports "Connection interrupted during the response." with
+Retry, while WebKit's fetch ends the body and the page shows "Response
+incomplete"; both keep and save every streamed byte. The host keeps answering
+`/api/status`, and once a new scripted engine listens Continue or Retry
+completes the answer. The UI fixture pipes only the completion request to the
+host; the other page endpoints are simulated. Receipts and screenshots are in
+`tests/.artifacts/chat-engine-death-BROWSER/`. The host does not own this engine
+process, so its own crash reporting for an owned engine is not exercised here.
 
 Prerequisites: Node, Playwright with installed WebKit/Chromium, and Python with
 Pillow for the selection recordings. Each run retains its receipt/logs under
@@ -644,14 +785,63 @@ reviewed. `make test-frontend-unit test-macos-window-theme test-macos-bundle
 test-ui-document-policy` passed against that version and rebuilt the app without
 launching it. Earlier complete runs with 52/54 results remain in artifacts.
 One earlier WebKit Design gallery-filter clearing failure did not reproduce in
-an unchanged focused replay or either later complete passing matrix; no causal
-fix is claimed for that isolated failure. Direct Chrome mouse/wheel checks
-also preserved Chat, Agent, Cowork and Tutor selections with simulated streams.
-The complete receipt, recordings, failed-run links and visual review manifest
+an unchanged focused replay or either later complete passing matrix; its cause
+was established on November 12, 2026 (next paragraph). Direct Chrome
+mouse/wheel checks also preserved Chat, Agent, Cowork and Tutor selections with
+simulated streams. The complete receipt, recordings, failed-run links and visual review manifest
 are retained in ignored `tests/.artifacts/ui-simulated/run-jxwQp1/` and
 `tests/.artifacts/ui-audit-visual/final-review/`. The recorded GIFs are sampled
 interaction evidence, not a performance benchmark or proof of every possible
 UI state. All engines, generations, tools and downloads were simulated.
+
+That gallery-filter failure, kept in complete run
+`tests/.artifacts/ui-simulated/run-D07v39/` (October 1: after the Agent/Design
+test cleared the Design gallery search, the Folio card did not reappear within
+5 seconds), was a page defect. While the Design brief was idle, every Agent poll
+response (every 500 ms with the test fixture) ran `setAgentBusy(false)`, which
+put the caret back in the composer. Playwright's `fill('')` focuses and selects
+the search, then presses Delete as a separate step; `fill('Signal')` inserts its
+text the same way. A poll between the two steps sent the key or the text to the
+composer, and the search kept "Signal". The fix landed on October 2 (`171bb2a5`:
+idle Agent polls no longer move the caret into the composer) after the same
+symptom appeared while the gallery was redesigned: three Chromium runs that day
+(`tests/.artifacts/agent-design-browser/chromium-Bbrv9K`, `-7AIV8f`, `-je0sJg`)
+left the search holding the previous system name with the caret in the composer.
+The fix was not linked to the October 1 failure at the time. That run's page was
+never committed; the committed pages before (`5b3e6a0c`) and after it
+(`d2a0cf04`) both focus the composer on every idle poll. On November 12, replays
+of the `d2a0cf04` page ran the unchanged test up to the gallery, then repeated
+its filter and clear steps with page-side focus, key and input traces, at load
+averages between about 6 and 20. In WebKit, 32 of 8,349 clears failed with the
+receipt's timeout and 51 of 8,400 filters typed "Signal" into the composer; in
+Chromium, 6 of 1,987 and 13 of 2,000. Each of these 102 failures followed a poll
+response that focused the composer through `processRes`, `syncComposerBusy`,
+`setAgentBusy` and `focusComposerInput`. Forcing the order (select the search,
+wait until two polls are served, press Delete) failed 5 of 5 times on that page
+in both browsers. The current page passed the forced case 5 of 5 times and 2,000
+unforced repetitions per browser without a failure. With its `typingElsewhere()`
+guard removed, the forced case failed 3 of 3 times per browser and the unchanged
+suite failed at "an idle poll keeps the caret in the search" in both browsers.
+That check, added with the fix, already waits for three more poll requests with
+the caret in the search before typing on, so the page and the test are
+unchanged. All engines and polls were simulated. The replay harness, results and
+traces are in ignored `tests/.artifacts/gallery-filter-repro/`.
+
+## Cloud and remote backends
+
+`make test-ui-cloud-backend` (`tests/browser/ui_cloud_backend_playwright_test.mjs`,
+Chromium and WebKit) uses Settings -> Connection in the production page: a
+Server URL receives the chat and clearing it returns to the local engine; a
+DeepSeek key and cloud model saved there serve the chat with that key and
+survive a reopened page; a wrong (401) or out-of-credit (402) key shows the
+provider's own error once with Retry and nothing is retried; an emptied key is
+refused with a message (before November 12, 2026 the question was answered by
+the local model while Connection showed the cloud); switching back to Local
+starts the saved local model and continues the conversation. **Simulated:**
+the DeepSeek API (a loopback server the browser's requests to
+`api.deepseek.com` are routed to), the remote endpoint, the host and engine;
+every other external request is refused. Agent, Cowork and Design launches on
+the cloud backend are not exercised here.
 
 ## Conversation history persistence
 
@@ -684,10 +874,16 @@ eviction. Migration commits before deleting the old localStorage key; failure
 retains existing copies. Host saves admit one immutable candidate of at most
 64 MiB plus the previous snapshot, refuse concurrent writes/wipe as busy, and
 publish file/memory/revision only after preparation. Browser save callers are
-bounded to 64; excess calls return an explicit failure. No test executes the
-64 MiB limit or the 64-caller bound: the native test saves and restores an
-8 MiB history and checks the busy refusals, and the browser test checks one
-serialized native writer with later save promises. Snapshot failure never
+bounded to 64; excess calls return an explicit failure. Since November 12,
+2026 `make test-ui-persistence` executes both ceilings. In the browser, a
+history over 64 MiB is refused with "Conversation history exceeds the 64 MiB
+storage limit" while memory keeps every byte and neither the browser copy nor
+the native file changes; with 64 callers waiting behind a blocked native save
+the 65th is refused with "Too many conversation saves are pending", all 64
+admitted callers resolve as saved and the next save carries the refused
+caller's edit. Over HTTP, the real host saves a history of exactly 64 MiB,
+answers 413 to a declared length one byte larger without changing the file,
+and reloads the whole 64 MiB after a restart. Snapshot failure never
 trims text or disables settings. The existing 300,000-character native transcript
 tail limit is unchanged and separate from quota-failure handling.
 

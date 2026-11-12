@@ -23,6 +23,16 @@ const unverifiedCase = process.env.DSTUDIO_TEST_LEARN_AUDIT_UNVERIFIED === '1';
 // Learner messages during generation: one held stage and one held audit batch
 // let the test write while a real production request is in flight.
 const notesCase = process.env.DSTUDIO_TEST_LEARN_NOTES === '1';
+// A PDF and a link attached to the Learn prompt (the PDF reader is simulated
+// here; the real reader has its own tests). An engine error in a stage. A
+// roadmap of ten stages and 300 blocks.
+const sourcesCase = process.env.DSTUDIO_TEST_LEARN_SOURCES === '1';
+const engineErrorCase = process.env.DSTUDIO_TEST_LEARN_ENGINE_ERROR === '1';
+const largeCase = process.env.DSTUDIO_TEST_LEARN_LARGE === '1';
+const ENGINE_ERROR = 'llama.cpp: failed to allocate the KV cache for this request (out of memory)';
+let engineErrorSent = false;
+const PDF_MARKER = 'Workshop handout: the Lighthouse lab requires one visible main landmark and a keyboard-only navigation check before any framework work.';
+const pdfDescribeRequests = [];
 let notesStageHeld = false, notesStageReleased = false, notesStageAborted = false, releaseNotesStage = () => {};
 const notesStageGate = new Promise(resolve => { releaseNotesStage = () => { notesStageReleased = true; resolve(); }; });
 let notesAuditHeld = false, notesAuditRequests = 0, releaseNotesAudit = () => {};
@@ -59,7 +69,7 @@ const webRoot = path.join(repoRoot, 'web');
 const appHtml = fs.readFileSync(path.join(webRoot, 'index.html'));
 const artifacts = artifactRunDir('roadmap-browser');
 const receipt = {scope: 'Production Learn/Tutor UI with simulated engine replies',
-  modelFamily, browserName, repairCheckout, recoveryCase, storageFailureCase, resumeThinkLevel, legacyDraftCase, auditRecoveryCase, auditPartialCase, unverifiedCase, notesCase, htmlSHA256: createHash('sha256').update(appHtml).digest('hex'),
+  modelFamily, browserName, repairCheckout, recoveryCase, storageFailureCase, resumeThinkLevel, legacyDraftCase, auditRecoveryCase, auditPartialCase, unverifiedCase, notesCase, sourcesCase, engineErrorCase, largeCase, htmlSHA256: createHash('sha256').update(appHtml).digest('hex'),
   harnessSHA256: createHash('sha256').update(fs.readFileSync('tests/browser/ui_roadmap_playwright_test.mjs')).digest('hex'), status: 'RUNNING'};
 writeArtifact(artifacts, 'results.json', receipt);
 console.log(`Learn browser evidence: ${artifacts}`);
@@ -125,6 +135,20 @@ const stageSpecs = [
   ['production-quality', 'Architettura e qualità', 'Integrare API, sicurezza, prestazioni e automazione.', '3 settimane'],
   ['production', 'Produzione e crescita', 'Distribuire, osservare, mantenere e comunicare il prodotto.', '3 settimane'],
 ];
+if (largeCase) {
+  // Ten stages of thirty blocks each, keeping the first stage/block ids the
+  // other fixtures name; every block requires the previous one.
+  const extra = Array.from({length: 5}, (_, i) => [`advanced-${i + 1}`, `Approfondimento ${i + 1}`, `Estendere le competenze con il modulo avanzato ${i + 1}.`, '2 settimane']);
+  stageSpecs.push(...extra);
+  const named = topicSpecs.splice(0);
+  stageSpecs.forEach(([stageId], stageIndex) => {
+    for (let t = 0; t < 30; t++) {
+      const original = t < 4 ? named[stageIndex * 4 + t] : null;
+      topicSpecs.push(original || [`${stageId}-block-${t + 1}`, `Blocco ${stageIndex + 1}.${t + 1}`]);
+    }
+  });
+}
+const topicsPerStage = topicSpecs.length / stageSpecs.length;
 const roadmap = {
   version: 2,
   title: 'Frontend moderno, dalle basi alla produzione',
@@ -135,7 +159,7 @@ const roadmap = {
   stages: stageSpecs.map(([id, title, description, duration], stageIndex) => ({
     id, title, description, duration,
     objectives: [`Integrare e verificare le competenze della fase ${title}.`],
-    topics: topicSpecs.slice(stageIndex * 4, stageIndex * 4 + 4).map((topic, offset) => makeTopic(topic, stageIndex * 4 + offset)),
+    topics: topicSpecs.slice(stageIndex * topicsPerStage, (stageIndex + 1) * topicsPerStage).map((topic, offset) => makeTopic(topic, stageIndex * topicsPerStage + offset)),
     checkpoint: `Completa un progetto integrato della fase ${title}, spiegalo e superane i controlli funzionali e qualitativi.`,
   })),
   capstone: {
@@ -225,6 +249,21 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, stopped: true });
     return;
   }
+  // SIMULATED PDF reader: the attachment's text is authored here.
+  if (url.pathname === '/api/pdf/thumb' && req.method === 'POST') {
+    await readBody(req);
+    json(res, 200, { ok: false, error: 'no preview in this fixture' });
+    return;
+  }
+  if (url.pathname === '/api/pdf/progress') { json(res, 200, { phase: 'done', done: true }); return; }
+  if (url.pathname === '/api/pdf/describe' && req.method === 'POST') {
+    const payload = JSON.parse(await readBody(req) || '{}');
+    pdfDescribeRequests.push({ profile: payload.profile, bytes: String(payload.data_uri || '').length });
+    const text = `\n--- Pagina 1 (testo) ---\n${PDF_MARKER}\nThe handout lists semantic HTML, accessible forms and keyboard testing as prerequisites of the component stage.\n`;
+    json(res, 200, { ok: true, completeText: true, readPlanRequired: false, truncated: false, sampled: false,
+      total: 1, pages: 1, textPages: 1, scannedPages: 0, text, documentId: 'a'.repeat(64), sections: [], sectionLinks: [] });
+    return;
+  }
   if (url.pathname === '/api/web-search' && req.method === 'POST') {
     const payload = JSON.parse(await readBody(req) || '{}');
     webSearchRequests.push(payload);
@@ -243,7 +282,7 @@ const server = http.createServer(async (req, res) => {
     const payload = JSON.parse(await readBody(req) || '{}');
     webReadRequests.push(payload);
     await researchReadGate;
-    const index = Math.max(0, roadmapSources.indexOf(payload.url));
+    const index = Math.max(0, roadmapSources.findIndex(sourceUrl => sourceUrl.replace(/\/$/, '') === String(payload.url).replace(/\/$/, '')));
     const pages = [
       {
         title: 'MDN Learn Web Development',
@@ -341,6 +380,11 @@ const server = http.createServer(async (req, res) => {
         revise: rewrite ? 'stages' : 'none', stageIds: rewrite ? ['web-foundations'] : [],
         revision: rewrite ? 'Aggiungi la verifica con un validatore HTML all’esercizio sul documento semantico.' : ''});
     };
+    if (engineErrorCase && isRoadmap && !isRoadmapRepairer && phase === 'stage javascript' && !engineErrorSent) {
+      engineErrorSent = true;   // the engine refuses this one stage request
+      json(res, 500, { error: { message: ENGINE_ERROR, type: 'server_error' } });
+      return;
+    }
     if (recoveryCase && isRoadmap && !isRoadmapRepairer && phase === 'stage javascript' && ++recoveryStageRequests <= 2) {
       res.on('close', () => { recoveryStreamsClosed += 1; });
       res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-cache'});
@@ -586,7 +630,143 @@ try {
     'Roadmap should use the same focused composer elevation as Agent');
   assert.equal(focusedRoadmapComposer.borderRadius, '20px',
     'Roadmap should use the same rounded composer geometry as Agent');
+  // A link as the learner pastes it; the roadmap resources cite this exact URL.
+  const LINK = roadmapSources[0];
+  if (sourcesCase) {
+    await page.locator('#chat-file-input').setInputFiles({ name: 'handout.pdf', mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n% bytes read by the simulated PDF reader of this fixture\n%%EOF\n') });
+    await page.locator('#composer-files').getByText('handout.pdf', { exact: true }).waitFor({ state: 'visible' });
+    await page.locator('#composer-input').fill(`Voglio imparare lo sviluppo frontend da zero in tre mesi, con esercizi e verifiche pratiche. Usa il PDF allegato e ${LINK}`);
+  }
   await page.locator('#btn-send').click();
+  // Scenario branches that do not exercise the held research steps below.
+  const phaseOf = entry => [...(entry.messages || []).filter(message => message.role === 'user')
+    .map(message => String(message.content || '')).join('\n').matchAll(/\[Roadmap phase: ([^\]]+)\]/g)].at(-1)?.[1];
+  const systemOf = entry => String(entry.messages?.find(message => message.role === 'system')?.content || '');
+  // The repairer rewrites from audit findings, not from the original request.
+  const generation = entry => !systemOf(entry).includes('roadmap repairer');
+  const unexpectedErrors = () => pageErrors.filter(text => !(engineErrorCase && /status of 500/.test(text)));
+  if (sourcesCase || engineErrorCase || largeCase) { releaseSourcePicker(); releaseResearchRead(); }
+  if (sourcesCase) {
+    const outlineRequest = () => chatRequests.find(entry => phaseOf(entry) === 'outline');
+    for (let i = 0; !outlineRequest() && i < 6000; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const outline = outlineRequest();
+    assert.ok(outline, 'the roadmap structure request was sent');
+    const sent = JSON.stringify(outline.messages);
+    assert.equal(pdfDescribeRequests[0]?.profile, 'complete', 'the attached PDF is read before generation');
+    assert.ok(sent.includes(PDF_MARKER), 'the attached PDF text is part of the generation request');
+    assert.equal(webReadRequests[0]?.url, LINK, 'the linked page is read first, before any search result');
+    assert.ok(sent.includes('[Roadmap research evidence]') && sent.includes(`URL: ${LINK}`),
+      'the linked page is listed among the read sources given to the generator');
+    const card = page.locator('.roadmap-card:not(.is-draft)');
+    await card.waitFor({ state: 'visible', timeout: 240_000 });
+    const stageRequests = chatRequests.filter(entry => generation(entry) && /^stage /.test(phaseOf(entry) || ''));
+    assert.ok(stageRequests.length >= 5 && stageRequests.every(entry => JSON.stringify(entry.messages).includes(PDF_MARKER)),
+      'every stage is written with the attached PDF in view');
+    const audits = chatRequests.filter(entry => systemOf(entry).includes('roadmap factual auditor'));
+    const evidenceOf = entry => JSON.parse(entry.messages.find(message => message.role === 'user').content).evidence || [];
+    assert.ok(audits.some(entry => evidenceOf(entry).some(source => source.text.includes('Lighthouse lab'))),
+      'the factual audit checks the roadmap against the attached PDF');
+    assert.ok(audits.some(entry => evidenceOf(entry).some(source => source.url === LINK)),
+      'the factual audit checks the roadmap against the linked page');
+    const data = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')));
+    const chat = data.chats.find(entry => entry.mode === 'roadmap');
+    const user = chat.messages.find(message => message.role === 'user');
+    assert.equal(user.attachments?.[0]?.name, 'handout.pdf');
+    assert.ok(user.attachments[0].content.includes(PDF_MARKER), 'the saved request keeps the PDF evidence');
+    assert.ok(user.web.sources.some(source => source.url === LINK && source.read && source.explicit), 'the saved evidence keeps the linked page as read');
+    assert.ok(chat.messages.some(message => message.roadmapVerification?.status === 'verified'));
+    await page.screenshot({path: path.join(artifacts, 'learn-attached-sources.png')});
+    assert.deepEqual(unexpectedErrors(), []); receipt.status = 'PASS';
+    console.log(`ui_roadmap attached sources: ok (${browserName}; PDF text and linked page in generation and audit evidence; simulated engine and PDF reader)`);
+    break scenario;
+  }
+  if (engineErrorCase) {
+    for (let i = 0; !engineErrorSent && i < 24000; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(engineErrorSent, true, 'the engine refused a stage request');
+    const panel = page.locator('.roadmap-direct-error').filter({ hasText: 'stages written' });
+    await panel.waitFor({ state: 'visible', timeout: 240_000 });
+    assert.equal(await page.locator('.roadmap-card:not(.is-draft)').count(), 0, 'an interrupted draft is not an accepted roadmap');
+    assert.match(await panel.textContent(), /1\/5 stages written/, 'the panel says how much of the draft is saved');
+    const overview = await panel.locator('.roadmap-status__overview').textContent();
+    assert.doesNotMatch(overview, /KV cache|llama\.cpp|out of memory|status/, 'the explanation is readable, not the raw engine line');
+    const resume = panel.locator('[data-act="retry"]');
+    assert.equal(await resume.textContent(), 'Resume draft');
+    const diagnostics = panel.locator('.roadmap-diagnostics');
+    assert.equal(await diagnostics.getAttribute('open'), null, 'technical details stay collapsed');
+    await diagnostics.locator('summary').click();
+    assert.ok((await diagnostics.locator('pre').textContent()).includes(ENGINE_ERROR), 'the engine error itself is shown on request');
+    assert.equal(await page.locator('.roadmap-card.is-draft .roadmap-stage.is-unwritten').count(), 4, 'the written stage stays readable');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.mode === 'roadmap'));
+    const failed = saved.messages.findLast(message => message.role === 'assistant');
+    assert.equal(failed.finishReason, 'error'); assert.equal(failed.error.type, 'roadmap-generation');
+    assert.ok(failed.error.message.includes(ENGINE_ERROR)); assert.equal(failed.roadmapBuild.stages.length, 1);
+    await panel.scrollIntoViewIfNeeded();
+    await page.screenshot({path: path.join(artifacts, 'learn-engine-error.png')});
+    const before = chatRequests.length;
+    await resume.click();
+    await page.locator('.roadmap-card:not(.is-draft)').waitFor({ state: 'visible', timeout: 240_000 });
+    const resumedPhases = chatRequests.slice(before).filter(generation).map(phaseOf).filter(Boolean);
+    assert.equal(resumedPhases[0], 'stage javascript', 'Resume continues with the stage that failed');
+    assert.equal(resumedPhases.filter(phase => phase === 'outline' || phase === 'stage web-foundations').length, 0,
+      'the saved structure and stage are not generated again');
+    const done = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.mode === 'roadmap'));
+    assert.equal(done.messages.findLast(message => message.role === 'assistant').roadmapVerification?.status, 'verified');
+    assert.equal(done.messages.filter(message => message.role === 'user').length, 1, 'Resume is not a new request');
+    assert.deepEqual(unexpectedErrors(), []); receipt.status = 'PASS';
+    console.log(`ui_roadmap engine error: ok (${browserName}; readable status, engine detail on request, Resume continues the saved draft; simulated engine)`);
+    break scenario;
+  }
+  if (largeCase) {
+    const timed = async (action, ready) => {
+      const started = performance.now();
+      await action();
+      await page.waitForFunction(ready.fn, ready.arg, { timeout: 15_000 });
+      return Math.round(performance.now() - started);
+    };
+    const timings = {};
+    // While the remaining stages and the audit run, the readable draft answers clicks.
+    const draft = page.locator('.roadmap-card.is-draft');
+    await draft.locator('.roadmap-stage:not(.is-unwritten)').first().waitFor({ state: 'visible', timeout: 240_000 });
+    assert.equal(await draft.locator('.roadmap-stage').count(), 10);
+    const draftToggle = draft.locator('.roadmap-stage:not(.is-unwritten) .roadmap-stage__toggle').first();
+    const expandedBefore = await draftToggle.getAttribute('aria-expanded');
+    timings.draftToggle = await timed(() => draftToggle.click(),
+      { fn: before => document.querySelector('.roadmap-card.is-draft .roadmap-stage:not(.is-unwritten) .roadmap-stage__toggle')?.getAttribute('aria-expanded') !== before, arg: expandedBefore });
+    const card = page.locator('.roadmap-card:not(.is-draft)');
+    await card.waitFor({ state: 'visible', timeout: 600_000 });
+    assert.equal(await card.locator('.roadmap-stage').count(), 10);
+    assert.equal(await card.locator('.roadmap-topic').count(), 300, 'every block is displayed');
+    assert.match(await page.locator('#roadmap-head-shape').textContent(), /10 stages · 300 blocks/);
+    assert.equal(await page.locator('#roadmap-head-status').textContent(), 'Verified');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.mode === 'roadmap'));
+    const verified = saved.messages.findLast(message => message.roadmapVerification?.status === 'verified');
+    assert.equal(verified.roadmapAudit.completed, verified.roadmapAudit.total, 'every factual check of the large roadmap completed');
+    const auditRequests = chatRequests.filter(entry => systemOf(entry).includes('roadmap factual auditor'));
+    assert.ok(auditRequests.every(entry => JSON.parse(entry.messages.find(message => message.role === 'user').content).items.length <= 4),
+      'audit work stays in bounded batches');
+    // Navigate, mark progress and edit the large graph.
+    assert.equal(await card.locator('.roadmap-map__item[data-stage-id]').count(), 10, 'the map lists every stage');
+    timings.mapJump = await timed(() => card.locator('.roadmap-map__item[data-stage-id="advanced-5"]').click(),
+      { fn: () => document.querySelector('.roadmap-map__item[data-stage-id="advanced-5"]')?.classList.contains('is-current') &&
+        !document.querySelector('.roadmap-stage[data-stage-id="advanced-5"]')?.classList.contains('is-collapsed') });
+    timings.markComplete = await timed(() => card.locator('.roadmap-topic[data-topic-id="html-semantics"] .roadmap-topic__check').click(),
+      { fn: () => document.querySelector('.roadmap-topic[data-topic-id="html-semantics"]')?.classList.contains('is-complete') });
+    await page.waitForFunction(id => document.querySelector(`#chat-list [data-id="${id}"] .chat-item__progress`)?.getAttribute('aria-label') === '1 of 300 topics complete', saved.id);
+    await topicMenu(page, 'Blocco 10.30', 'Delete Blocco 10.30');
+    await page.locator('#confirm-dialog[open]').waitFor();
+    timings.deleteBlock = await timed(() => page.locator('#confirm-go').click(),
+      { fn: () => document.querySelectorAll('.roadmap-card:not(.is-draft) .roadmap-topic').length === 299 });
+    assert.match(await card.locator('.roadmap-draft-notice').textContent(), /modified.*not verified/i, 'an edited large roadmap is no longer verified');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.mode === 'roadmap')
+      .messages.some(message => message.roadmapOverride?.stages?.reduce((sum, stage) => sum + stage.topics.length, 0) === 299));
+    writeArtifact(artifacts, 'large-roadmap-timings.json', { timings, auditRequests: auditRequests.length, chatRequests: chatRequests.length });
+    for (const [name, ms] of Object.entries(timings)) assert.ok(ms < 5000, `${name} took ${ms} ms on a 300-block roadmap`);
+    await page.screenshot({path: path.join(artifacts, 'learn-large-roadmap.png')});
+    assert.deepEqual(unexpectedErrors(), []); receipt.status = 'PASS';
+    console.log(`ui_roadmap large roadmap: ok (${browserName}; 10 stages and 300 blocks generated, audited, displayed and edited; ${JSON.stringify(timings)} ms; simulated engine)`);
+    break scenario;
+  }
   const loadingTrace = page.locator('.roadmap-loading__trace');
   await loadingTrace.waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('.roadmap-loading__activity')?.textContent === 'Preparing the next research step');

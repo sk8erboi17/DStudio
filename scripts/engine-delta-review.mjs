@@ -7,7 +7,9 @@
 //       difference, writes the commit inventory
 //       docs/upstream/main-delta-<date>.json, then the reviews;
 //   node scripts/engine-delta-review.mjs
-//       rebuilds only the `reviews` arrays, from the committed inventory;
+//       rebuilds only the `reviews` arrays, from the committed inventory and,
+//       for a target that names one (`portReview`), its hand-written porting
+//       review, which it also renders canonically;
 //   --check writes nothing and fails when a file would change.
 //
 // DStudio ships the pinned tree's files unmodified (datasets are declared
@@ -294,6 +296,46 @@ export function classifyCommit(commit, role, {tip = '', directory = 'src/engines
     (applied.length ? ' The target\'s patch set also modifies these files: ' + applied.join(', ') + '.' : '') + rest};
 }
 
+// ---- the Laguna porting review -------------------------------------------------
+
+// A `separate` target may name a porting review: one reviewer's source verdict
+// per main commit that would be integrated into a runtime target, written by
+// hand after reading the diff and the target's own branch. Nothing here judges a
+// commit. This checks that the file covers exactly those commits, for the pinned
+// revisions and this inventory, renders it canonically, and turns `present`
+// into `equivalent` and `not-applicable` into `not-applicable`. A porting
+// candidate or an unresolved commit gets no review, so admission keeps
+// reporting it until it is ported or decided.
+export const PORT_SCHEMA = 'dstudio.laguna-port-review.v1';
+export const PORT_VERDICTS = {present: 'equivalent', 'not-applicable': 'not-applicable', candidate: null, unresolved: null};
+const PORT_FIELDS = ['commit', 'title', 'group', 'verdict', 'reason', 'fixes', 'laguna', 'why'];
+export function readPortReview(root, file, {target, track, inventoryPath, inventoryBytes, commits}) {
+  const review = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')), bad = message => fail('INVALID_PORT_REVIEW', file + ': ' + message);
+  if (review.schema !== PORT_SCHEMA) bad('expected schema ' + PORT_SCHEMA);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(review.capturedAt || '')) bad('capturedAt is not a date');
+  const {main, laguna} = review.sources || {};
+  if (main?.base !== track.base || main?.tip !== track.recordedTip || laguna?.tip !== target.revision)
+    fail('STALE_PORT_REVIEW', file + ' reviews other revisions than main ' + track.base.slice(0, 7) + '..' + track.recordedTip.slice(0, 7) + ' and ' + target.id + ' ' + target.revision.slice(0, 7));
+  if (review.inventory?.path !== inventoryPath || review.inventory?.sha256 !== sha256(inventoryBytes))
+    fail('STALE_PORT_REVIEW', file + ' was written against another commit inventory than ' + inventoryPath);
+  const byCommit = new Map();
+  for (const entry of review.reviews || []) {
+    if (!SHA.test(entry.commit || '') || byCommit.has(entry.commit)) bad('a review names no commit, or one twice: ' + entry.commit);
+    if (!Object.hasOwn(PORT_VERDICTS, entry.verdict)) bad(entry.commit + ' has verdict ' + entry.verdict);
+    if (Object.keys(entry).some(key => !PORT_FIELDS.includes(key))) bad(entry.commit + ' has an unknown field');
+    for (const key of ['title', 'group', 'reason', ...(entry.verdict === 'candidate' ? ['fixes', 'laguna'] : entry.verdict === 'unresolved' ? ['why'] : [])])
+      if (typeof entry[key] !== 'string' || entry[key].trim().length < (key === 'reason' ? 20 : 3)) bad(entry.commit + ' needs ' + key);
+    byCommit.set(entry.commit, entry);
+  }
+  const ids = new Set(commits.map(c => c.id)), missing = commits.filter(c => !byCommit.has(c.id)), extra = [...byCommit.keys()].filter(id => !ids.has(id));
+  if (missing.length || extra.length) fail('STALE_PORT_REVIEW', file + ': ' + [...missing.map(c => 'no verdict for ' + c.id), ...extra.map(id => 'verdict for ' + id + ', which the path rules do not leave to a porting review')].join('; '));
+  for (const commit of commits) if (byCommit.get(commit.id).title !== commit.title) bad(commit.id + ' carries another title than the inventory');
+  // Canonical: inventory order, fixed key order, the inventory's renderer.
+  const reviews = commits.map(c => Object.fromEntries(PORT_FIELDS.filter(key => key in byCommit.get(c.id)).map(key => [key, byCommit.get(c.id)[key]])));
+  const text = render({...review, reviews}) + '\n';
+  return {path: file, text, sha256: sha256(text), verdicts: new Map(reviews.map(r => [r.commit, r]))};
+}
+
 // Upstream path -> the patches of a patch set that modify it.
 function patchedFiles(root, entries) {
   const map = new Map();
@@ -316,14 +358,26 @@ export function buildReviews({root, manifest, inventory, inventoryPath, inventor
   const snapshot = JSON.parse(fs.readFileSync(path.join(root, 'src/engines/manifest.json'), 'utf8')).engines[TRACK];
   if (!shipped || snapshot?.commit !== row.tip) fail('STALE_INVENTORY', 'No shipped-tree comparison for the tip');
   const shippedNames = new Set(Object.keys(snapshot.files));
-  const evidence = [{path: inventoryPath, sha256: sha256(inventoryBytes)}], summary = [];
+  const evidence = [{path: inventoryPath, sha256: sha256(inventoryBytes)}], summary = [], ports = [];
+  const context = {tip: row.tip, directory: shipped.directory, shipped: shippedNames};
   for (const target of manifest.targets.filter(t => t.tracks.includes(TRACK))) {
     const role = MAIN_ROLE[target.sourceTrack];
     if (!role) fail('UNKNOWN_TARGET', target.id + ': no recorded relation between its source track and main');
+    if (target.portReview && role !== 'separate') fail('INVALID_PORT_REVIEW', target.id + ' builds from main; a porting review is for a separate branch');
     const patches = role === 'runtime' ? patchedFiles(root, target.patchSet ? manifest.patchSets[target.patchSet] : target.patches) : new Map();
+    const port = target.portReview ? readPortReview(root, target.portReview, {target, track, inventoryPath, inventoryBytes,
+      commits: row.commits.filter(c => classifyCommit(c, 'runtime', context).decision === 'integrated')}) : null;
+    if (port) ports.push(port);
     const counts = {integrated: 0, 'not-applicable': 0, equivalent: 0}, unclassified = [], reviews = target.reviews.filter(r => r.track !== TRACK);
     for (const commit of row.commits) {
-      const result = classifyCommit(commit, role, {tip: row.tip, directory: shipped.directory, patches, shipped: shippedNames});
+      const result = classifyCommit(commit, role, {...context, patches}), verdict = result.unclassified && port?.verdicts.get(commit.id);
+      if (verdict && PORT_VERDICTS[verdict.verdict]) {
+        counts[PORT_VERDICTS[verdict.verdict]]++;
+        reviews.push({track: TRACK, commit: commit.id, decision: PORT_VERDICTS[verdict.verdict], reason: 'Porting review against this target\'s own branch: ' + verdict.reason,
+          evidence: [...evidence, {path: port.path, sha256: port.sha256}]});
+        continue;
+      }
+      if (verdict) {unclassified.push({commit: commit.id, title: commit.title, why: verdict.verdict === 'candidate' ? 'porting candidate: ' + verdict.fixes : 'unresolved: ' + verdict.why}); continue;}
       if (result.unclassified) {unclassified.push({commit: commit.id, title: commit.title, why: result.unclassified}); continue;}
       counts[result.decision]++;
       reviews.push({track: TRACK, commit: commit.id, decision: result.decision, reason: result.reason, evidence});
@@ -331,7 +385,7 @@ export function buildReviews({root, manifest, inventory, inventoryPath, inventor
     target.reviews = reviews;
     summary.push({target: target.id, role, commits: row.commits.length, ...counts, unclassified});
   }
-  return summary;
+  return {summary, ports};
 }
 
 // The manifest keeps its two-space layout; each review takes one line.
@@ -360,7 +414,8 @@ export function run({root, repositories = {}, captured, observedTip, check = fal
     if (!inventoryPath) fail('MISSING_INVENTORY', 'No inventory recorded for the ' + TRACK + ' track; run with --repo first');
     inventoryText = fs.readFileSync(path.join(root, inventoryPath), 'utf8');
   }
-  const summary = buildReviews({root, manifest, inventory: JSON.parse(inventoryText), inventoryPath, inventoryBytes: Buffer.from(inventoryText)});
+  const {summary, ports} = buildReviews({root, manifest, inventory: JSON.parse(inventoryText), inventoryPath, inventoryBytes: Buffer.from(inventoryText)});
+  for (const port of ports) outputs.set(port.path, port.text);
   outputs.set('docs/engine-upstream.json', renderManifest(manifest));
   const stale = [...outputs].filter(([file, text]) => !fs.existsSync(path.join(root, file)) || fs.readFileSync(path.join(root, file), 'utf8') !== text).map(([file]) => file);
   if (!check) for (const file of stale) {

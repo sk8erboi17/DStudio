@@ -17,9 +17,10 @@ evening.** The resume follows this order:
    installer and every launch path and passes on real weights (see P6.2);
    the app-path check and Laguna's common-100 rerun are queued first.
 2. The cancelled real-model queue: the host runner's restart fault-injection
-   check (Qwen3.6 IQ4_XS, engine killed after case 6), pi/OpenCode on Laguna
-   (runner now selects its checkout), and the three `check-real` suites (now
-   starting Chat with explicit weights).
+   check passed on November 11 (engine killed during case 7, restarted in
+   3.3 s, 0 of 100 cases left unrun;
+   [details](tests/docs/model-quality.md)); pi/OpenCode on Laguna and the
+   three `check-real` suites are running.
 3. Design projects (P8): generate the thirteen briefs not yet run, keeping the
    five recorded outcomes, then audit all eighteen.
 4. Disk KV snapshots (P3.2): write and run the real-weight check on Qwen3.6
@@ -28,8 +29,10 @@ evening.** The resume follows this order:
    simulated scenarios, text-only isolation, and replacing the live vision UI
    check.
 6. Agent comparisons (P9): the scripted mechanics test, `--plan`, six-agent
-   publication, then the real lanes.
-7. P12 inputs: the 54 uncovered usage cases (not started). The opt-in,
+   publication and the clean upstream build are done model-free (November 12,
+   see P9); next the real lanes, starting with the first run of the three
+   in-process drivers on development cases.
+7. P12 inputs: the 54 uncovered usage cases (51 now have a test, three a recorded reason; see P12). The opt-in,
    bounded copy of the resident server's output is in place; the 27B MLX
    diagnostic rerun that uses it is queued.
 8. Everything else in P0–P13 that the sections below still list as open,
@@ -204,8 +207,13 @@ resident server's output, so the server's traceback was not retained. Keep
 both failures. Since November 11 the host copies a resident server's output
 to the file named by `DSTUDIO_RESIDENT_LOG` (opt-in, at most 64 MiB per host
 process, then one truncation line; `make test-resident-unit`), and the live
-runners started through `startDStudio` keep it as `resident-server.log`; a
-diagnostic rerun of `qwen27-mlx-4bit` with it is open:
+runners started through `startDStudio` keep it as `resident-server.log`. The
+diagnostic rerun of `qwen27-mlx-4bit` with it (November 12,
+`llama-resident-live/run-vsRy40`) passed 6/6, including the Design heading
+and Chat through `/v1`, and its server log shows no error: the earlier
+`generation thread died` did not recur, so it is intermittent and its cause
+is still unknown. The earlier 4/6 stays the counted result; a rerun of
+unchanged work does not replace it:
 
 | # | Variant (id) | Download | What it represents |
 | --- | --- | ---: | --- |
@@ -295,9 +303,15 @@ Status: IN_PROGRESS; remaining verification and coordinator work.
    engine revision from DStudio's source receipt and refuses an engine without
    one. Since November 11 both corpus runners store the compiler and tools
    present when a run starts, and the llama.cpp install receipt already holds
-   its CMake version and options. Still open: the ds4 installers do not record
-   the compiler and flags that built an engine (its binary SHA-256 is the
-   identity), and the installed app bundle is not bound to a run.
+   its CMake version and options. Since November 12 every ds4-family build
+   the host runs (installation, update, a Chat launch's rebuild) writes
+   `.dstudio-build.json` beside the checkout: compiler, make, the flags its
+   Makefile expands to and the SHA-256 of each executable
+   (`scripts/record-engine-build.sh`; checked by
+   `make test-laguna-prefill-chunk-upgrade`), and both corpus runners copy it
+   into their receipts. Builds made before that date, and the Agent/Design
+   runtime builds, have none. Still open: the installed app bundle is not
+   bound to a run.
 3. Complete the case-level census of unit, integration, browser, live, upstream
    and publication suites, including prerequisites and exclusions. Since
    November 10 `node tests/support/test_census.mjs` lists every test file and
@@ -349,10 +363,16 @@ already implemented; they are not new implementation tasks.
    clicks, cancellation during build/load, active tools, window closure and
    restart. Rejected/stale launches must preserve the working model, settings,
    pending input and earlier effects, without orphans or double publication.
-3. Investigate the retained isolated WebKit Design gallery-filter clearing
-   failure. It did not reproduce in unchanged focused or later complete
-   simulated runs; no causal fix is established. Preserve the failing receipt
-   and reproduce before changing production or weakening the test.
+3. Done November 12: the retained WebKit Design gallery-filter clearing
+   failure (`run-D07v39`, October 1, receipt kept) was a page defect already
+   fixed on October 2 (`171bb2a5`): each idle Agent poll moved the caret into
+   the composer, so a key or text Playwright sent to the search after focusing
+   it could land in the composer. Replays of the committed October 1 page
+   (`d2a0cf04`) reproduced it in WebKit and Chromium; every failure followed
+   a poll focusing the composer. A poll forced between selecting the search
+   and pressing Delete fails there and passes on the current page; removing
+   the fix fails the unchanged suite in both browsers. Page and test unchanged
+   ([details](tests/docs/ui.md#complete-simulated-ui-matrix), end of section).
 
 Acceptance: responsive control, exact ownership and terminal task states on the
 final app. Simulated browser successes do not close native/model races.
@@ -372,10 +392,23 @@ patch migrations and retired-Next removal are implemented.
    comparison of the shipped tree with upstream
    ([method, limits and remote revisions](docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review)):
    243 integrated and 57 not applicable for each ds4 main and llama.cpp
-   target. Still open: Laguna's 243 commits, which need a porting review
-   against its own branch; the commits upstream added past the recorded tips
-   (116 main, 446 llama.cpp, 18 mlx-lm, 82 mlx on November 11; pins not
-   moved); and a behavioural review wherever a path rule is not enough.
+   target. November 12: Laguna's 243 have a porting review against its own
+   branch `448d569` (upstream refs unchanged since November 11;
+   [summary](docs/ENGINE_UPSTREAM_ALIGNMENT.md#laguna-port-review),
+   [data](docs/upstream/laguna-port-review-2026-11-12.json)): 231 not
+   applicable, 1 present through DStudio's Agent patch (`e33a5b2`), 0
+   unresolved, and 11 porting candidates, none ported yet: server tool-call
+   tracking and parsing for Laguna's GLM syntax (`5b3cc8b`, `fc6414c`,
+   `d108ae4`), the non-streaming tool-error recovery budget (`759dd7c`,
+   `6eac69e`), blank echoed reasoning (`a8ce74a`), `/v1/models` modalities
+   (`67f2ca9`), agent file tools (`b36e26e`), a Metal buffer leak on session
+   free (`a4c922c`), and two latent ones (`c0a6119` snapshot byte, `064bc22`
+   Makefile dependency). Still open: porting those candidates (separate,
+   maintainer-scheduled work); the 311 main commits between Laguna's fork
+   point `efdadd4` and the base, which no review has judged for Laguna; the
+   commits upstream added past the recorded tips (116 main, 446 llama.cpp, 18
+   mlx-lm, 82 mlx on November 11; pins not moved); and a behavioural review
+   wherever a path rule or a source verdict is not enough.
 2. Resolve the missing release receipts/reviews in
    [the matrix](docs/engine-upstream.json). Since November 11 it declares ten
    macOS targets with 135 required gate slots and zero linked receipts (nine
@@ -555,21 +588,35 @@ representation; it does not qualify a model's pixel path.
    grades 217 authored English and Italian answers as intended. On the whole
    manifest, authored correct answers pass 282/282 questions, and answers
    shifted to another question fail 282/282. A run loop through the production
-   page also exists
-   ([grader and run loop](tests/docs/regression.md#vision-corpus-grader-and-run-loop)).
-   Its SIMULATED check (`make test-vision-corpus-runner`: scripted engine,
-   real test host and page) has one Chat scenario that passes 9/9. That
-   check is unfinished and in no broad gate. Still open: no model has seen
-   the corpus. The real runner (`tests/live/vision_corpus_live.mjs`: model
-   launch, identities, `--ocr off`, `--expect text-only`, `--switch-sequence`)
-   is not written. The simulated scenarios for OCR, `evidence_page_not_sent`,
-   hallucination, engine error, Stop and text-only isolation are not written
-   either. Agent, Cowork and Learn have never run through the loop.
-   `tests/live/ui_live_vision_playwright_test.mjs` still attaches no image and
-   grades no reply. On macOS the OCR helper can read the image-only pages, so
-   a pixel-path run must disable it or report those pages separately. A
-   whole-document read hands at most four rendered pages to native vision, so
-   some pixel-only facts on later pages need a page-directed question.
+   page also exists. Since November 12 the real-model runner
+   `tests/live/vision_corpus_live.mjs` (`make test-vision-corpus-live`) exists
+   too ([grader, run loop and runner](tests/docs/regression.md#vision-corpus-grader-and-run-loop)).
+   It refuses to start beside another engine, launches the model through the
+   app, records the engine process's arguments, the SHA-256 of the model and
+   encoder files and the effective mode, and runs Chat with `--ocr off` (no
+   OCR helper; otherwise OCR-answerable rows are counted apart),
+   `--expect text-only` (graded as isolation), `--switch-sequence` (vision →
+   text → vision in one host session through the model picker, with a
+   history probe), `--only` and `--resume`; every request, answer, grade and
+   failure class stays in `tests/.artifacts/vision-corpus-live/`. Its
+   SIMULATED check (`make test-vision-corpus-runner`: scripted engine, real
+   test host and page; in no broad gate) passed 10/10 on November 12: authored
+   answers, OCR labelled as OCR and counted apart from pixels,
+   `evidence_page_not_sent`, hallucinated answers to unanswerable questions,
+   an engine error and a dropped stream mid-run, Stop, text-only isolation,
+   and a dry run of the runner in which the host launches a fixture engine
+   (launch, identities, switch sequence, Ctrl-C and resume, retention,
+   missing weights BLOCKED). It found and fixed two run-loop defects and a
+   host defect: `DS4UI_ENGINE_PORT` redirected only the relay, so an isolated
+   host's own launches, external-engine checks and forced-launch port release
+   still used port 28000.
+   `tests/live/ui_live_vision_playwright_test.mjs` now attaches one corpus
+   image and grades the reply; it has not been run since. Still open: no
+   model has seen the corpus (the runner has never run on weights), and
+   Agent, Cowork and Learn have never run through the loop (the runner
+   refuses them). A whole-document read hands at most four rendered pages
+   to native vision, so some pixel-only facts on later pages need a
+   page-directed question.
 4. Run real answer checks with the actual selected model/component in all four
    modes. Retain source/page hashes, physical numbering, original bytes,
    payloads, expected results, outputs and failures.
@@ -582,6 +629,8 @@ representation; it does not qualify a model's pixel path.
    A scan without usable text or OCR produces an honest limitation.
 7. Verify vision → text → vision after reload in every mode. Summaries, tool
    results, caches, late responses and KV cannot reinject incompatible data.
+   In Chat, `tests/live/vision_corpus_live.mjs --switch-sequence` runs it with
+   a history probe; only its SIMULATED dry run has passed (November 12).
 8. Revalidate citation chooser → physical page → highlight, light/dark and
    reopened sessions, on the final app. Independent answer correctness remains
    separate from extraction/retrieval/highlight success.
@@ -618,8 +667,12 @@ running (a SIGTERM to the real `cmake --build` alone leaves its `make`
 building), so the whole group is now signalled. The launch error now carries the
 installer's reason instead of its first echoed command (by inspection; no
 failing receipt was kept).
-The real offline llama.cpp upgrade (`make test-llama-upgrade-real`) passed once
-before the final rebase; `make test-mlx-upgrade-real` has not run. Still open:
+The real offline upgrades passed on November 12 on main: `make
+test-llama-upgrade-real` 3/3 (real CMake build killed while compiling, earlier
+runtime kept, next run publishes the pinned server, a further run reuses it)
+and, for the first time, `make test-mlx-upgrade-real` 4/4 (a real earlier
+patch-set installation, pip killed mid-install, offline reinstall of the
+current patch set, reuse), network denied and no model. Still open:
 item 3, the final relocated bundle for MLX and the repeat against the final
 build (items 1 and 6), Laguna upgrade (no earlier pin), main/Laguna build
 interruption and owner death, and the partially applied managed adaptations
@@ -750,8 +803,22 @@ identities are in [the Qwen checkpoint](docs/QWEN_CHECKPOINT.md).
    and remote tests; `make check` alone is not complete campaign coverage.
    On November 11 all three failed after their 30-minute wait without loading
    a model: a fresh profile selects no default model any more, and the tests
-   relied on one. They now start Chat with explicit weights and are queued
-   again; the failed logs are kept.
+   relied on one. They now start Chat with explicit weights. Rerun on November
+   12 on DeepSeek V4 Flash Vision-Exp: Search/Research passed (its own model
+   judge; a model's review is not an independent grader,
+   `search-research-real/run-aWY7bY`); ASCII diagrams 2/7 (five drawings fail
+   the geometric checks, `ascii-diagrams-real/run-Uklv9m`); remote failed:
+   the remote Agent's correct `write` call was refused by the runtime with
+   "unexpected or duplicate structured model tools" and no file was written
+   (`remote-real/run-jUEJaG`). Cause, fixed the same night: for a request
+   that offered no tools, ds4-server streams a DSML call as text and then
+   sends it again as `tool_calls`; the client host published that second copy
+   as a structured batch, which the text-protocol runtime refuses. The host
+   now delivers such a call once, as text, and the remote DSML Agent path
+   emits the tool records the automatic graph needs, so it no longer retries
+   the turn (`make test-model-rpc-stream`, `make
+   test-remote-ds4-text-tools`). The rerun on weights is queued. The failed
+   logs are kept.
 
 The frozen minimum text distribution remains:
 
@@ -836,8 +903,17 @@ The sixteen added systems require separate future generated-output qualification
    `signal-repair-queue`, `forma-project-settings`), `signal-incident-triage`
    reached the frozen 30-minute turn limit, `forma-room-reservation` was
    interrupted seconds after it started, and twelve were not run; all
-   eighteen stay in the denominator. None is audited yet (item 3), and a
-   delivered file is not a passing project.
+   eighteen stay in the denominator. A delivered file is not a passing
+   project: the independent audit of that run (`--completed-only`, November
+   12, `project-audit-*` in its folder) fails all four delivered projects on
+   the qualified oracles: `folio-field-index` (search leaves other entries
+   visible; contrast 4.35:1 for a label), `folio-reading-desk` (an empty note
+   is saved), `signal-repair-queue` (the item dialog lacks owner and status;
+   contrast 4.22:1), `forma-project-settings` (no Basics section, the review
+   omits a changed setting, the page overflows at 390 px). The same audit
+   first found a defect in the shared layout check (deliberately hidden text
+   was exempt only under one class name), corrected before these results.
+   The thirteen briefs not run are queued (queue 10).
 3. Independently audit original immutable exports: actual controls, filters,
    forms/radio buttons/dialogs, item-specific state, Back/undo/persistence;
    standalone offline and the real opaque preview iframe without weakening CSP.
@@ -859,24 +935,40 @@ projects across the nine distinct systems. No manual benchmark-output repair.
 Status: TO_DO for the new complete campaign; fifty fixtures and historical
 comparisons already exist.
 
-Progress, November 11, 2026 (model-free; paused by the owner mid-slice). Done
-and verified: twenty held-out cases (ten kinds the fifty lack, two each) and
-twelve long/recovery cases (dirty workspace, a tool failing once, a partial
-patch, steering, Stop/resume, two sessions), each with a workspace-only oracle,
-a reference result used only by its self-test and at least two wrong results it
-rejects (`make test-agent-lane-cases`: 203 checks, 102 wrong results rejected).
+Progress, November 11–12, 2026 (model-free). Done and verified: twenty
+held-out cases (ten kinds the fifty lack, two each) and twelve long/recovery
+cases (dirty workspace, a tool failing once, a partial patch, steering,
+Stop/resume, two sessions), each with a workspace-only oracle, a reference
+result used only by its self-test and at least two wrong results it rejects
+(`make test-agent-lane-cases`: 203 checks, 102 wrong results rejected).
 Held-out and recovery cases are selected only by name and only by
 `run-agent-lane.mjs`; the existing runners still run the fifty only. A
 differential check against the fifty as they were before this work (5
 variants × 50 cases, 875 graded comparisons of a reference and wrong results)
-found no difference; the published charts re-render byte-identical. Written
-but **not yet tested**: the six-agent `run-agent-lane.mjs` (with `--plan`), its
-drivers and the clean upstream ds4-agent build (`build-upstream-agent.mjs`, not
-run). Steering and Stop/resume rows are BLOCKED or not comparable for every
-agent until a scripted test exercises a driver. Still open: items 1–7 below as
-written, a scripted mechanics test, six-agent publication and plots, and every
-real-model attempt (none ran). See
-[the bench README](extension/task-graph/bench/README.md#case-sets-held-out-and-recovery).
+found no difference; the published charts re-render byte-identical.
+November 12: the six-agent runner is tested without a model.
+`make test-agent-lane-mechanics` drives the installed pi 1.4.0, OpenCode
+1.18.18 and codex-cli 0.167.1 through the runner's own drivers against
+scripted model servers (16/16): one prompt and two sessions for each CLI and
+Codex Stop/resume (stopped at its point, resumed in the same session), graded
+by the cases' own oracles, with a wrong solution failed and an unreached stop
+inconclusive. `make test-agent-lane-plan` executes `--plan` (70 × 6 × 3 =
+1,260 attempts for `--set all`, balanced order, nothing run; 11 checks) and
+`make test-agent-lane-publication` publishes and plots all six agents and
+both lanes from synthetic receipts (failure denominators, BLOCKED and
+not-comparable cells, matched-only time; 10 checks; nothing published). The
+clean upstream `ds4-agent` builds from the bundled pin without patches
+(`890898cf`, binary sha256 `26fa0330…`, no model opened). Fixed on the way:
+OpenCode received every prompt wrapped in quotes with its inner quotes
+escaped (the September 4 OpenCode results were produced that way), and a
+value option followed by another option was misparsed. The upstream agent,
+the DStudio Agent and DStudio checked run the model in their own process, so
+no scripted server can drive them: their drivers have never run. Still
+BLOCKED or not comparable, with the reason in every plan and result:
+steering for every agent (no proven driver, or no input channel),
+Stop/resume for all but Codex, and the whole product lane (configuration not
+frozen). Still open: items 1–7 below as written, and every real-model attempt
+(none ran). See [the bench README](extension/task-graph/bench/README.md#six-agent-lane-run-agent-lanemjs).
 
 Compare clean upstream ds4-agent, direct patched DStudio Agent, the same Agent
 with Task Graph/check, Pi, OpenCode and Codex CLI. The historical Native
@@ -890,8 +982,8 @@ baseline uses DStudio patches; it is not clean upstream.
    26 cases against a scripted Responses server
    ([what it proves](extension/task-graph/bench/README.md)). Still open: no
    real-model Codex run exists; whether the CLI's 25 KB base request fits the
-   benchmark context is unmeasured; the publication scripts still read Pi and
-   OpenCode only.
+   benchmark context is unmeasured. The six-agent publication (`--lanes`,
+   Codex included) is tested on synthetic receipts only; nothing is published.
    Inspect the installed CLI/API at implementation time; exercise tool-call →
    file/command effect → tool-result → answer, reasoning/events, partial and
    Unicode frames, IDs, stop, cache/continuation and resume. Verify native
@@ -1014,7 +1106,14 @@ test files; it is a first complete pass, not yet reviewed row by row. Before
 anything is removed, the following inputs from that pass must be resolved:
 
 - The 54 uncovered cases each get a behavioral test, or an explicit recorded
-  reason why the case cannot be exercised on the maintainer's Mac.
+  reason why the case cannot be exercised on the maintainer's Mac. November
+  12: 51 have one (45 model-free or simulated, written with their fixes of 16
+  product defects found on the way; four real-model runners not yet run;
+  one existing real-model test), and the matrix records the reason for the
+  other three (`uncoveredReason`): instructions hidden in a web page need a
+  held-out real-model case, double-click launch needs the native desktop
+  (P7), and a whole-app upgrade over an earlier main engine checkout does not
+  exist (P5). The matrix now holds 629 cases, 626 with a test.
 - Tests that execute only test-support code and no production behavior:
   `research_http_cancel_test.mjs`, `roadmap_request_test.mjs`,
   `http_deadline_test.mjs`, `rsa_collectors_matrix_test.mjs`,
@@ -1033,8 +1132,9 @@ anything is removed, the following inputs from that pass must be resolved:
   no longer passes its outside-workspace case when no read is attempted (rerun
   on real weights the same day: three such cases reported BLOCKED, not pass);
   two assertions in `engine_acceptance.mjs` on a field nothing set are
-  removed. Still open: `ui_live_vision_playwright_test.mjs` attaches no image
-  and grades no reply (being replaced by the vision corpus runner).
+  removed. On November 12 `ui_live_vision_playwright_test.mjs` was made to
+  attach a corpus image and grade the reply with the corpus grader (not run
+  since: it needs the running app with real weights).
 - Guide statements wider than what runs, to correct in the guides or by
   extending the test: case counts that drifted (`test-launch-preflight`,
   `test-agent-spawn`, `test-design-build-freshness`, `test-engine-sources`,

@@ -50,6 +50,23 @@ One-shot success, failure and Stop must produce distinct process outcomes.
 Four repeated tool calls are fed byte-for-byte into the host watchdog, with
 distinct transport IDs; a generated JSON record is not reconstructed by the
 harness. This is integration coverage, not a real-model quality benchmark.
+Two cases follow a turn past failing tools. `tool-fails-at-run-time` sends three
+valid calls that fail when they run (a read of a missing file, a command that
+exits 3, an edit whose text is absent): each returns its error as the tool
+result, the file is unchanged, and the next request of the same turn writes a
+file successfully. `post-edit-syntax-check` writes a broken `.js` and `.py` file
+and a valid one: the write results carry the `[verify] node`/`python3` report
+for the broken files only, and the repairing edits in the same turn come back
+without one (the test then checks both files itself). November 12, 2026: 36/36
+on a main-qwen Agent built from `src/engines/ds4` into a task-owned folder; the
+Laguna variant of the same check was not built or run.
+
+`make test-task-graph-http` (in `check-fast`) also sends oversized Task Graph
+requests to the real host: 257 nodes, a 4097-byte goal, a 16385-byte action
+text, more than 65536 JSON tokens and a body one byte over the 2 MiB API cap.
+Each is refused (400, or 413 for the body) with an error under 1 KiB that names
+the limit, `/api/status` answers within a second after each, and no graph is
+listed or left as a directory afterwards.
 
 `make test-remote-turn-error` executes the host's control-frame parser and the
 Task Graph scheduler/store. A failed turn followed by an idle marker must stay
@@ -96,6 +113,45 @@ staging. Inference has no automatic elapsed-work deadline; Stop, owner death,
 actual transport failure and blocked terminal delivery remain separate. It does
 not retry a failed action.
 Windows code is not qualified by these macOS process tests.
+
+A request without tool schemas is the DSML text protocol: Agent, Cowork and
+Design send one to a remote ds4 model and parse the tool markup in the text
+themselves. ds4-server still parses the DSML it has already streamed as
+content and appends it once more as `tool_calls` with `finish_reason`
+`tool_calls`. Until November 12, 2026 the relay published that copy as a
+`model_tool_calls` batch, which the DSML runtime correctly refuses ("unexpected
+or duplicate structured model tools"): `real_remote_test.mjs` then ended the
+turn without writing its file (receipt `tests/.artifacts/remote-real/run-jUEJaG`).
+The relay now delivers only the text and the server's finish reason to such a
+request, and fails explicitly when tool calls arrive with no text at all.
+Three corpus cases cover this and a fourth replays the relay's frames into the
+DSML consumer, all with the probe's `--text-request` body; the other cases now
+send a request that offers a tool, as structured runtimes do. Before the fix the
+corpus gave 63/66 and 65/68 on both owner-relay paths: the three new cases with
+tool calls failed and the plain text answer passed; after it 66/66 and 68/68.
+
+`make test-remote-ds4-text-tools REMOTE_TOOL_AGENT=<built ds4-agent-jsonl>`
+runs the whole path the live test uses, without weights: the real client host
+in Agent mode with `remoteModel: ds4`, a second real host whose `/v1` proxy
+relays to a scripted ds4-server, and the built native Agent. The script sends
+ds4-server's exact bytes for this request (`src/engines/ds4/ds4_server.c`):
+the DSML `write` call as content deltas, then as `tool_calls`. The test copies
+the runtime's build directory into its own run directory and fails if the
+launch rebuilt the runtime. A plain (`native`) turn must write the file once,
+send the result back as one `tool` message, get one answer and complete. With
+the previous host binary it failed exactly as the live receipt did; with the fix
+it passes. The second case sends the prompt as the live test does, so it runs
+as the automatic correctness graph: the same single write and answer, and the
+graph must succeed without a retried turn. With the fixed host but the previous
+runtime the write ran once, yet the graph failed and retried the turn (a third
+request): the remote DSML path published no `tool_call`/`tool_result` records,
+so the graph saw no tool result. With the runtime fragment fixed as well
+([remote-dsml-tool-receipts.patch](../../patch/ds4-agent-jsonl/remote-dsml-tool-receipts.patch))
+both cases pass, 2/2 (November 12, 2026, Agent built from `src/engines/ds4`
+into a task-owned folder). Design sends the same text-protocol request through
+the same relay, but this target runs only the Agent; Cowork shares the Agent's
+fragment. Model frames are simulated: this is transport and tool evidence, not
+a real-model result, which `make test-real-remote` still owns.
 
 The **18 input scenarios** exercise the first-party request writer, native
 stdout parser and exec'd worker, not a source-code contract. A real peer checks

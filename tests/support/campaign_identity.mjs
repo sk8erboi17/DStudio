@@ -103,13 +103,14 @@ export function repoIdentity(repo = root) {
 // that will actually run. A missing receipt is recorded as missing.
 export async function engineIdentity(dir, executables) {
   const out = { dir, receipts: {}, executables: [] };
-  for (const name of ['.dstudio-source.json', '.dstudio-llama.json', '.dstudio-mlx.json']) {
+  // .dstudio-build.json: how a ds4-family checkout's executables were built.
+  for (const name of ['.dstudio-source.json', '.dstudio-llama.json', '.dstudio-mlx.json', '.dstudio-build.json']) {
     const file = path.join(dir, name);
     if (!fs.existsSync(file)) continue;
     const text = fs.readFileSync(file, 'utf8');
     out.receipts[name] = { sha256: crypto.createHash('sha256').update(text).digest('hex'), content: (() => { try { return JSON.parse(text); } catch { return null; } })() };
   }
-  if (!Object.keys(out.receipts).length) out.receiptMissing = true;
+  if (!Object.keys(out.receipts).some((name) => name !== '.dstudio-build.json')) out.receiptMissing = true;
   for (const name of executables) {
     const file = path.join(dir, name);
     out.executables.push(fs.existsSync(file) ? { name, bytes: fs.statSync(file).size, sha256: await sha256File(file) } : { name, missing: true });

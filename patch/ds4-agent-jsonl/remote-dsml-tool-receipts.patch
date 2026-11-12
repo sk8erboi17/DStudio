@@ -1,0 +1,16 @@
+diff --git a/remote-agent.cfrag b/remote-agent.cfrag
+--- a/remote-agent.cfrag
++++ b/remote-agent.cfrag
+@@ -911,7 +911,12 @@ static char *ds4ui_remote_execute_tool_calls_text(
+         agent_worker *w, const agent_tool_calls *calls) {
+     agent_buf all = {0};
+     for (int i = 0; i < calls->len; i++) {
++        /* The receipts the native DSML path publishes around each call: the
++         * UI closes the tool block, and Task Graph's completion contract
++         * needs the tool_result before it accepts the turn without a retry. */
++        if (w->cfg->jsonl) ds4ui_emit_tool_call(w, &calls->v[i]);
+         char *res = agent_execute_tool_call(w, &calls->v[i]);
++        if (w->cfg->jsonl) ds4ui_emit_tool_result(w, calls->v[i].name, res);
+         char hdr[128];
+         snprintf(hdr, sizeof(hdr), "Tool result %d (%s):\n", i + 1,
+                  calls->v[i].name ? calls->v[i].name : "unknown");

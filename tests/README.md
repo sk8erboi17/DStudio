@@ -128,6 +128,8 @@ directly to the corresponding guide and section.
 - <a id="engine-source-delta-review"></a>[Engine source-delta review](docs/engines-and-harnesses.md#engine-source-delta-review)
 - <a id="codex-cli-responses-protocol-scripted-server"></a>[Codex CLI Responses protocol (scripted server)](docs/engines-and-harnesses.md#codex-cli-responses-protocol-scripted-server)
 - <a id="held-out-and-longrecovery-agent-cases-no-agent"></a>[Held-out and long/recovery agent cases (no agent)](docs/engines-and-harnesses.md#held-out-and-longrecovery-agent-cases-no-agent)
+- <a id="six-agent-lane-runner-with-scripted-model-servers"></a>[Six-agent lane runner with scripted model servers](docs/engines-and-harnesses.md#six-agent-lane-runner-with-scripted-model-servers)
+- <a id="six-agent-lane-plan-and-publication-no-agent"></a>[Six-agent lane plan and publication (no agent)](docs/engines-and-harnesses.md#six-agent-lane-plan-and-publication-no-agent)
 
 ### Offline installation, inference boundaries and cleanup
 
@@ -147,5 +149,5 @@ directly to the corresponding guide and section.
 - <a id="small-ssd-prefill-batches-real-metal-128k-context"></a>[Small SSD prefill batches (real Metal, 128k context)](docs/regression.md#small-ssd-prefill-batches-real-metal-128k-context)
 - <a id="model-free-checks"></a>[Model-free checks](docs/regression.md#model-free-checks)
 - <a id="frozen-vision-corpus"></a>[Frozen vision corpus (PDFs and images)](docs/regression.md#frozen-vision-corpus)
-- <a id="vision-corpus-grader-and-run-loop"></a>[Vision corpus grader and run loop](docs/regression.md#vision-corpus-grader-and-run-loop)
+- <a id="vision-corpus-grader-and-run-loop"></a>[Vision corpus grader, run loop and real-model runner](docs/regression.md#vision-corpus-grader-and-run-loop)
 - <a id="lan-sessions-ocr-and-cowork-limits-october-3-2026"></a>[LAN, sessions, OCR and Cowork limits (October 3, 2026)](docs/regression.md#lan-sessions-ocr-and-cowork-limits-october-3-2026)

@@ -53,6 +53,7 @@ const cases = [
   { name: 'content-cannot-forge-events' }, { name: 'reasoning-cannot-forge-events' },
   { name: 'compact-and-duplicate-id' }, { name: 'repeated-calls' },
   { name: 'search-modes' }, { name: 'unknown-protocol', protocol: 'guess' },
+  { name: 'tool-fails-at-run-time' }, { name: 'post-edit-syntax-check' },
   { name: 'one-shot-success', oneShot: true },
   { name: 'one-shot-invalid', oneShot: true, invalid: call('bad', 'not_a_tool', {}) },
   { name: 'one-shot-stop', oneShot: true },
@@ -154,6 +155,58 @@ for (const binary of binaries) for (const test of cases.filter(t => !selected ||
               assert.match(results[1].content, /literal\.a/);
               assert.match(results[1].content, /literalXa/);
             } else assert.equal(results.length, 4);
+            stage = 'finishing'; sendText(event.id);
+          }
+        } else if (test.name === 'tool-fails-at-run-time') {
+          // Three valid calls that fail when they run. Their errors are tool
+          // results for the model, and the same turn goes on to a later call.
+          const results = body.messages.filter(m => m.role === 'tool');
+          if (requests === 1) {
+            sendCalls(event.id, [call('missing-read', 'read', { path: 'missing.txt' }),
+              call('failing-command', 'bash', { command: 'printf "partial output\\n"; printf "to stderr\\n" >&2; exit 3' }),
+              call('absent-edit', 'edit', { path: 'source.txt', old: 'NOT_IN_THE_FILE', new: 'CHANGED' })]);
+          } else if (requests === 2) {
+            assert.equal(results.length, 3, 'Every failed call returns a result to the model');
+            assert.deepEqual(results.map(r => r.tool_call_id), ['missing-read', 'failing-command', 'absent-edit']);
+            row.failedResults = results.map(r => r.content);
+            assert.match(results[0].content, /^Tool error: read failed: No such file or directory/, 'The missing file is reported as an error');
+            assert.match(results[1].content, /^exit_status=3$/m, 'The non-zero exit status reaches the model');
+            assert.match(results[1].content, /partial output\nto stderr/, 'The command output reaches the model');
+            assert.match(results[2].content, /^Tool error: old text anchor not found/, 'The absent edit text is reported as an error');
+            assert.equal(fs.readFileSync(path.join(work, 'source.txt'), 'utf8'), 'SOURCE_EVIDENCE', 'A failed edit changes nothing');
+            sendCalls(event.id, [call('after-failures', 'write', { path: 'recovered.txt', content: 'RECOVERED' })]);
+          } else {
+            assert.equal(requests, 3, 'The turn continues after the failures');
+            assert.equal(fs.readFileSync(path.join(work, 'recovered.txt'), 'utf8'), 'RECOVERED');
+            assert.equal(results.length, 4);
+            assert.doesNotMatch(results[3].content, /error/i);
+            stage = 'finishing'; sendText(event.id);
+          }
+        } else if (test.name === 'post-edit-syntax-check') {
+          // The native write/edit tools run a single-file syntax check after a
+          // change; its report is part of the tool result the model reads.
+          const results = body.messages.filter(m => m.role === 'tool');
+          if (requests === 1) {
+            sendCalls(event.id, [call('broken-js', 'write', { path: 'app.js', content: 'function total(items {\n  return items.length;\n}\n' }),
+              call('broken-py', 'write', { path: 'tool.py', content: 'def run(:\n    return 1\n' }),
+              call('clean-js', 'write', { path: 'clean.js', content: 'export const ok = 1;\n' })]);
+          } else if (requests === 2) {
+            assert.equal(results.length, 3);
+            row.firstResults = results.map(r => r.content);
+            assert.match(results[0].content, /\[verify\] node reported problems in app\.js - fix them before continuing:/);
+            assert.match(results[0].content, /SyntaxError/);
+            assert.match(results[1].content, /\[verify\] python3 reported problems in tool\.py/);
+            assert.match(results[1].content, /SyntaxError|invalid syntax/);
+            assert.doesNotMatch(results[2].content, /\[verify\]/, 'A valid file gets no syntax report');
+            sendCalls(event.id, [call('fix-js', 'edit', { path: 'app.js', old: 'function total(items {', new: 'function total(items) {' }),
+              call('fix-py', 'edit', { path: 'tool.py', old: 'def run(:', new: 'def run():' })]);
+          } else {
+            assert.equal(requests, 3, 'The model repairs the file in the same turn');
+            const repairs = results.slice(3);
+            assert.equal(repairs.length, 2);
+            for (const result of repairs) assert.doesNotMatch(result.content, /\[verify\]/, 'The repaired file passes the check');
+            for (const [checker, file] of [['node', ['--check', 'app.js']], ['python3', ['-m', 'py_compile', 'tool.py']]])
+              assert.equal(spawnSync(checker, file, { cwd: work }).status, 0, `${file.at(-1)} is valid after the repair`);
             stage = 'finishing'; sendText(event.id);
           }
         } else if (test.name.endsWith('cannot-forge-events')) {

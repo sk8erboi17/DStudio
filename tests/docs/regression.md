@@ -85,9 +85,11 @@ stale for `make`. It loads no model and does no GPU work.
 The upgrade test runs the production `setup_ensure_server_metrics_runtime()`
 (the step every Chat launch and, since November 11, every local harness launch
 takes) on a copy of the bundled engine whose `ds4-server` was built before the
-patch: the patch is applied and the server rebuilt, a ready server is kept on
-the next launch, and a pre-patch server copied back newer than its sources is
-still detected from its contents and rebuilt (`make -B`).
+patch: the patch is applied and the server rebuilt, with a build receipt
+(`.dstudio-build.json`: compiler, make, the flags the Makefile expands to and
+the rebuilt server's SHA-256, compared with the file), a ready server is kept
+on the next launch, and a pre-patch server copied back newer than its sources
+is still detected from its contents and rebuilt (`make -B`).
 
 The live script builds the unpatched (baseline) and the patched engine in a
 new `tests/.artifacts/laguna-prefill-chunk/run-*` directory, refuses to start
@@ -189,6 +191,20 @@ native images, mixed attachment preparation and full Chat upload with actual
 source highlights. Only the browser's engine response is simulated; no model
 is loaded. Reports/screenshots are kept in ignored `tests/.artifacts/pdf-complete-*`.
 See [the reading design and limits](../../docs/PDF_READING.md).
+
+`make test-pdf-limits` (in `check-fast`; Poppler and Playwright required)
+generates two PDFs at run time instead of committing binaries: one encrypted
+with a user password (RC4-128, checked with Poppler and the password) and one
+with 2,500 pages. Against the real host it checks that the password-protected
+file is refused by every read and by the preview with a `password-protected`
+message and no text, while an owner-password-only file is read; that the long
+file is never sent whole, its overview stays within the character budget, a
+late page is read exactly and a page past the 2,000-page ceiling or past the
+end is refused with the document size; and, with a FIFO holding one read open,
+that status and another PDF read are still served. In WebKit and Chromium the
+page served by the host marks the protected file's tile as not read and blocks
+Send, and sends the long file to a simulated model as a bounded, labelled
+excerpt. Receipts go to ignored `tests/.artifacts/pdf-limits-*`.
 
 For PDF evidence, run `make test-pdf-evidence`, also with
 `DSTUDIO_TEST_BROWSER=webkit`: each invocation runs one browser (installed
@@ -314,7 +330,9 @@ What the corpus and its test do not establish:
   the 26 image-only pages can reach a model as labelled OCR text. The 37
   pixel-only facts in 11 PDFs that sit in a picture on a page with a text
   layer are never OCRed by the reader. A pixel-path run has to disable the
-  helper or report the two groups separately (`scannedPages` tells them apart).
+  helper or report the two groups separately (`scannedPages` tells them apart);
+  the runner below does the first with `--ocr off` and otherwise counts
+  OCR-answerable rows apart.
 - The reader hands a native-vision model at most four rendered pages per read
   (image-only pages first, 1100 px on the long side). In a plain whole-document
   read, pixel-only facts of `p22`, `p26` and `p31` lie on pages outside that
@@ -326,8 +344,8 @@ What the corpus and its test do not establish:
   does not look for such channels.
 
 <a id="vision-corpus-grader-and-run-loop"></a>
-**Vision corpus grader and run loop (model-free; the real runner is not
-written).** `tests/support/vision_corpus_grader.mjs`
+**Vision corpus grader, run loop and real-model runner (the runner has not
+run on weights).** `tests/support/vision_corpus_grader.mjs`
 (`dstudio.vision-corpus-grader.v1`) grades one final answer against one
 question. A grade is pass or fail plus a diagnostic class, never partial
 credit. Its header states the exact rules. In short:
@@ -370,17 +388,193 @@ question it records the `/v1/chat/completions` bodies the page sent (image
 parts with SHA-256 matched to corpus files or rendered PDF pages, text-layer
 versus OCR page blocks, any vision payload), the PDF reads and which sent
 representation could carry the fact. It classifies `evidence_page_not_sent`
-and `answerable-from-ocr`. Simulated only, `make test-vision-corpus-runner`
-runs it against the real test host and its page in headless Chromium, with a
-scripted engine behind the host's `/v1` relay and a status overlay as
-launcher. Its single scenario passes 9/9 rows (Chat, `p01` and `i21`, authored
-correct answers): the files are attached in order under their opaque names,
-the image part is the corpus file byte for byte, the PDF fact travels in the
-text layer, and no item id reaches the engine. It is unfinished and in no
-broad gate. Not yet written: the real runner `tests/live/vision_corpus_live.mjs`;
-the simulated scenarios for OCR on and off, `evidence_page_not_sent`,
-hallucination, engine error, Stop, text-only isolation and vision → text →
-vision; Agent, Cowork and Learn (their code paths have never run).
+and `answerable-from-ocr`, and keeps the raw answer, the request bodies and
+the engine responses of every question in `questions/NNN-<id>/`. It never
+asks a question twice and sets no wall-clock limit on model work. Two runner
+defects found by the scenarios below were fixed on November 12:
+
+- the page keeps an image it refuses for a model without vision in the
+  composer, also across New chat. The loop now removes such a file before it
+  attaches the next item's files, as a user would. Before, the next attach
+  waited 120 seconds for a tile count that could not occur and failed as
+  `runner_error`;
+- the page ends a turn whose engine failed like any other and keeps the partial
+  text in the conversation. The loop continued in that conversation, so the
+  next question carried the failed partial answer in its history. A failed,
+  stopped or incomplete answer now makes the next question start a new
+  conversation with the item's files.
+
+A later session of the same run (`--resume`) keeps the row of every question
+already asked, whatever its outcome; a question that was running when the
+runner exited takes the row its receipt recorded, or becomes `interrupted`.
+Only questions never asked are asked. A Ctrl-C during an answer stops it
+through the page's Stop and records `interrupted` (`interrupted_by_operator`),
+not `fail`. A run can keep one browser profile across model switches: each
+phase opens a new page, which is a reload of the app.
+
+**Simulated check.** `make test-vision-corpus-runner` (Playwright Chromium,
+Poppler and, on macOS, `build/dstudio-ocr`; no model, not in a broad gate)
+runs `tests/integration/vision_corpus_runner_test.mjs` against the real test
+host and its page. The engine is a scripted loopback server whose answers are
+authored in the test; for the run-loop scenarios a status overlay tells the
+page which model is loaded. Run on November 12 on macOS (Apple Silicon), all
+ten checks passed:
+
+| Check | What it executes and requires |
+| --- | --- |
+| Authored correct answers | `p01` and `i21`, 9/9 rows pass; files attached in order under their opaque names; the image part is the corpus file byte for byte; the PDF fact travels in the text layer; no item id reaches the engine. |
+| OCR on and off | `p20` (one image-only page). With the helper, page 1 travels as an OCR block, the facts are in it, the four answerable rows pass as `answerable-from-ocr` and count 0 pixel-path passes; without it, the rendered page is the only carrier and the same rows count 4 pixel-path passes. |
+| Page not sent | `p26` (five image-only pages): the read hands pages 1–4 to the model, so a wrong answer to the page-5 question fails as `evidence_page_not_sent` (grade `wrong_value`, raw answer kept); the other rows pass on the pixel path. |
+| Hallucination | An invented fee for `p01-q4` fails as `no_refusal`; "I cannot see a number … but it is probably 5" for `i21-q5` fails as `refused_then_guessed`. |
+| Engine error mid-run | `i21`: an HTTP 500 and a stream dropped after "The answer" fail only their questions as `engine_error` (message and partial text kept); each reached the engine once; the next question starts a new conversation with the image and passes. |
+| Stop | `p01-q2` held mid-stream and stopped: `stopped`, partial text "The" kept with `finishReason` `aborted`, the engine request closed, asked once; the next questions pass in a new conversation. |
+| Text-only isolation | Text model selected: every `i21` question is refused by the page with the image kept (`refused_by_app`, nothing sent); `p10` goes as text layer only (no rendered page, no image part in any request); honest limitations for pixel-only facts pass, a stated pixel-only value fails as `pixel_fact_stated_without_pixels`; the scanned `p20-q1` without OCR passes only as a limitation. |
+| Dry run: switch sequence | See below; 9/9 rows in each of the three phases, history probe `history_isolated`. |
+| Dry run: Ctrl-C and `--resume` | See below. |
+| Dry run: missing weights | `--model gguf/not-installed.gguf` exits 2 (BLOCKED); no request reaches an engine. |
+
+`VISION_RUNNER_CHECK=<text>` runs only the checks whose name contains it; the
+others are reported as skipped and the run exits non-zero.
+
+**Real-model runner.** `tests/live/vision_corpus_live.mjs`
+(`make test-vision-corpus-live VISION_CORPUS_ARGS="..."`; not in `check-fast`
+or `check-real`) runs the corpus through the run loop on real weights, Chat
+only. It has not been run on weights yet. It:
+
+- refuses to start beside another engine (`tests/support/heavy_preflight.mjs`;
+  BLOCKED, exit 2) and records the snapshot before and after, marking a run
+  contaminated when a foreign engine appeared or grew;
+- starts the production host (`startDStudio`, isolated engine port, no
+  automatic engine start). With `--ocr off` the host gets no OCR helper, so
+  image-only pages reach the model only as pixels; with `--ocr on` (default)
+  it needs `build/dstudio-ocr` (BLOCKED without it on macOS) and rows whose
+  fact came through OCR are counted apart (`answerable-from-ocr`). Any OCR
+  text in an `--ocr off` run fails the phase;
+- checks in the host's model catalog that the model (and `--encoder`, when
+  given) is installed, else BLOCKED; launches it with `/api/start` and the
+  GGUF on the isolated port, waiting without a wall-clock limit; refuses a
+  launch that attached to an existing ds4 engine instead of starting one;
+- records what actually runs: the engine process's own arguments (`-m`,
+  `--vision`/`--mmproj`, `--port`, `--ctx`, `--ssd-streaming`), size, mtime,
+  inode and SHA-256 of the model and encoder files (`--hash none` skips the
+  digest), the checkout's `.dstudio-source.json`, `/v1/models`, the status
+  fields (mode, effective context, power, think, SSD streaming and its reason,
+  native-vision flags) and the page's selected model. A vision phase without
+  an encoder argument, a text phase with one, an engine that opened another
+  file, a flag that disagrees with the arguments or an engine on another port
+  stops the run before any question;
+- `--expect text-only` runs on `--text-model` (default Qwen3.6-35B-A3B
+  UD-Q6_K_XL, llama.cpp, no projector): the capability must be absent, images
+  must be refused by the app with the file kept, any visual payload in any
+  request fails the row as `pixels_sent_to_text_only_model`, and a pixel-only
+  fact is graded as an honest limitation;
+- `--switch-sequence` runs vision → text → vision in one host session and one
+  browser profile. The first model is launched with `/api/start`; the switches
+  use the composer's model picker (the page saves the selection and asks the
+  host, naming no port); every phase reloads the app. The text phase first
+  continues the last vision conversation, whose image or document is in its
+  history, and fails (`pixels_sent_to_text_only_model`) if any pixel of that
+  history reaches the text model or if the conversation loses an attachment.
+  That probe is not graded as an answer. A switch sequence cannot be resumed;
+- keeps one directory per run, `tests/.artifacts/vision-corpus-live/run-*/`:
+  `run.json` (the fixed definition: options, phases, corpus manifest hash,
+  question ids), one `session-N.json` per invocation (argv, DStudio revision,
+  host binary hash, preflight, launches, identities, relaunches, problems,
+  outcome), `summary.json`, `file-digests.json`, the host and llama.cpp/MLX
+  logs, and per phase `results.json` (the ledger), `questions/` and
+  `payloads/`. Nothing is erased; before a resumed session updates a
+  ledger it is copied to `results.before-session-N.json`;
+- `--resume RUN_DIR` takes the run's own options (others are refused) and
+  asks only questions never asked. An engine that dies mid-run is relaunched
+  for the next question after its identity is checked again; the failed
+  question is not asked again;
+- exits 0 when every question of every phase passed, 2 when BLOCKED and 1
+  otherwise (a failure, an interrupted or unasked question, a contaminated or
+  inconsistent run). The final lines give per phase the passes, failures,
+  pixel-path passes, OCR-answerable passes, rows whose evidence was not sent
+  and visual payloads sent to a text-only model.
+
+The model files live in the engine folder the harness resolves
+(`DSTUDIO_REAL_DS4_DIR`, else `./ds4`). Commands:
+
+```sh
+make tests/.build/dstudio-server-test build/dstudio-ocr
+# DeepSeek V4 Flash Vision-Exp, pixel path only (no OCR):
+make test-vision-corpus-live VISION_CORPUS_ARGS="--model gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf --encoder gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf --ocr off"
+# the same model as shipped, OCR rows reported apart:
+make test-vision-corpus-live VISION_CORPUS_ARGS="--model gguf/DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf --encoder gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+# text-only isolation:
+make test-vision-corpus-live VISION_CORPUS_ARGS="--expect text-only --text-model gguf/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf --ocr off"
+# vision -> text -> vision on a few items:
+make test-vision-corpus-live VISION_CORPUS_ARGS="--switch-sequence --only p01,p20,i21,s01 --encoder gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+# continue an interrupted run:
+make test-vision-corpus-live VISION_CORPUS_ARGS="--resume tests/.artifacts/vision-corpus-live/run-XXXXXX"
+```
+
+**Dry run (SIMULATED).** `--dry-run --host URL` drives an already started
+host instead of starting one; the resource preflight is then recorded, not
+enforced, and every model file must be under 1 MiB, so a dry run cannot load
+weights. The simulated check starts a test host whose checkout is a fixture:
+sources none of the managed patches adapt, a `ds4-server` that execs
+`tests/support/vision_corpus_fixture_engine.mjs`, and model and encoder files
+of about 110 bytes. The host launches it through its real `/api/start` path;
+the fixture listens where the host tells it, answers `/v1/models` like
+ds4-server and forwards every request to the scripted engine with the
+arguments it was started with. Each host of the test uses its own
+`DS4_LOCK_FILE`: the ds4 instance lock is machine-wide (`/tmp/ds4.lock`), and
+a test host that finds it held by a real engine attaches to that engine
+instead of launching one. The runner is executed as a child process, as the
+maintainer runs it:
+
+- switch sequence (`--only p01,i21`, `--encoder`, `--ocr off`): exit 0. The
+  three engine processes ran with the expected `-m` and `--vision` arguments
+  on the host's own port, the recorded SHA-256 of the model and encoder files
+  equal the fixture files, `nativeVisionActive` followed the encoder, the two
+  switches went through the picker without a port, the text engine received
+  no image part, the probe continued the restored `i21` conversation with the
+  image in its history and passed, vision worked again afterwards, and every
+  asked question kept its receipt;
+- Ctrl-C and resume (`--only p01`): SIGINT while `p01-q2` streams stops it
+  (`interrupted`), leaves `q3` and `q4` not run and exits 1 (INCOMPLETE).
+  `--resume` asks only `q3` and `q4`, never `q1` or `q2` again, keeps the
+  first session's receipts byte for byte, copies the earlier ledger and
+  records the same model digest; `--resume` with another option is refused.
+
+**Host defects found and fixed on November 12.** `DS4UI_ENGINE_PORT` (an
+isolated engine port, used by every real-model harness) redirected only the
+`/v1` relay. Launches that name no port (every launch the page makes: model
+picker, mode switches), the check for an external engine on the port, the
+Agent/Design refusal beside one, the doctor's port check, the startup reuse
+and the port a forced launch frees still used 28000. An isolated host
+therefore attached to, or was blocked by, whatever ds4 engine listened on
+28000; a forced launch on it sent SIGTERM, then SIGKILL, to that engine; and
+an engine its page started listened on 28000 while the relay sent requests to
+the isolated port.
+`engine_port_default()` in `src/dstudio.c` now gives all of them the
+override. The dry run's switch sequence exercises it: the picker's launches
+name no port and the engines listen on the isolated one. Production hosts set
+no override and keep 28000.
+
+**`tests/live/ui_live_vision_playwright_test.mjs`** (`make test-ui-live-vision`,
+real weights on an already running app at `DSTUDIO_LIVE_URL` with DeepSeek
+Vision-Exp selected) attached no image and graded no reply although it was
+listed as the live vision UI check. Since November 12 it first asks
+`i21-shapes-count-q1` through the run loop: `images/i21.png` is attached, the
+request must carry it byte for byte, the fact must reach the model only as
+pixels and the answer must pass the grader. It then keeps its earlier control
+checks (Chat Send and Stop; Agent, Cowork and Design accept a prompt and stop;
+Learn restores the server runtime; Settings shows the encoder installed). Both
+browser contexts keep their conversations in an in-memory store of the test,
+so the app's history is not written. It has not been run since the change.
+One graded question qualifies nothing; the corpus runner is the evidence.
+
+What none of this establishes: no model has seen the corpus, so no vision
+checkpoint, encoder, projector or answer is qualified, and no text-only model
+has been shown to refuse pixels on real weights. Everything above that passed
+is simulated or model-free. Agent, Cowork and Learn have never run through the
+loop, and the runner refuses them. The history probe checks what the page
+sends to the text model after a switch and a reload; it does not inspect
+engine KV or disk caches.
 
 Run `node tests/browser/ui_model_picker_playwright_test.mjs` (also with
 `DSTUDIO_TEST_BROWSER=webkit`) for the composer picker. This uses a simulated
@@ -432,6 +626,11 @@ checkout switch. The fixture lists a single main installation, so choosing
 between engine checkouts is not exercised. Catalog delays/errors and
 background download polling must preserve
 search input and focus. The launcher is simulated; this is not real inference.
+Since November 12, 2026 it ends with a model switch in the middle of a
+conversation: after an authored answer from Qwen3.8-27B the picker loads
+Qwen3.6-35B-A3B with one start request, and the next message is addressed to
+the new model and carries both earlier turns; the saved chat holds all four
+messages. The answers are authored (simulated).
 Screenshots and the request receipt go under `tests/.artifacts/model-picker/`.
 
 The old source-pattern contract files were removed. Their useful parser, LAN,
@@ -516,7 +715,19 @@ results. `make test-design-tool-stream` runs the same loop and checks the live
 `tool_call_begin` / `tool_call_param` / `tool_body_delta` events used by Open
 IDE: the streamed write body equals the saved bytes, deltas are capped,
 cut on UTF-8 boundaries and never contain DSML markup, edits stream old then
-new, and an unclosed stanza is previewed but never executed. `make test-design-archive-build` compiles a real local source archive
+new, and an unclosed stanza is previewed but never executed.
+`make test-design-turn-gates` runs the same native loop in remote mode with
+simulated model frames: `question()` emits its event, defers a write in the same
+batch and ends the turn with no further model request, and the user's
+`§QUESTION_ANSWER` turn then reaches the model and the write runs; `propose()`
+refuses a direction whose file does not exist and ends the turn on a valid
+proposal; `artifact()` on a page wider than the tablet and phone widths is
+rendered in the installed headless Chrome, refused with the measured
+overflow, and no manifest is written, while the same page made to fit has no
+layout finding. Without Chrome the test is NOT RUN and fails. The remote loop
+used to send one more model request after `question()`, `propose()` or a
+registered artifact, where the local loop stops; it now stops too.
+`make test-design-archive-build` compiles a real local source archive
 without engine Git metadata and checks rebuilds after source changes. Neither
 test loads a model; the archive test does not download its fixture.
 `make test-design-build-freshness` executes the production native builder and
@@ -659,6 +870,29 @@ isolation, Stop, fragmented UTF-8 SSE, visible incomplete outcomes and retained
 failed receipts on retry. Screenshots and receipts go to ignored
 `tests/.artifacts/research-progress-browser/`. This is model-free browser/runtime
 coverage; it does not start the quality corpus or assess a real research answer.
+
+`make test-web-research-host` (in `check-fast`) runs
+`tests/integration/web_research_host_test.mjs` in Chromium and WebKit against
+the real test host and the page it serves. The page reads, the host's search
+and the store are real; model replies and the launcher are simulated, and in
+the first scenario search results list pages the test serves on loopback. Every
+proxy variable of the host points at a closed local port with loopback exempt,
+so nothing leaves the machine and anything beyond loopback fails as it does
+offline. It checks that a 403 page, a dropped connection and a refused port
+come back as failed reads named in the trace and never reach the extractor or
+the saved evidence; that the delivered answer's `[S1]` citation and source
+card open the read page and `[F1]` stays in the answer; and that with the
+network unreachable both Deep Research and Web Search end with a visible
+failure saying no search provider could be reached, without asking the model
+to write an answer. A third scenario serves a page that tells the model to
+open another loopback address carrying a `data=` query, and its scripted
+planner obeys: the address must never be requested (the test server's own
+request log), the host must not be asked to read it and the run's trace must
+name it as refused (the writer is held on a barrier so the trace is still on
+screen). Before the November 12 fix the page opened that address. This covers
+the planner side of page-injected instructions only; whether a real model's
+extracted facts ignore them needs a held-out real-model case. Receipts and
+screenshots go to ignored `tests/.artifacts/web-research-host/`.
 
 For a new measured replay, `--before COMMIT` records the intended historical
 runtime; `--variants after` keeps all four questions without re-running that

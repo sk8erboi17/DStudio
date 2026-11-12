@@ -8,6 +8,7 @@ import {chromium, webkit} from 'playwright';
 import {artifactRunDir, writeArtifact} from '../support/real_harness.mjs';
 import {exerciseDesignProject, designProjectScenarios} from '../support/design_project_interactions.mjs';
 import {measureProjectChoices} from '../support/design_project_layout.mjs';
+import {renderedReflow} from '../support/design_preview_accessibility.mjs';
 import {snapshotProject, serveProjectSnapshot, validateProjectAuditInput, auditProjectView} from '../support/design_project_audit.mjs';
 import {pathToFileURL} from 'node:url';
 import {validateDesignProjects} from '../support/design_project_cases.mjs';
@@ -142,6 +143,30 @@ try {
         await page.locator('label').first().evaluate(label => { label.style.display = 'block'; });
         assert.equal((await measureProjectChoices(page))[0].clearsIndicatorColumn, false);
         await page.screenshot({path: path.join(run, `${name}-deliberately-broken-choices.png`)});
+      });
+      await check(`${name}: hidden-on-purpose text passes reflow; cut and overflowing text still fail`, async () => {
+        // Equivalent hiding techniques under other names than the packs use
+        // (found in generated projects): a 1px clipped `.visually-hidden`
+        // header and a skip link parked left of the page until focused.
+        const shell = (body) => `<!doctype html><meta name="viewport" content="width=device-width"><style>
+          body{margin:0;font:16px sans-serif} .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+          .skip-link{position:absolute;left:-999px;top:0} .skip-link:focus{left:12px}</style><body>${body}</body>`;
+        await page.setViewportSize({width: 390, height: 700});
+        await page.setContent(shell('<a class="skip-link" href="#m">Skip to the archive</a><table><tr><th>Item</th><th><span class="visually-hidden">Actions</span></th></tr></table><main id="m">Entries</main>'));
+        assert.deepEqual(await renderedReflow(page), []);
+        await page.locator('.skip-link').focus();
+        assert.deepEqual(await renderedReflow(page), [], 'the focused skip link is inside the page');
+        const faults = {
+          'text-outside-page': '<p style="position:relative;left:-40px;white-space:nowrap">Partly cut at the left edge of the page</p>',
+          'clipped-text': '<div style="width:80px;overflow:hidden;white-space:nowrap">A long label cut by its own box</div>',
+          'page-overflow': '<div style="width:600px">Wider than the page</div>',
+          'parked right still widens the page': '<a style="position:absolute;left:420px;top:0">Beside the page</a>',
+        };
+        for (const [kind, body] of Object.entries(faults)) {
+          await page.setContent(shell(body));
+          const issues = await renderedReflow(page);
+          assert.ok(issues.some((issue) => issue.kind === kind || (kind.startsWith('parked') && issue.kind === 'page-overflow')), `${kind} is reported: ${JSON.stringify(issues)}`);
+        }
       });
       for (const fixture of domainFixtures) await qualifyOracleFixture({name, browser, page, run, check}, fixture);
       await context.close();

@@ -1,8 +1,28 @@
+// REAL inference on an already running DStudio (DSTUDIO_LIVE_URL) with the
+// DeepSeek V4 Flash Vision-Exp model selected: a short gate over the live UI.
+//
+// 1. Vision, graded: one frozen corpus image (tests/fixtures/vision_corpus,
+//    images/i21.png, question i21-shapes-count-q1) goes through the corpus run
+//    loop (tests/support/vision_corpus_runner.mjs): attached in the composer,
+//    asked, the request must carry the corpus file byte for byte as an image
+//    part, and the final answer is graded by tests/support/vision_corpus_grader.mjs.
+//    One question qualifies nothing; the corpus runner
+//    (tests/live/vision_corpus_live.mjs) is the vision evidence.
+// 2. Controls, not graded: Chat Send then Stop; Agent, Cowork and Design accept
+//    a prompt and return to idle after Stop; Learn restores the shared server
+//    runtime; Settings → Vision shows the encoder as installed.
+//
+// The app's shared conversation store is never written: both browser
+// contexts keep their conversations in an in-memory store of this test.
+// No wall-clock cutoff on the graded answer; receipts in
+// tests/.artifacts/ui-live-vision/run-*/.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { artifactRunDir } from '../support/real_harness.mjs';
+import { loadCorpus, runVisionCorpus, selectQuestions } from '../support/vision_corpus_runner.mjs';
 
 let chromium;
 try {
@@ -14,9 +34,10 @@ try {
 
 const baseUrl = String(process.env.DSTUDIO_LIVE_URL || '').replace(/\/+$/, '');
 if (!baseUrl) {
-  console.log('ui_live_vision_playwright_test: set DSTUDIO_LIVE_URL to run the live gate');
+  console.log('ui_live_vision_playwright_test: set DSTUDIO_LIVE_URL to run the live gate (NOT RUN)');
   process.exit(1);
 }
+const runDir = artifactRunDir('ui-live-vision');
 
 const requestJson = async (pathname, opts = {}) => {
   const response = await fetch(`${baseUrl}${pathname}`, opts);
@@ -76,6 +97,20 @@ if (initialStatus.mode !== 'server' || initialStatus.running !== true || initial
     'live gate could not restore Chat');
 }
 
+// The page's own persistence, kept in this test instead of the app's store:
+// the run loop reads the persisted conversation back from it.
+async function privateStore(context) {
+  const memory = { rev: 0, data: null };
+  // A save can be in flight when its page closes.
+  const reply = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {});
+  await context.route('**/api/store', async (route) => {
+    if (route.request().method() === 'GET') return reply(route, { rev: memory.rev, data: memory.data });
+    try { memory.data = JSON.parse(route.request().postData() || 'null'); memory.rev++; } catch { /* the page sent no JSON */ }
+    return reply(route, { ok: true, rev: memory.rev });
+  });
+  await context.route('**/api/storerev', (route) => reply(route, { rev: memory.rev }));
+}
+
 let browser;
 try {
   browser = await chromium.launch();
@@ -85,22 +120,28 @@ try {
 
 const pageErrors = [];
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  // ---- 1. one corpus image, graded
+  const corpus = loadCorpus();
+  const graded = await runVisionCorpus({ runDir, baseUrl, corpus, groups: selectQuestions(corpus.manifest, { only: ['i21-q1'] }),
+    mode: 'chat', expect: 'vision', browser, settings: { think: 'off', temperature: 0 }, prepareContext: privateStore,
+    report: { scope: 'REAL inference on an already running host (DSTUDIO_LIVE_URL); one corpus question, not a qualification' } });
+  const row = graded.questions[0];
+  const answer = row.requests?.filter((request) => request.kind === 'answer').at(-1);
+  assert.equal(answer?.imageParts.items.filter((part) => part.corpusFile === 'images/i21.png').length, 1,
+    'the request carries the corpus image byte for byte');
+  assert.equal(row.evidence.path, 'pixels', 'the fact reached the model only as pixels');
+  assert.equal(row.status, 'pass', `graded ${row.class}: ${JSON.stringify(row.answer?.text ?? row.error)}`);
+  assert.deepEqual(graded.pageErrors, [], 'the page raised errors');
+
+  // ---- 2. controls on the same running model
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  await privateStore(context);
+  const page = await context.newPage();
   page.on('pageerror', (error) => pageErrors.push(error?.stack || error?.message || String(error)));
   page.on('console', (message) => {
     if (message.type() === 'error' && !/favicon|404 \(Not Found\)/i.test(message.text()))
       pageErrors.push(message.text());
   });
-  // The live gate owns an isolated browser profile. Keep its synthetic chats
-  // out of the native app's shared conversation store.
-  await page.route('**/api/store', async (route) => {
-    if (route.request().method() === 'GET')
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"rev":0,"data":null}' });
-    else
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"rev":0}' });
-  });
-  await page.route('**/api/storerev', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '{"rev":0}' }));
   await page.addInitScript(({ workspace: selectedWorkspace, status }) => {
     const now = Date.now();
     window.ds4PickDirectory = async () => selectedWorkspace;
@@ -147,7 +188,7 @@ try {
   await page.locator('#composer-input').waitFor({ state: 'visible', timeout: 30_000 });
 
   // Chat: request reaches the real Vision server, then Stop returns the shared
-  // composer to an idle state. The response content is deliberately not graded.
+  // composer to an idle state. This reply is deliberately not graded.
   const chatResponse = page.waitForResponse((response) =>
     response.url().includes('/v1/chat/completions') && response.request().method() === 'POST', { timeout: 120_000 });
   await page.locator('#composer-input').fill('Live frontend smoke: answer with one short sentence.');
@@ -216,7 +257,7 @@ try {
   await page.locator('#set-close').click();
 
   assert.deepEqual(pageErrors, [], `live page errors:\n${pageErrors.join('\n')}`);
-  console.log('ui_live_vision_playwright_test: ok (Chat, Agent, Cowork, Design, Learn, Settings)');
+  console.log(`ui_live_vision_playwright_test: ok (i21-shapes-count-q1 graded ${row.class}; Chat, Agent, Cowork, Design, Learn, Settings controls; ${path.relative(process.cwd(), runDir)})`);
 } finally {
   await browser.close().catch(() => {});
   fs.rmSync(workspace, { recursive: true, force: true });

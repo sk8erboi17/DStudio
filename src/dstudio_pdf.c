@@ -259,6 +259,30 @@ static int pdf_render_native_pages(const char *pdfpath,
     return count;
 }
 
+/* A PDF that opens only with a user password: Poppler refuses it ("Incorrect
+ * password") and no page can be read. An owner password alone (permissions)
+ * still opens and is read normally. */
+#define PDF_PASSWORD_MESSAGE "This PDF is password-protected. DStudio cannot open it without the password; remove the protection and attach it again."
+static int pdf_needs_password(const char *pdfinfo_output) {
+    return pdfinfo_output && strstr(pdfinfo_output, "Incorrect password") != NULL;
+}
+
+static int pdf_file_needs_password(const char *pdfpath) {
+    char pdfinfo[256];
+    if (!pdf_find_tool("pdfinfo", pdfinfo, sizeof pdfinfo)) return 0;
+    char *argv[] = { pdfinfo, (char *)pdfpath, NULL };
+    int st = 0;
+    char *out = web_curl_capture(argv, 20000, &st);
+    int locked = st != 0 && pdf_needs_password(out);
+    free(out);
+    return locked;
+}
+
+static void pdf_password_fail(int fd, int want_text) {
+    if (want_text) send_text(fd, "422 Unprocessable Entity", "read_pdf error: " PDF_PASSWORD_MESSAGE "\n", 0);
+    else send_json(fd, "422 Unprocessable Entity", "{\"ok\":false,\"encrypted\":true,\"error\":\"" PDF_PASSWORD_MESSAGE "\"}");
+}
+
 /* POST /api/pdf/thumb — render page 1 to an image for the attachment preview. */
 static void api_pdf_thumb_run(int fd, const char *body, int allow_path) {
     char tool[256];
@@ -281,7 +305,10 @@ static void api_pdf_thumb_run(int fd, const char *body, int allow_path) {
         uri = pdf_img_data_uri(img);
         unlink(img);
     }
-    rmdir(dir); unlink(pdf); free(pdf);
+    rmdir(dir);
+    int locked = !uri && pdf_file_needs_password(pdf);
+    unlink(pdf); free(pdf);
+    if (locked) { pdf_password_fail(fd, 0); return; }
     if (!uri) { web_json_error(fd, "502 Bad Gateway", "could not render the PDF's first page"); return; }
     json_dyn_buf b = {0};
     int ok = json_dyn_puts(&b, "{\"ok\":true,\"thumb\":") && json_dyn_put_escaped(&b, uri) && json_dyn_puts(&b, "}");
@@ -1184,7 +1211,9 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
             char *end = NULL;
             while (*p == ' ') p++;
             long a = strtol(p, &end, 10), b = 0;
-            int good = end != p && a >= 1 && a <= PDF_MAX_TOTAL_PAGES;
+            /* Parse any plausible page number: a start past the readable
+             * pages is answered below with the document's real size. */
+            int good = end != p && a >= 1 && a <= 1000000;
             if (good) {
                 p = end;
                 while (*p == ' ') p++;
@@ -1312,7 +1341,7 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
 
     /* Total page count + page size via pdfinfo (drives the per-page walk, the
      * truncation note, and the figure-coverage math below). */
-    int total = 0;
+    int total = 0, locked = 0;
     char pdfinfo[256];
     if (pdf_find_tool("pdfinfo", pdfinfo, sizeof pdfinfo)) {
         char *ia[] = { pdfinfo, pdf, NULL };
@@ -1320,8 +1349,15 @@ static void api_pdf_describe_run(int fd, const char *body, int allow_path) {
         if (iout) {
             const char *p = strstr(iout, "Pages:");
             if (p) { int v = atoi(p + 6); if (v > 0) total = v; }
+            locked = ist != 0 && pdf_needs_password(iout);
             free(iout);
         }
+    }
+    if (locked) {
+        unlink(pdf); free(pdf);
+        pdf_job_write(jobpath, "{\"phase\":\"error\",\"done\":true}");
+        pdf_password_fail(fd, want_text);
+        return;
     }
 
     /* Text layer, split per page on pdftotext's form-feeds. pvis[] counts the

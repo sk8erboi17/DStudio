@@ -330,7 +330,7 @@ static int launch_prepare_cli(int argc, char **argv) {
 
 static int launch_worker_spawn(launch_job *j, char *error, size_t cap) {
     char task[32], port[16]; snprintf(task, sizeof task, "%llu", j->task_id);
-    snprintf(port, sizeof port, "%d", ENGINE_DEFAULTS.port);
+    snprintf(port, sizeof port, "%d", engine_port_default());
     launch_request *r = &j->request;
     char *args[] = { g_launch_executable, "--prepare-launch", (char *)mode_name(r->mode), r->engine_dir,
         r->assets_dir, r->model, r->skill, r->design_system, r->remote.base_url[0] ? "remote" : "local", task,

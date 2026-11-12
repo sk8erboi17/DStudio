@@ -59,7 +59,13 @@
           "id": "checked-answer-in-chat-window",
           "use": "The user types a question in the real Chat window with a real model loaded and reads a correct rendered answer.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/installed_models_e2e.mjs",
+              "evidence": "real-model",
+              "covers": "For each installed model, the real Chat UI in headless WebKit on the bundled app sends a checked question; the completed SSE and the rendered answer must be the expected integer. Routing updated November 11; not yet run in that form."
+            }
+          ]
         },
         {
           "id": "reasoning-shown-apart-from-answer",
@@ -288,25 +294,65 @@
           "id": "switch-model-mid-conversation",
           "use": "The user switches to another model in the middle of a conversation and continues; the next message goes to the new model with the conversation intact.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_model_picker_playwright_test.mjs",
+              "target": "test-ui-browser",
+              "evidence": "simulated",
+              "covers": "After an authored answer from Qwen3.8-27B the composer picker loads Qwen3.6-35B-A3B with one start request; the next request names the new model and carries both earlier turns, and the saved chat holds all four messages."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Dry run of the corpus runner: the model picker switches a host-launched fixture engine from the vision to the text model; after a reload the restored conversation continues on the text engine with its attachments listed and no pixel of its history sent."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "--switch-sequence: vision, text and vision models in one host session through the picker, with the history probe on the text model. Not yet run on weights."
+            }
+          ]
         },
         {
           "id": "file-artifact-and-preview",
           "use": "An answer that contains a generated file shows it as a file artifact the user can open or preview.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "An authored answer with a dstudio-files block shows a file tile and opens the canvas with the rendered Markdown; Download gives the exact bytes, the tile reopens it after a reload and the payload is not shown as answer text."
+            }
+          ]
         },
         {
           "id": "send-empty-prompt",
           "use": "The user presses Send with an empty or whitespace-only composer; nothing is sent.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "model-free",
+              "covers": "Send and Enter with an empty, a spaces-only and a tabs-and-newlines composer issue no request and add no message; the next real send (an authored reply used only as the barrier) is the only request and turn."
+            }
+          ]
         },
         {
           "id": "conversation-exceeds-context",
           "use": "A Chat conversation grows beyond the configured context; what happens next (refusal or cache rollover) is explicit to the user and no text is dropped silently.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "Authored HTTP 400 context refusals in ds4-server and llama-server wording are shown with Retry and announced as failed; the refused request carried every earlier message and the saved conversation keeps them unchanged."
+            }
+          ]
         },
         {
           "id": "long-context-question",
@@ -437,6 +483,12 @@
               "target": "test-frontend-unit",
               "evidence": "model-free",
               "covers": "Production error formatter: a generic prefill failure is not labelled as insufficient memory, real out-of-memory text is, and cloud or connection-refused errors are left unchanged."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Through the real relay an HTTP 500 for one corpus question is kept on the persisted message as the error; only that question fails and the next one starts a new conversation and passes."
             }
           ]
         },
@@ -457,13 +509,33 @@
           "id": "answer-stops-at-output-limit",
           "use": "The model reaches its output-token limit mid-answer; the Chat answer is marked as cut off, not complete.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "An authored stream ending with finish_reason length shows \"Response truncated (token limit)\" and Continue, saves finishReason length with the streamed text and is not announced as completed."
+            }
+          ]
         },
         {
           "id": "engine-process-dies-mid-answer",
           "use": "The engine process dies while a Chat answer is streaming; the partial text is kept and the failure is reported.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_engine_death_playwright_test.mjs",
+              "target": "test-ui-chat-engine-death",
+              "evidence": "simulated",
+              "covers": "A scripted engine process behind the real host /v1 relay is killed with SIGKILL after two chunks, in close-delimited and chunked framing: the partial text is saved and shown with the incomplete or interrupted message, the host keeps answering and the next answer completes once an engine listens again."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "The scripted engine drops the connection after part of an answer, as a dying engine does: the partial text and \"Connection interrupted\" are persisted and only that question fails. No real process dies."
+            }
+          ]
         },
         {
           "id": "model-changed-while-request-in-flight",
@@ -508,7 +580,20 @@
           "id": "continue-incomplete-answer",
           "use": "After an incomplete answer the user presses Continue and the answer resumes from the retained text.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "simulated",
+              "covers": "Continue after a token-limit cut and after a stream that ended without [DONE]: the request carries the retained text verbatim as the previous assistant turn followed by \"Continue.\", and the cut answer stays saved unchanged."
+            },
+            {
+              "file": "tests/browser/ui_chat_engine_death_playwright_test.mjs",
+              "target": "test-ui-chat-engine-death",
+              "evidence": "simulated",
+              "covers": "Continue after the engine process died sends the saved partial text through the real host relay once an engine listens again, and the new answer completes."
+            }
+          ]
         },
         {
           "id": "send-restarts-stopped-engine",
@@ -753,7 +838,14 @@
           "id": "act-on-finished-plan",
           "use": "The user presses Implement plan, Stay in plan mode or Chat about this on a finished plan and the matching follow-up happens.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_plan_mode_playwright_test.mjs",
+              "target": "test-ui-plan",
+              "evidence": "simulated",
+              "covers": "Production page with authored replies: Stay in plan mode sends nothing and plans the next request into its own file; Implement plan turns Plan off and sends the execution turn for that file; Chat about this turns Plan off and the next message is a plain turn."
+            }
+          ]
         },
         {
           "id": "use-a-skill",
@@ -778,7 +870,14 @@
           "id": "create-or-edit-a-skill",
           "use": "The user writes a new skill in the Skills editor and it is saved as a local Markdown pack for later turns.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_skills_editor_playwright_test.mjs",
+              "target": "test-ui-skills-editor",
+              "evidence": "model-free",
+              "covers": "Production Skills editor against the real host handlers: a new skill is written byte for byte as SKILL.md under the user skills folder and selected for the next turn without a restart; editing reloads and rewrites the same pack exactly; an over-long skill is refused instead of being cut short; a fresh browser profile lists it from the machine."
+            }
+          ]
         },
         {
           "id": "attach-image-to-agent",
@@ -1335,19 +1434,40 @@
           "id": "post-edit-syntax-check",
           "use": "After the Agent edits a source file a syntax check reports an obvious error so the model repairs it in the same turn.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/remote_structured_tools_test.mjs",
+              "target": "test-remote-structured-tools",
+              "evidence": "simulated",
+              "covers": "Built native Agent with authored model frames: writing a broken .js and .py file returns the node/python3 syntax report in the tool result, a valid file gets none, and the repairing edits in the same turn come back clean."
+            }
+          ]
         },
         {
           "id": "tool-fails-at-run-time",
           "use": "A valid tool call fails when it runs (file to read is missing, a command exits non-zero, the text to edit is not found); the error goes back to the model and the turn continues.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/remote_structured_tools_test.mjs",
+              "target": "test-remote-structured-tools",
+              "evidence": "simulated",
+              "covers": "Built native Agent with authored model frames: a read of a missing file, a command exiting 3 and an edit whose text is absent each return an error result to the model, the file stays unchanged, and the same turn continues to a later successful write."
+            }
+          ]
         },
         {
           "id": "agent-runtime-dies-mid-turn",
           "use": "The Agent, Cowork or Design runtime process dies during a turn; the failure is reported, the transcript so far is kept and the mode can be started again.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host: the Agent runtime (the pi bridge) killed with SIGKILL and a Design runtime fixture that kills itself mid-turn; the turn is marked incomplete, the partial transcript and the stop reason are kept, and each mode starts again and completes a turn."
+            }
+          ]
         },
         {
           "id": "stale-working-folder-repaired",
@@ -1670,7 +1790,14 @@
           "id": "generated-file-opens-in-office-app",
           "use": "The user opens a generated DOCX, PPTX, XLSX or PDF in an office application and it opens without a repair prompt.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/cowork_office_files_open_test.py",
+              "target": "test-cowork-office-open",
+              "evidence": "model-free",
+              "covers": "The production Office helper's DOCX, PPTX, edited XLSX and PDF open in macOS Quick Look, textutil (DOCX) and poppler without warnings and pass a strict OOXML package check; Word, Excel and PowerPoint are not driven, so this is weaker evidence."
+            }
+          ]
         },
         {
           "id": "follow-up-in-same-cowork-session",
@@ -2306,19 +2433,52 @@
           "id": "answer-designer-questions",
           "use": "The designer asks questions above the composer; the user answers and the work continues.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "simulated",
+              "covers": "A question event in the Design stream shows numbered questions above the composer; Continue is held while the turn runs, then sends the exact §QUESTION_ANSWER turn once, the form closes, the following reply renders and a reload does not ask again."
+            },
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime in remote mode: question() emits the event, defers the write in the same batch and ends the turn without another model request; the §QUESTION_ANSWER turn reaches the model and the write then runs."
+            }
+          ]
         },
         {
           "id": "compare-proposals",
           "use": "The user compares several proposed directions side by side and picks one.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "simulated",
+              "covers": "Three proposed directions render side by side as sandboxed live previews of the host-served files, open full size and step between screens; Use this sends the lock prompt for B and marks only B chosen."
+            },
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime: propose() refuses a direction whose file does not exist, emits the proposal with the written directions and ends the turn; the user's pick reaches the next model request."
+            }
+          ]
         },
         {
           "id": "export-project-as-zip",
           "use": "The user exports the accepted screens as a zip archive.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_design_flow_playwright_test.mjs",
+              "target": "test-ui-design-flow",
+              "evidence": "model-free",
+              "covers": "Canvas Export on the real host project handlers: project.zip holds every listed file (nested, binary and non-ASCII names) and Python's zipfile verifies each CRC and byte; a file the host refuses to serve stops the export with no download."
+            }
+          ]
         },
         {
           "id": "revise-page-in-same-session",
@@ -2375,7 +2535,14 @@
           "id": "real-image-or-video-pixels",
           "use": "An image or video is actually generated by the local media models and shown in Design or Chat.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/media_image_live.mjs",
+              "target": "test-media-image-live",
+              "evidence": "real-model",
+              "covers": "Image half only: the host's /api/image/generate runs the installed Ideogram 4 and a browser decodes and draws the PNG (size, aspect, non-uniform pixels). Video and the Chat rendering are not covered. Not yet run."
+            }
+          ]
         },
         {
           "id": "design-tool-loop-in-remote-mode",
@@ -2503,7 +2670,13 @@
           "id": "output-limit-continuations",
           "use": "The model keeps hitting its output limit; Design continues a bounded number of times and then reports the turn as incomplete.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/design_generation_limit_test.mjs",
+              "evidence": "real-model",
+              "covers": "Real DS4 weights with a one-token round bound (hand-run, documented in tests/docs/regression.md): three bounded automatic continuations, then the run is recorded as generation_limit, the runtime returns to its input loop and the previously saved file is kept."
+            }
+          ]
         },
         {
           "id": "invalid-start-request",
@@ -2693,7 +2866,14 @@
           "id": "layout-check-rejects-broken-page",
           "use": "A generated page overflows or overlaps at a checked width; it is not registered as a finished artifact.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/design_turn_gates_test.mjs",
+              "target": "test-design-turn-gates",
+              "evidence": "simulated",
+              "covers": "Built Design runtime with the installed headless Chrome: artifact() on a page 1124 px wide is refused with rendered-layout findings at 768 and 390 px, no artifact event and no manifest; the same page made to fit has no layout finding."
+            }
+          ]
         },
         {
           "id": "retry-after-truncated-write",
@@ -2839,7 +3019,14 @@
           "id": "generate-roadmap-from-attached-pdf-or-links",
           "use": "The user attaches PDFs, notes or links to the Learn prompt and the roadmap uses them as evidence.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-sources",
+              "evidence": "simulated",
+              "covers": "A PDF attached and a link pasted in the Learn prompt (simulated PDF reader and engine): the link is read first, the PDF text and the linked page reach the structure and every stage request, and the factual audit checks the roadmap against both before it is verified."
+            }
+          ]
         },
         {
           "id": "watch-learn-research-progress",
@@ -3240,7 +3427,14 @@
           "id": "very-large-roadmap",
           "use": "A roadmap with many stages and hundreds of blocks is generated, displayed and edited without losing responsiveness.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-large",
+              "evidence": "simulated",
+              "covers": "A ten-stage, 300-block roadmap is generated and audited in batches of at most four checks, then all blocks are displayed; a draft toggle during generation, a stage-map jump, marking a block complete and deleting one each finish in under five seconds and the edit is saved as unverified."
+            }
+          ]
         },
         {
           "id": "model-returns-unusable-roadmap-output",
@@ -3284,7 +3478,14 @@
           "id": "engine-error-shown-in-learn-workspace",
           "use": "An engine error during generation is shown in the Learn workspace with a readable explanation and a resume action.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_roadmap_playwright_test.mjs",
+              "target": "test-ui-learn-engine-error",
+              "evidence": "simulated",
+              "covers": "The engine answers one stage request with HTTP 500: the Learn workspace shows one status panel with the written share, the readable written stage, a Resume draft action and the engine message under Technical details; Resume continues with the failed stage and reaches a verified roadmap."
+            }
+          ]
         },
         {
           "id": "evidence-missing-for-claims",
@@ -3743,7 +3944,14 @@
           "id": "answer-shows-clickable-citations",
           "use": "The delivered answer shows clickable citations and source cards the user can open.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "Deep Research in the production page served by the real host with authored model replies: the delivered answer's [S1] citation and its source card open the read page in a new window, and [F1] links to an anchor inside the answer."
+            }
+          ]
         },
         {
           "id": "page-and-source-limits-respected",
@@ -4061,19 +4269,40 @@
           "id": "page-cannot-be-read",
           "use": "A selected page cannot be loaded (blocked, timed out, offline); it does not count as evidence and the run goes on or says what is missing.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "The real host reads four loopback pages (one readable, one HTTP 403, one dropped connection, one refused port): the three failures come back as failed reads named in the visible trace, only the readable page reaches the extractor and the saved evidence, and the answer is still delivered."
+            }
+          ]
         },
         {
           "id": "instructions-hidden-in-a-web-page",
           "use": "A web page contains instructions aimed at the model; extracted facts ignore them.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "Planner side only: a page tells the model to open another address and the scripted planner obeys; the address is never requested, the host is not asked to read it and the trace names it as refused. Whether a real model's extracted facts ignore the instructions is not covered (needs a held-out real-model case)."
+            }
+          ]
         },
         {
           "id": "no-internet-connection",
           "use": "The computer is offline when Web Search or Deep Research starts; the user gets a clear failure rather than an invented answer.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/web_research_host_test.mjs",
+              "target": "test-web-research-host",
+              "evidence": "simulated",
+              "covers": "The host's network path fails beyond loopback: its real /api/web-search reports that no provider could be reached, and Deep Research and Web Search both end with a visible failure saying so, without a writer or answer request to the model."
+            }
+          ]
         },
         {
           "id": "stop-research",
@@ -4309,6 +4538,37 @@
               "target": "test-llama-resident-live",
               "evidence": "real-model",
               "covers": "Qwen3.8-27B on llama.cpp only: a generated PNG sent as an image part must be answered with the colour of its left half."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "The frozen corpus (28 image items, 32 PDFs) through the production page on the selected vision model; each answer is graded and the request must carry the corpus file as an image part. Not yet run on weights."
+            },
+            {
+              "file": "tests/live/ui_live_vision_playwright_test.mjs",
+              "target": "test-ui-live-vision",
+              "evidence": "real-model",
+              "covers": "One corpus image (images/i21.png) attached in the live app and its answer graded with the corpus grader; the request must carry the file byte for byte. Not run since it was added."
+            }
+          ]
+        },
+        {
+          "id": "question-not-answerable-from-input",
+          "use": "The user asks about something the attached image or document does not show; the answer says so instead of inventing a value.",
+          "aspect": "boundary",
+          "tests": [
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "The 60 unanswerable corpus questions are graded: an honest refusal passes, an invented value or a guess after a refusal fails. Not yet run on weights."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Through the page, an invented fee fails as no_refusal and \"I cannot see it, but probably 5\" fails as refused_then_guessed (scripted answers; this checks the grading path, not a model)."
             }
           ]
         },
@@ -4335,6 +4595,12 @@
               "target": "test-pdf-ocr",
               "evidence": "model-free",
               "covers": "Real reader and the macOS Vision helper on generated scans: scanned pages are labelled OCR with recognised lines and a citation on a scanned page matches as an OCR line."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Real reader and macOS OCR helper on the corpus scan p20 through the page: page 1 travels as an OCR block, not as text layer, and the rows count as answerable from OCR, not as pixel-path evidence (scripted answers)."
             }
           ]
         },
@@ -4367,6 +4633,12 @@
               "target": "test-pdf-complete",
               "evidence": "model-free",
               "covers": "Real describe with native vision returns JPEGs for pages 1 and 2 plus the same complete text."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "The five-page corpus scan p26 through the page with vision active: pages 1-4 are rendered and sent as image parts, page 5 is not, and a wrong answer about it fails as evidence_page_not_sent (scripted answers)."
             }
           ]
         },
@@ -4598,13 +4870,39 @@
           "id": "password-protected-pdf",
           "use": "The user attaches an encrypted or password-protected PDF; the app says it cannot be read.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "model-free",
+              "covers": "A PDF generated at run time with a user password: every describe profile, the text format and the preview of the real host answer 422 encrypted with a password-protected message and no text; an owner-password-only PDF is still read."
+            },
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "simulated",
+              "covers": "Attaching that PDF in the production page served by the real host marks its tile not read with the reason, shows a toast, blocks Send without any model request, and removing it restores Send."
+            }
+          ]
         },
         {
           "id": "very-long-pdf",
           "use": "The user attaches a PDF with hundreds or thousands of pages; reading stays bounded and responsive.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "model-free",
+              "covers": "A 2,500-page PDF generated at run time: the complete probe asks for a read plan, the overview stays within its character budget and page sample, a late page is read exactly, pages past the 2,000-page ceiling or the end are refused with the document size, and a held read does not delay status or another PDF read."
+            },
+            {
+              "file": "tests/integration/pdf_limits_test.mjs",
+              "target": "test-pdf-limits",
+              "evidence": "simulated",
+              "covers": "Attaching the 2,500-page PDF in the production page sends one planner request and an answer request carrying a bounded excerpt labelled with the sampled share of the 2,500 pages."
+            }
+          ]
         },
         {
           "id": "corrupt-image",
@@ -4641,6 +4939,18 @@
               "target": "test-qwen27-model-ui",
               "evidence": "model-free",
               "covers": "Production preparation returns nothing for Laguna, DeepSeek Flash, Qwen3.6, Qwen Next and the 27B MLX folder, keeping the attachment and showing a notice."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "With a text-only model the page refuses every corpus image question with the file kept and sends nothing; the runner removes the kept file before the next item, and PDFs travel as text only."
+            },
+            {
+              "file": "tests/live/vision_corpus_live.mjs",
+              "target": "test-vision-corpus-live",
+              "evidence": "real-model",
+              "covers": "--expect text-only on a real text model: images refused by the app with the file kept, any visual payload in any request fails the row, pixel-only facts graded as honest limitations. Not yet run on weights."
             }
           ]
         },
@@ -4756,6 +5066,12 @@
               "target": "test-pdf-ocr",
               "evidence": "model-free",
               "covers": "With the helper missing the read reports OCR unavailable, two scanned pages and no invented text."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Host without the OCR helper: the corpus scan p20 sends no OCR text; to a text-only model only an honest limitation passes and a stated value fails as pixel_fact_stated_without_pixels (scripted answers)."
             }
           ]
         },
@@ -5171,7 +5487,13 @@
           "id": "load-every-installed-model",
           "use": "Each supported installed model is loaded in turn through the app and answers a checked prompt in the Chat UI.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/installed_models_e2e.mjs",
+              "evidence": "real-model",
+              "covers": "Loads every supported installed model one at a time through the bundled app on the engine the app routes it to, asserts the engine process and memory mode, and checks arithmetic, JSON extraction and a Chat UI answer. Not yet run in its November 11 form."
+            }
+          ]
         },
         {
           "id": "companion-and-split-file-rules",
@@ -5424,7 +5746,14 @@
           "id": "insufficient-disk-space",
           "use": "The disk fills up or has too little free space for a download; the download stops with a clear message and a resumable partial.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_download_disk_full_playwright_test.mjs",
+              "target": "test-download-disk-full",
+              "evidence": "model-free",
+              "covers": "The production page, host and Qwen downloader with real curl fill a task-owned HFS+ volume: the toast names \"No space left on device\", the byte-exact partial is shown as Paused, and Resume after freeing space continues with an HTTP range from a loopback Hugging Face fixture."
+            }
+          ]
         },
         {
           "id": "ssd-streaming-prefill-of-varied-prompts",
@@ -5938,7 +6267,14 @@
           "id": "delete-partial-download",
           "use": "The user deletes the partial files of a stopped download to free disk space and the bytes are removed.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_partial_download_delete_playwright_test.mjs",
+              "target": "test-partial-download-delete",
+              "evidence": "model-free",
+              "covers": "Delete partial in Settings -> Models (refused while the download runs, confirmed in a dialog) removes a stopped ds4 .part and the Laguna cache partials through the real host; the volume regains exactly those bytes and the completed model is untouched."
+            }
+          ]
         }
       ]
     },
@@ -6352,7 +6688,14 @@
           "id": "damaged-host-preference-file",
           "use": "A host-side preference file (engine folder, port) is damaged or points nowhere; the host starts and reports the problem.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/engine_startup_test.mjs",
+              "target": "test-engine-startup",
+              "evidence": "model-free",
+              "covers": "Real host startup with an engine-folder preference that points nowhere, names a file or holds damaged bytes: status and the doctor check report the folder as unusable, the file is left unchanged and the host exits cleanly. The http-port file, read only by the windowed launcher, is not executed."
+            }
+          ]
         },
         {
           "id": "settings-survive-reload-and-restart",
@@ -6524,7 +6867,14 @@
           "id": "delete-conversation",
           "use": "The user deletes one conversation and it disappears from history.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_chat_controls_playwright_test.mjs",
+              "target": "test-ui-chat-controls",
+              "evidence": "model-free",
+              "covers": "Delete from the row menu removes one conversation from the sidebar, the browser history and the host store with a tombstone; the other conversations are unchanged and it stays deleted after a reload."
+            }
+          ]
         },
         {
           "id": "clear-all-history",
@@ -6731,7 +7081,14 @@
           "id": "history-size-ceilings",
           "use": "History reaches the 64 MiB save limit or more than 64 pending save callers; the excess is refused explicitly and nothing is trimmed.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_persistence_playwright_test.mjs",
+              "target": "test-ui-persistence",
+              "evidence": "model-free",
+              "covers": "Production Store refuses a history over 64 MiB and a 65th pending save caller with explicit messages while memory, the browser copy and the native file keep every byte; the real host saves exactly 64 MiB, answers 413 to one byte more and reloads the whole file after a restart."
+            }
+          ]
         },
         {
           "id": "new-design-session-ordering",
@@ -7004,6 +7361,12 @@
               "file": "tests/unit/v1_relay_unit.c",
               "evidence": "simulated",
               "covers": "A client disconnect before response headers gives the engine socket a reset, not a silent close (make test-v1-relay)."
+            },
+            {
+              "file": "tests/integration/vision_corpus_runner_test.mjs",
+              "target": "test-vision-corpus-runner",
+              "evidence": "simulated",
+              "covers": "Stop pressed by the corpus run loop during a held answer: the partial text is kept with finishReason aborted, the scripted engine sees its connection closed, and the question is not asked again."
             }
           ]
         },
@@ -7810,19 +8173,40 @@
           "id": "harness-process-crashes-mid-turn",
           "use": "pi or OpenCode crashes or exits during a turn; the turn is reported as failed and the Agent can be restarted.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host and bridge with simulated pi and OpenCode that exit mid-turn: the turn fails with its partial answer and an exit notice, the bridge ends so the host reports the Agent stopped and refuses new prompts, and a restarted Agent completes a turn."
+            }
+          ]
         },
         {
           "id": "selected-harness-not-installed",
           "use": "The saved harness is not installed when Agent starts; the start fails with a clear message instead of hanging or silently running something else.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "model-free",
+              "covers": "Real host launch preparation with pi and then OpenCode selected but not installed: the start fails with the install-it-in-Settings message, the launch task is failed and nothing is started in its place."
+            }
+          ]
         },
         {
           "id": "plan-or-gsa-with-a-harness",
           "use": "The user enables Plan, GSA or RSA while pi or OpenCode is the harness, a combination the documentation calls not qualified; it either works or is refused explicitly.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/harness_host_test.mjs",
+              "target": "test-harness-host",
+              "evidence": "simulated",
+              "covers": "Real host with simulated pi as the Agent runtime: a multi-line Plan contract reaches pi intact and its question form returns in the transcript; GSA and RSA starts are refused with an explicit message and prepare no run, and are admitted again without a harness runtime."
+            }
+          ]
         },
         {
           "id": "continue-after-stopping-harness-turn",
@@ -7898,7 +8282,14 @@
           "id": "real-agent-turn-inside-graph",
           "use": "With a real model, a workspace task completes inside its graph and the graph journal ends as succeeded.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/live/task_graph_real_turn_live.mjs",
+              "target": "test-task-graph-real-turn-live",
+              "evidence": "real-model",
+              "covers": "A workspace-write request on real weights takes the automatic Task Graph route; the graph read back from its journal must end succeeded and total.txt must hold the independently computed total. Not yet run."
+            }
+          ]
         },
         {
           "id": "create-validate-and-run-graph",
@@ -8007,7 +8398,14 @@
           "id": "watch-graph-progress-in-dialog",
           "use": "The user watches a running graph's nodes change state in the dialog and pauses or resumes it there.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_task_graph_playwright_test.mjs",
+              "target": "test-ui-task-graph",
+              "evidence": "model-free",
+              "covers": "Production dialog against the real host scheduler and journal (synthetic executor): Start runs the graph, node cards follow the host states, Pause holds the remaining nodes, Resume runs them to success and the durable events are listed."
+            }
+          ]
         },
         {
           "id": "optional-step-fails-but-graph-continues",
@@ -8073,7 +8471,14 @@
           "id": "oversized-graph-request",
           "use": "An oversized graph definition or request body is refused with a bounded error.",
           "aspect": "boundary",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/task_graph_http_test.sh",
+              "target": "test-task-graph-http",
+              "evidence": "model-free",
+              "covers": "Real host API: 257 nodes, a 4097-byte goal, a 16385-byte action text, more than 65536 JSON tokens and a body one byte over 2 MiB are refused with a short error naming the limit; nothing is persisted and status stays responsive."
+            }
+          ]
         },
         {
           "id": "malformed-or-invalid-graph",
@@ -8230,7 +8635,14 @@
           "id": "reopen-graph-after-app-restart",
           "use": "The user restarts the app and reopens a paused or finished graph from the dialog.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_task_graph_playwright_test.mjs",
+              "target": "test-ui-task-graph",
+              "evidence": "model-free",
+              "covers": "The host process is stopped and started again and a new app window opens: the dialog lists the paused and the finished graph from their journals without new events, and the paused one resumes and finishes without rerunning its completed step."
+            }
+          ]
         }
       ]
     },
@@ -8364,7 +8776,14 @@
           "id": "export-blueprint-as-svg-or-json",
           "use": "The user exports the blueprint as SVG or JSON.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "The SVG opened from disk shows the four parts, their verification marks and its own styles with no script or external reference; the JSON reopens with 5 of 8 verified, and a blueprint shown as its group overview still exports all twelve parts."
+            }
+          ]
         },
         {
           "id": "sequence-diagram",
@@ -8389,7 +8808,20 @@
           "id": "workflow-dataflow-and-lifecycle-diagrams",
           "use": "The user maps and opens the Workflow, Data flow or Lifecycle diagram kinds.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "Each kind is chosen on the New card and mapped: the production prompt names the kind and its node types, and the written file is drawn with those node types, the kind's default relationship type and its verified-claims count."
+            },
+            {
+              "file": "tests/unit/blueprint_core_test.mjs",
+              "target": "test-blueprint-core",
+              "evidence": "model-free",
+              "covers": "Prompt, node-type fallback, default relationship type and layout direction of Workflow, Data flow and Lifecycle."
+            }
+          ]
         },
         {
           "id": "implement-code-from-blueprint",
@@ -8568,13 +9000,27 @@
           "id": "model-writes-no-usable-blueprint",
           "use": "The Agent ends its turn without writing a usable blueprint file; the panel reports that instead of showing an empty map.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "A map turn that ends without writing its file reports \"ended its turn without saving\" the path, with no pending map and no blank form; a written file with no nodes reports \"the diagram has no nodes\"; nothing is drawn."
+            }
+          ]
         },
         {
           "id": "send-to-design-while-agent-is-working",
           "use": "The user presses Send to Design while the Agent is still working; the engine switch must be confirmed first.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "With the Agent still working, Send to Design asks \"Interrupt the current generation?\"; Cancel starts and interrupts nothing and keeps the Agent conversation, Switch anyway starts Design on design/."
+            }
+          ]
         },
         {
           "id": "reopen-last-blueprint-after-reload",
@@ -8606,7 +9052,14 @@
           "id": "reverify-after-code-changes",
           "use": "The cited code changes after the map was made; the user re-checks and outdated citations are flagged.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_blueprint_playwright_test.mjs",
+              "target": "test-ui-blueprint",
+              "evidence": "simulated",
+              "covers": "After the cited code is edited, Refresh re-reads the files: 4 of 8 verified, the rewritten call not found, the shifted quotes flagged at their new lines and the blueprint file unchanged; restoring the code restores 5 of 8."
+            }
+          ]
         }
       ]
     },
@@ -8732,6 +9185,18 @@
               "target": "test-model-rpc-input",
               "evidence": "simulated",
               "covers": "A 100,000-repetition Unicode request passes from the runtime through the host worker to a loopback peer intact (cases in model_rpc_input_test.c)."
+            },
+            {
+              "file": "tests/integration/remote_ds4_text_tools_test.mjs",
+              "target": "test-remote-ds4-text-tools",
+              "evidence": "simulated",
+              "covers": "The real client host and built Agent, through a second host's /v1 proxy, against a scripted ds4-server that sends the DSML write as text and again as tool_calls: the file is written once, a plain turn completes and the automatic correctness graph succeeds without retrying the turn."
+            },
+            {
+              "file": "tests/integration/model_rpc_stream_test.mjs",
+              "target": "test-model-rpc-stream",
+              "evidence": "simulated",
+              "covers": "A request without tool schemas (DSML runtime): the relay delivers ds4-server's DSML text and finish reason, publishes none of its tool_calls copy, and refuses tool calls that arrive without any text."
             }
           ]
         },
@@ -8783,7 +9248,14 @@
           "id": "configure-cloud-or-remote-in-settings",
           "use": "The user enters and saves a cloud API key or a remote endpoint in the Settings Connection pane and switches the backend there.",
           "aspect": "normal",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "Enters a Server URL and then a DeepSeek key in Settings -> Connection, switches the backend and the cloud model: each chat goes to the chosen endpoint with the saved key, and a reopened page keeps the settings (simulated provider and endpoint)."
+            }
+          ]
         },
         {
           "id": "function-calling-through-v1-endpoint",
@@ -9126,7 +9598,14 @@
           "id": "cloud-key-missing-or-rejected",
           "use": "The cloud API key is missing, wrong or out of credit; the error from the provider is shown and nothing is retried silently.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "A wrong (401) and an out-of-credit (402) key show the provider's own error once with Retry and no further request; an emptied key is refused with a message and nothing is sent to the provider or to the local model."
+            }
+          ]
         },
         {
           "id": "non-utf8-text-in-remote-conversation",
@@ -9228,7 +9707,14 @@
           "id": "restore-local-engine-after-cloud-run",
           "use": "After working with a cloud backend the user switches back to the local model.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/browser/ui_cloud_backend_playwright_test.mjs",
+              "target": "test-ui-cloud-backend",
+              "evidence": "simulated",
+              "covers": "After cloud turns, selecting Local in Connection starts the saved local GGUF (not the cloud model) through /api/start, sends the next turn to the local engine without the key and continues the same conversation."
+            }
+          ]
         }
       ]
     },
@@ -9392,7 +9878,8 @@
           "id": "launch-app-by-double-click",
           "use": "The user double-clicks the app in Finder for the first time; the window opens on the startup or onboarding screen.",
           "aspect": "normal",
-          "tests": []
+          "tests": [],
+          "uncoveredReason": "Needs the native desktop session and Finder (P7 desktop matrix); not exercisable by a headless test."
         },
         {
           "id": "install-path-with-spaces-or-relocated-app",
@@ -9862,7 +10349,14 @@
           "id": "no-disk-space-during-install-or-build",
           "use": "The disk fills up while an engine is being copied or built; the failure is reported and a later retry works.",
           "aspect": "failure",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/install_disk_full_test.py",
+              "target": "test-install-disk-full",
+              "evidence": "model-free",
+              "covers": "The production main source installer and the host's --install-engine llama hit a real ENOSPC on task-owned HFS+ volumes while copying and while building (stand-in cmake): the cause is reported, nothing is published, no partial copy or objects keep the space, and a retry installs."
+            }
+          ]
         },
         {
           "id": "patches-apply-repeat-and-restore",
@@ -9954,7 +10448,8 @@
           "id": "upgrade-whole-app-over-existing-profile",
           "use": "The user installs a new DStudio version over an existing profile with engines, models, settings and history; everything is found and brought up to date.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [],
+          "uncoveredReason": "DStudio has no in-place upgrade of an earlier main ds4 engine checkout (refused as source drift; PLAN.MD P5); llama.cpp/MLX upgrades and data preservation are covered separately by test-install-recovery."
         },
         {
           "id": "reuse-existing-installation",
@@ -10103,7 +10598,14 @@
           "id": "relaunch-after-force-quit-with-model-loaded",
           "use": "The app is force-quit while a model is loaded and a turn is running; on the next launch no leftover engine blocks the start and the conversation is intact.",
           "aspect": "recovery",
-          "tests": []
+          "tests": [
+            {
+              "file": "tests/integration/force_quit_relaunch_test.mjs",
+              "target": "test-force-quit-relaunch",
+              "evidence": "simulated",
+              "covers": "SIGKILL of the real host while a scripted llama-server standing in for the loaded model streams a Chat turn: guard, server and relay exit, the engine port is free, and the relaunched host starts the model again and serves the conversation saved during the turn byte for byte."
+            }
+          ]
         }
       ]
     }

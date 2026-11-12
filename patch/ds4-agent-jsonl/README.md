@@ -271,7 +271,18 @@ reverses these deltas newest first and replays them to exact bytes.
 filter and the built runtimes; `make test-cowork-runtime-args` covers
 `final_newline`.
 
-`remote-session.patch` (version 105) records the newest first-party fragment
+`remote-dsml-tool-receipts.patch` records the newest first-party fragment
+delta. With a remote ds4 model the Agent and Cowork runtimes speak DSML text
+and execute each call through `ds4ui_remote_execute_tool_calls_text`, which
+published no `tool_call`/`tool_result` record, unlike the native DSML path. The
+UI never closed the tool block, and Task Graph's automatic correctness graph,
+which accepts a workspace-writing turn only after a `tool_result` record and
+its completion marker, failed the turn and ran it again although the call had
+run. The fragment now publishes the same two records around each call
+(JSONL mode only). `make test-remote-ds4-text-tools` covers it through the
+real host; the migration gate reverses this delta first and replays it last.
+
+`remote-session.patch` (version 105) records the previous first-party fragment
 delta: the native Agent and Cowork runtimes in remote-model mode (llama.cpp,
 MLX, a LAN host) save their transcript after every turn to
 `<session cache>/remote-sessions/<sha>.jsonl` and restore it with `/switch`;
@@ -282,9 +293,9 @@ system prompt replaces the saved one, and restored tool-call IDs re-enter the
 session ledger, so an old call is never admitted or run again. A damaged file
 is refused without touching the live conversation. `make test-remote-session`
 runs the built runtimes across a restart with simulated model frames; the
-migration gate reverses and replays this delta first.
+migration gate reverses and replays this delta right after the newest one.
 
-`remote-tool-preview.patch` records the previous first-party fragment delta: in
+`remote-tool-preview.patch` records the delta before that: in
 structured remote mode (llama.cpp, MLX) the Agent and Cowork runtimes pass a
 preview callback to `dstudio_remote_chat_stream_tools_preview`, so the argument
 fragments the host relays (`model_tool_delta`) become the same live

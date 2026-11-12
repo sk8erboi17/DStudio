@@ -142,9 +142,18 @@ current state.
 make test-task-graph-unit
 make test-task-graph-http
 make test-task-graph-bench-validate
+# The live dialog in WebKit and Chromium against the real host: watch, pause,
+# resume, and reopen paused/finished graphs after a host restart (no model)
+make test-ui-task-graph
 # Held-out and long/recovery cases of the six-agent comparison: oracles and
 # case selection, no agent (bench/README.md#case-sets-held-out-and-recovery)
 make test-agent-lane-cases
+# The six-agent lane runner without a model: --plan on a stated machine, the
+# publication on synthetic receipts, and (explicit) the installed pi, OpenCode
+# and Codex driven by the runner against scripted servers
+# (bench/README.md#six-agent-lane-run-agent-lanemjs)
+make test-agent-lane-plan test-agent-lane-publication
+make test-agent-lane-mechanics
 
 # Explicit heavyweight test: starts a real local Agent with forced SSD streaming
 make test-task-graph-real
@@ -159,6 +168,10 @@ DSTUDIO_COMPETITOR_HARNESSES=pi,opencode DSTUDIO_RELIABILITY_CASES=50 make test-
 # DSTUDIO_COMPETITOR_HARNESSES the real runner above includes Codex as well;
 # no real-model Codex run has been recorded yet. See bench/README.md.
 make test-codex-protocol
+
+# The six-agent lanes with a real model (hours; none has run yet)
+node extension/task-graph/bench/build-upstream-agent.mjs
+make test-agent-lane-real AGENT_LANE_ARGS='--lane equivalent --set all'
 
 # Publication data and Matplotlib figures
 DSTUDIO_TASK_GRAPH_BENCH_RUNS=3 make test-task-graph-real

@@ -16,6 +16,36 @@ static void model_rpc_fail(model_rpc_job *job, const char *error) {
     job->done = 1;
 }
 
+/* Whether a request offers tool schemas: a top-level "tools" array with at
+ * least one element. Structured runtimes send one; DSML runtimes send none
+ * and parse tool markup in the text themselves. One linear pass in the
+ * private worker, no token storage. Anything unreadable counts as offering
+ * tools, which keeps the strict structured path. */
+static int model_rpc_request_offers_tools(const char *body) {
+    char error[128];
+    const char *end = body ? body + strlen(body) : NULL;
+    const char *p = body ? dtg_json_syntax_ws(body, end) : NULL;
+    if (!p || p >= end || *p != '{') return 1;
+    p = dtg_json_syntax_ws(p + 1, end);
+    if (p < end && *p == '}') return 0;
+    for (;;) {
+        const char *key = p;
+        if (p >= end || *p != '"' || !(p = dtg_json_syntax_string(p, end, error, sizeof error))) return 1;
+        char *name = dstudio_wire_string(key, p);
+        if (!name) return 1;
+        int tools = !strcmp(name, "tools");
+        free(name);
+        p = dtg_json_syntax_ws(p, end);
+        if (p >= end || *p != ':') return 1;
+        const char *value = dtg_json_syntax_ws(p + 1, end);
+        if (!(p = dtg_json_syntax_value(value, end, 1, error, sizeof error))) return 1;
+        if (tools && *value == '[' && *dtg_json_syntax_ws(value + 1, end) != ']') return 1;
+        p = dtg_json_syntax_ws(p, end);
+        if (p < end && *p == ',') { p = dtg_json_syntax_ws(p + 1, end); continue; }
+        return p < end && *p == '}' ? 0 : 1;
+    }
+}
+
 static int model_rpc_json_open(model_rpc_json *doc, const char *json) {
     memset(doc, 0, sizeof *doc);
     doc->json = json;
@@ -167,7 +197,15 @@ static void model_rpc_sse_line(model_rpc_job *job, const char *line) {
     if (delta < 0 || doc.tokens[delta].type != DTG_JSON_OBJECT) goto invalid;
     if (job->finish_reason[0] && doc.tokens[delta].size) goto invalid;
     int tools = model_rpc_field(&doc, delta, "tool_calls");
-    if (!model_rpc_null(&doc, tools) && !model_rpc_tools_delta(job, &doc, tools)) goto invalid;
+    /* A request without tool schemas asked for text. ds4-server still parses
+     * the DSML it has already streamed as content and reports it again as
+     * tool_calls: that second copy was not requested, so it is neither
+     * previewed nor published, and the runtime executes the call once from
+     * its own text. Completion checks that some text was relayed. */
+    if (!model_rpc_null(&doc, tools)) {
+        if (job->text_request) job->text_tool_calls = 1;
+        else if (!model_rpc_tools_delta(job, &doc, tools)) goto invalid;
+    }
     const char *fields[] = {"reasoning_content", "content"};
     const char *kinds[] = {"reasoning", "content"};
     char *parts[2] = {NULL, NULL};
@@ -189,6 +227,7 @@ static void model_rpc_sse_line(model_rpc_job *job, const char *line) {
     for (int i = 0; i < 2; i++) {
         if (parts[i] && parts[i][0] && !model_rpc_write_frame(job, "model_delta", kinds[i], parts[i]))
             model_rpc_fail(job, "model stream consumer is unavailable");
+        else if (i == 1 && parts[i] && parts[i][0]) job->content_relayed = 1;
         free(parts[i]);
     }
     goto done;
@@ -206,7 +245,14 @@ static int model_rpc_complete(model_rpc_job *job, char *err, size_t errsz) {
         goto fail;
     }
     if (!job->call_count) {
-        if (!strcmp(job->finish_reason, "stop")) return 1;
+        /* Tool calls reported to a text request (see model_rpc_sse_line) are
+         * accepted only beside relayed content: a server that kept the markup
+         * out of the text left the runtime nothing to execute. */
+        if (job->text_tool_calls && !job->content_relayed) {
+            model_rpc_fail(job, "model returned tool calls without text to a request that offered no tools"); goto fail;
+        }
+        if (!strcmp(job->finish_reason, "stop") ||
+            (job->text_tool_calls && !strcmp(job->finish_reason, "tool_calls"))) return 1;
         model_rpc_fail(job, "model declared tool completion without tool calls"); goto fail;
     }
     if (!job->done || strcmp(job->finish_reason, "tool_calls")) {

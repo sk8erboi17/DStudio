@@ -80,6 +80,21 @@ int main(int argc, char **argv) {
     assert(strstr(help, LAGUNA_HELP));
     printf("PASS: the Chat launch applies the Laguna batch patch and rebuilds the server\n");
 
+    /* The rebuild leaves a build receipt naming the server it built. */
+    char receipt_path[DSTUDIO_PATH_MAX + 32];
+    snprintf(receipt_path, sizeof receipt_path, "%s/.dstudio-build.json", engine);
+    size_t receipt_len = 0;
+    char *receipt = unified_read(receipt_path, &receipt_len);
+    assert(receipt && strstr(receipt, "\"schema\": \"dstudio.engine-build.v1\""));
+    assert(strstr(receipt, "\"CFLAGS\": \"") && strstr(receipt, "-O3"));
+    char *shasum[] = { "shasum", "-a", "256", server, NULL };
+    assert(sh(NULL, shasum) == 0);
+    char digest[65] = ""; memcpy(digest, g_out, 64);
+    char expect[128]; snprintf(expect, sizeof expect, "\"sha256\": \"%s\"", digest);
+    assert(strstr(receipt, expect));
+    free(receipt);
+    printf("PASS: the rebuild records its compiler, flags and server SHA-256 in .dstudio-build.json\n");
+
     /* 2. A ready server is not rebuilt on the following launch. */
     assert(stat(server, &before) == 0);
     assert(setup_ensure_server_metrics_runtime(err, sizeof err));
@@ -99,6 +114,6 @@ int main(int argc, char **argv) {
     assert(strstr(help, LAGUNA_HELP));
     printf("PASS: a pre-patch server newer than the sources is still rebuilt\n");
 
-    printf("laguna_chat_upgrade: 4/4 passed (production setup path, real build, no model); %s\n", run);
+    printf("laguna_chat_upgrade: 5/5 passed (production setup path, real build, no model); %s\n", run);
     return 0;
 }

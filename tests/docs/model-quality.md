@@ -113,7 +113,13 @@ and the engine, checks that the engine is gone and that weights and host
 binary are unchanged, starts both again in the same memory mode and goes on
 with the next case, at most eight times. The failed case is not retried and
 stays failed; each restart is recorded. Without the option the remaining cases
-stay not run, as in the native runner.
+stay not run, as in the native runner. Fault injection on real weights,
+November 11 (Qwen3.6 UD-IQ4_XS, a development check, not a campaign
+selection; `host-common-quality/run-bPjEZw`): the queue killed the run's own
+llama-server during case 7; the runner reaped both engine processes, started
+host and engine again in 3.3 s with SSD streaming still off, and completed the
+corpus with 0 cases not run (64/100 answers passed; the runner's exit status
+reports those answer failures).
 
 The native path now reads the engine revision from DStudio's
 `.dstudio-source.json` receipt. A managed engine is installed from bundled
@@ -209,13 +215,23 @@ Default backend link tests cover the active main and Laguna trees; Qwen Next
 uses main and llama.cpp builds with CMake. Supply full source paths to `backend_link_test.mjs` for an
 explicit historical backend-routing run. Its compiler outputs remain simulated.
 
-`make test-engine-startup` runs five real HTTP startup cases without
+`make test-engine-startup` runs eight real HTTP startup cases without
 `DS4UI_TEST_MODE`, with inference explicitly deferred and isolated source
 fixtures. A persisted checkout whose `.dstudio-source.json` receipt names an
 engine DStudio does not run (or no engine) must be left untouched, never
 receive ds4 Agent recovery and be refused with `unsupported_engine` when chosen
 explicitly; clean native sources remain
-usable and missing/legacy-modified native sources keep their errors and backups. This gate is model-free and included in `check-fast`
+usable and missing/legacy-modified native sources keep their errors and backups.
+Three cases (since November 12, 2026) damage the persisted engine-folder
+preference (`engine-checkout`): it points to a missing folder, names a regular
+file, or holds quotes, control bytes and invalid UTF-8 without a newline. The
+host must still start; `/api/status` names that folder with `ds4dirOk: false`,
+the doctor's "Engine folder" check is an error with the `setup-ds4` action,
+the file is left byte for byte and the host exits cleanly. An empty file or a
+relative value such as `.` is not used, because it falls back to a default
+folder that can be a real engine checkout. The `http-port` preference is read
+only by the windowed launcher (`src/app.cc`), so no headless test executes it.
+This gate is model-free and included in `check-fast`
 on the current POSIX host, not a Windows or inference qualification.
 
 `tests/live/desktop_chat_e2e.mjs` attaches only to an explicitly provided
@@ -242,6 +258,22 @@ receipt now record that setting. Its default is `high`, the application
 default for Learn (`roadmap_request_test.mjs` asserts it); an engine launch
 default of `think: off` alone does
 not override a request that explicitly enables reasoning.
+
+## A real Agent turn inside a Task Graph
+
+```sh
+make test-task-graph-real-turn-live   # DSTUDIO_GRAPH_MODEL=gguf/<model> (default Qwen3.6 UD-Q6_K_XL)
+```
+
+The production host starts the Agent on real weights in a task-owned
+workspace holding `data/order.csv`. One request to compute the order total
+and write it to `total.txt` must take the production automatic Task Graph
+route (`orchestration: automatic-task-graph` with a graph id); the graph,
+read back through `/api/task-graph` from its durable journal, must end
+`succeeded`, and `total.txt` must hold the total computed by the test from the
+same rows. The transcript, graph nodes and journal size are kept in
+`tests/.artifacts/task-graph-real-turn/run-*`. No wall-clock cutoff; refuses
+beside another engine. Not run yet.
 
 ## Qwen real host workflows
 
@@ -377,6 +409,15 @@ It retains per-image captions, hashes, parameters, progress, failures and
 wall time including model startup/shutdown. PNG sanity checks are separate from
 visual prompt-adherence review. Public charts use Matplotlib; see
 [image preset results](../../extension/benchmarks/image-presets/README.md).
+
+`make test-media-image-live` generates one image through the app: the
+production host's `/api/image/generate` runs the installed Ideogram 4
+(`~/.dstudio/ideogram4`, through `DSTUDIO_IDEOGRAM4_HOME`; the job runs in the
+test host's private HOME), and a real browser decodes and draws the PNG served
+by `/api/image/file`. It must be a PNG of at least 256 pixels per side in the
+requested 1:1 ratio whose pixels are not uniform; it says nothing about prompt
+adherence. A Chat model's image directive, the Chat message rendering and
+video are not part of it. Not run yet.
 
 Current main compatibility, native Metal fixtures and empty-directory setup:
 [September 7 update](../../docs/history/ds4-main-update-2026-09-07.md).

@@ -133,6 +133,11 @@ async function inference(id, entry) {
       source:receipt.source,manifestSHA256:receipt.manifestSHA256,receiptSha256:hashFile(sourceReceipt)};
     save();
   }
+  // How the server was built (compiler, flags, executable SHA-256s), when the
+  // host recorded it; its absence is recorded too.
+  const buildReceipt=path.join(cwd,'.dstudio-build.json');
+  entry.inference.build=fs.existsSync(buildReceipt)?{receiptSha256:hashFile(buildReceipt),content:JSON.parse(fs.readFileSync(buildReceipt,'utf8'))}:{missing:true};
+  save();
   if(commonQuality && !entry.inference.model.sha256){
     const identity=await weightIdentity(file,{cacheFile:path.join(root,'tests/.artifacts/campaign/weight-sha256.json'),
       onHash:(name,bytes)=>console.log(`hashing ${path.basename(name)} (${(bytes/1024**3).toFixed(1)} GiB)`)});

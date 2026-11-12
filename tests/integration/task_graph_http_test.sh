@@ -236,6 +236,55 @@ bad_code="$(curl -sS --max-time 3 -o "${tmp}/bad-response.json" -w '%{http_code}
   -X POST "${base}/api/task-graph/validate" -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' --data-binary "@${tmp}/bad.json")"
 [ "${bad_code}" = "422" ]
 
+# Oversized definitions and request bodies are refused with a short, bounded
+# error, persist nothing and leave the control loop responsive. Each limit is
+# the one the host enforces: the 2 MiB /api body cap, 256 nodes, 4096-byte
+# goal, 16 KiB action text and the tokenizer's 65536-token ceiling.
+curl -fsS --max-time 2 "${base}/api/task-graphs?workspace=${encoded_workspace}" >"${tmp}/list-before-oversized.json"
+node - "${tmp}" "${tmp}/workspace" <<'NODE'
+const fs = require('fs'), dir = process.argv[2], workspace = process.argv[3];
+const graph = (extra) => ({schemaVersion:1,policy:'test.synthetic.v1',executorMode:'synthetic',goal:'oversized',workspace,
+  nodes:[{id:'only',kind:'join',title:'Only'}], ...extra});
+const nodes = Array.from({length:257}, (_, i) => ({id:`n${i}`, kind:'join', title:`Node ${i}`}));
+fs.writeFileSync(`${dir}/oversized-nodes.json`, JSON.stringify(graph({nodes})));
+fs.writeFileSync(`${dir}/oversized-goal.json`, JSON.stringify(graph({goal:'g'.repeat(4097)})));
+fs.writeFileSync(`${dir}/oversized-action.json`, JSON.stringify({schemaVersion:1,policy:'agent.general.v1',mode:'agent',executorMode:'native',
+  goal:'oversized action',workspace,nodes:[{id:'write',kind:'host_tool',title:'Write',mutation:'workspace_write',capabilities:['filesystem.write'],
+  action:{name:'workspace.write',path:'big.txt',text:'x'.repeat(16385)}}]}));
+fs.writeFileSync(`${dir}/oversized-tokens.json`, JSON.stringify(graph({padding:new Array(70000).fill(0)})));
+// One byte over the normal API body cap; still a syntactically valid graph.
+const head = JSON.stringify(graph({padding:''})), cap = 2 * 1024 * 1024;
+fs.writeFileSync(`${dir}/oversized-body.json`, head.replace('"padding":""', `"padding":"${'p'.repeat(cap + 1 - head.length)}"`));
+if (fs.statSync(`${dir}/oversized-body.json`).size !== cap + 1) throw new Error('fixture is not one byte over the cap');
+NODE
+for spec in "nodes:validate:400:nodes must contain 1..256 objects" "nodes:create:400:nodes must contain 1..256 objects" \
+            "goal:create:400:field 'goal' is not a valid bounded string" \
+            "action:create:400:field 'text' is not a bounded string" \
+            "tokens:create:400:graph JSON has too many tokens" \
+            "body:create:413:body too large" "body:validate:413:body too large"; do
+  IFS=: read -r fixture endpoint want_code want_text <<<"${spec}"
+  code="$(curl -sS --max-time 8 -o "${tmp}/oversized-response.txt" -w '%{http_code}' -X POST "${base}/api/task-graph/${endpoint}" \
+    -H 'Content-Type: application/json' -H 'X-Requested-With: ds4web' --data-binary "@${tmp}/oversized-${fixture}.json" || true)"
+  if [ "${code}" != "${want_code}" ]; then
+    echo "oversized ${fixture} ${endpoint}: HTTP ${code}, expected ${want_code}: $(head -c 300 "${tmp}/oversized-response.txt")" >&2
+    exit 1
+  fi
+  node - "${tmp}/oversized-response.txt" "${want_text}" <<'NODE'
+const fs = require('fs'), text = fs.readFileSync(process.argv[2], 'utf8');
+if (Buffer.byteLength(text) > 1024) throw new Error(`unbounded error body (${Buffer.byteLength(text)} bytes)`);
+if (!text.includes(process.argv[3])) throw new Error(`error does not explain the limit: ${text}`);
+NODE
+  curl -fsS --max-time 1 "${base}/api/status" >/dev/null
+done
+curl -fsS --max-time 2 "${base}/api/task-graphs?workspace=${encoded_workspace}" >"${tmp}/list-after-oversized.json"
+node - "${tmp}/list-before-oversized.json" "${tmp}/list-after-oversized.json" "${tmp}/workspace" <<'NODE'
+const fs = require('fs');
+const ids = (file) => JSON.parse(fs.readFileSync(file)).graphs.map((g) => g.graphId).sort();
+if (JSON.stringify(ids(process.argv[2])) !== JSON.stringify(ids(process.argv[3]))) throw new Error('a refused oversized graph was persisted');
+const dirs = fs.readdirSync(`${process.argv[4]}/.dstudio/task-graphs`).sort();
+if (JSON.stringify(dirs) !== JSON.stringify(ids(process.argv[3]))) throw new Error(`stray graph directories: ${dirs}`);
+NODE
+
 # Valid future-policy proposals may be persisted and inspected, but the V1
 # runtime must reject start before mutating state when no executor is bound.
 node - "${tmp}/proposal.json" "${tmp}/workspace" <<'NODE'

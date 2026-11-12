@@ -23,6 +23,15 @@ const calls = (...items) => chunk({ tool_calls: items });
 const call = (index, id, name, args) => ({ index, id, type: 'function', function: { name, arguments: args } });
 const writeArgs = '{"path":"é/🦊.txt","content":"世界\\n<tool_call>literal</tool_call>"}';
 const valid = calls(call(0, 'call-0', 'write', writeArgs)) + chunk({}, 'tool_calls') + done;
+// A DSML runtime's request offers no tools (textRequest). ds4-server streams
+// the sampled DSML as content, then reports its own parse of it once more as
+// tool_calls (src/engines/ds4/ds4_server.c, openai_sse_finish_live).
+const D = '｜DSML｜';
+const dsml = `<${D}tool_calls>\n<${D}invoke name="write">\n<${D}parameter name="path" string="true">é/🦊.txt</${D}parameter>\n` +
+  `<${D}parameter name="content" string="true">世界</${D}parameter>\n</${D}invoke>\n</${D}tool_calls>`;
+const ds4TextToolReply = chunk({ role: 'assistant' }) + Array.from(dsml.match(/[\s\S]{1,5}/gu), text).join('') +
+  calls(call(0, 'call_0123456789abcdef0123456789abcdef', 'write', '{"path":"é/🦊.txt","content":"世界"}')) +
+  chunk({}, 'tool_calls') + done;
 const rows = [];
 const cases = [
   { name: 'large-display-frame', wire: text('é🦊'.repeat(60000)) + chunk({}, 'stop') + done,
@@ -98,6 +107,19 @@ const cases = [
   { name: 'json-depth-limit', wire: calls(call(0, 'first', 'read', '{"x":'.repeat(70) + '1' + '}'.repeat(70))) + chunk({}, 'tool_calls') + done, fail: true },
   { name: 'nul-display-text', wire: text('x\0y') + chunk({}, 'stop') + done, fail: true },
   { name: 'invalid-display-surrogate', wire: text('\ud800') + chunk({}, 'stop') + done, fail: true },
+  // The text protocol: only the text reaches the runtime, which runs the call
+  // from its own DSML once; the server's second copy is never published.
+  { name: 'ds4-text-request-tool-parse', textRequest: true, wire: ds4TextToolReply,
+    verify: events => {
+      assert.equal(events.filter(e => e.kind === 'content').map(e => e.text).join(''), dsml);
+      assert.equal(events.filter(e => e.type === 'model_tool_delta').length, 0, 'no preview of an unrequested batch');
+      assert.equal(events.at(-1).text, 'tool_calls', 'the server\'s finish reason is relayed unchanged');
+    } },
+  { name: 'text-request-plain-answer', textRequest: true, wire: text('Answer.') + chunk({}, 'stop') + done,
+    verify: events => assert.equal(events.filter(e => e.kind === 'content').map(e => e.text).join(''), 'Answer.') },
+  // Calls a text runtime cannot see (no text carried them) fail explicitly.
+  { name: 'text-request-tool-calls-without-text', textRequest: true, wire: valid, fail: true,
+    verify: events => assert.equal(events.filter(e => e.type === 'model_tool_delta').length, 0) },
 ];
 if (ownerRelay) cases.push({name: 'owner-cancels-held-network', cancel: true, wire: '',
   verify: events => {
@@ -164,7 +186,8 @@ try {
     active = test;
     const row = { name: test.name, status: 'running', started: new Date().toISOString() }; rows.push(row);
     test.row = row;
-    const child = spawn(binary, [url, ...(ownerRelay ? ['--owner-relay'] : [])], { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
+    const child = spawn(binary, [url, ...(ownerRelay ? ['--owner-relay'] : []), ...(test.textRequest ? ['--text-request'] : [])],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
     test.child = child;
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     const terminal = once(child, 'close');
@@ -186,6 +209,7 @@ try {
         assert.equal(events.at(-1)?.type, test.cancel ? 'probe_canceled' : test.fail ? 'model_error' : 'model_done', stdout + stderr);
         assert.equal(code, test.fail ? 1 : 0, stderr);
       }
+      assert.equal('tools' in test.request, !test.textRequest, 'the request offers tools exactly when the case is structured');
       const tools = events.filter(e => e.type === 'model_tool_calls');
       if (test.tools) {
         assert.equal(tools.length, 1, 'tool calls must be delivered exactly once after validated completion');
@@ -225,6 +249,7 @@ try {
     }
   }
   const toolEvents = cases.find(test => test.name === 'q36-complete-tool').events;
+  const textToolEvents = cases.find(test => test.name === 'ds4-text-request-tool-parse').events;
   const textEvents = cases.find(test => test.name === 'text-and-reasoning').events;
   const completedCalls = toolEvents.find(event => event.type === 'model_tool_calls');
   assert.ok(completedCalls, 'host must produce a real completed tool frame for the runtime replay');
@@ -233,6 +258,8 @@ try {
     { name: 'runtime-text-roundtrip', frames: textEvents, rc: 0 },
     { name: 'runtime-legacy-text', frames: textEvents, rc: 0, legacy: true },
     { name: 'runtime-legacy-rejects-structured-tools', frames: toolEvents, rc: 1, legacy: true },
+    // The DSML consumer receives the whole DSML text and no batch to refuse.
+    { name: 'runtime-legacy-ds4-text-tools', frames: textToolEvents, rc: 0, legacy: true, content: dsml },
     { name: 'runtime-stop-discards-candidate', frames: [completedCalls, { type: 'control', name: 'interrupt' }], rc: 2 },
     { name: 'runtime-eof-discards-candidate', frames: [completedCalls], rc: 1 },
     { name: 'runtime-error-discards-candidate', frames: [completedCalls, { type: 'model_error', error: 'fixture connection lost' }], rc: 1 },
@@ -286,6 +313,7 @@ try {
       const result = events.find(event => event.type === 'probe_result');
       assert.equal(result?.rc, test.rc, stdout + stderr);
       assert.deepEqual(result.calls, test.calls ?? null);
+      if (test.content !== undefined) assert.equal(events.filter(e => e.type === 'probe_delta' && e.kind === 'content').map(e => e.text).join(''), test.content);
       row.status = 'pass';
     } catch (error) { row.status = 'fail'; row.error = error.stack; process.exitCode = 1; }
     finally {

@@ -444,6 +444,16 @@ static int setup_qwen38_prepare_patch(const char *action) {
     return !native || run_ext_script("scripts/apply-ds4-qwen38-prepare.sh", action);
 }
 
+#ifndef _WIN32
+/* After a successful build of the active checkout: write .dstudio-build.json
+ * (compiler, make, expanded flags, executable SHA-256s). Best effort: a
+ * receipt that cannot be written leaves the build usable and says so. */
+static void setup_record_engine_build(void) {
+    if (!run_ext_script("scripts/record-engine-build.sh", "record"))
+        fprintf(stderr, "engine: the build receipt of %s could not be written\n", g_ds4_dir);
+}
+#endif
+
 /* Apply the reversible runtime patches to the active managed checkout. Main
  * owns DeepSeek, GLM and Qwen Next; this is also reused by Laguna setup. */
 static int setup_apply_ds4_runtime_patches(void) {
@@ -592,6 +602,7 @@ static int setup_ensure_server_metrics_runtime(char *err, size_t errsz) {
                  "rebuilt ds4-server still lacks managed metrics or GLM support");
         return 0;
     }
+    setup_record_engine_build();
     printf("engine: managed ds4-server throughput metrics restored\n");
     return 1;
 #endif
@@ -689,6 +700,7 @@ static int setup_build_branch_runtimes(const char *target, const char *label,
                  label, rc, log_tail && log_tail[0] ? log_tail : "(no output)");
         goto done;
     }
+    setup_record_engine_build();
     if (!run_build_jsonl("build")) {
         snprintf(err, errsz, "%s Agent runtime build failed%s%s", label,
                  g_engine_err[0] ? ": " : "", g_engine_err[0] ? g_engine_err : "");
@@ -827,6 +839,7 @@ static void api_setup_ds4(int fd, const char *body) {
                         was_running, 0, mode_name(prev_mode), err);
         return;
     }
+    setup_record_engine_build();
 #endif
 
     if (!run_build_jsonl("build")) {

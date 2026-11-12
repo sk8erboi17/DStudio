@@ -207,6 +207,39 @@ no stage). Retained defect: a main checkout at an earlier pin is refused, but
 the four managed adaptations that precede the refusing one stay applied (ESR
 records them; their `restore` returns the checkout byte for byte).
 
+### Full disk and force quit (November 12, 2026)
+
+```sh
+make test-install-disk-full     # check-fast: macOS, under a minute, no model
+make test-force-quit-relaunch   # check-fast: a few seconds, no model
+```
+
+`test-install-disk-full` (`tests/integration/install_disk_full_test.py`)
+creates small HFS+ volumes with `hdiutil`, fills them with one filler file and
+removes them afterwards; the real disk is never filled. The production
+`scripts/bundled_engine_sources.py` copying the real bundled main snapshot,
+and the host's `--install-engine llama` with the production
+`scripts/install-llama.py`, run until a real `ENOSPC` while copying and while
+building. Each failure is reported with `[Errno 28] No space left on device`,
+nothing is published, the lease is free, a llama.cpp partial copy is removed
+and a failed build keeps only its log (its sources and objects no longer hold
+the space), and a retry with space available installs. The main source
+installer keeps its partial candidate for review, as documented above.
+**Simulated:** the llama.cpp snapshot (a verified fixture with one 40 MiB
+file) and `cmake`, whose large object file stands in for a compiler filling
+the disk. Network is denied.
+
+`test-force-quit-relaunch` (`tests/integration/force_quit_relaunch_test.mjs`)
+starts the real host with a **scripted** `llama-server`
+(`tests/support/fake_llama_server.mjs`) standing in for the loaded Qwen
+model, streams a Chat turn through `/v1` while the conversation is saved
+through `/api/store`, and sends SIGKILL to the host alone, as Force Quit does.
+The guard stops the server, the relay exits, the engine port is released, and
+a relaunch on the same profile reports nothing running, serves the saved
+conversation byte for byte, starts the model again on the same port and
+continues the conversation. The ds4-server (DeepSeek/GLM) path, the native
+window and real weights are not exercised.
+
 ## Test cleanup (October 25, 2026)
 
 Tests that existed but no target ran are now wired, each verified on this Mac:

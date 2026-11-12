@@ -880,6 +880,15 @@ async function main() {
     shutdown(1);
     return;
   }
+  // A harness that exits on its own cannot run another turn: a later prompt
+  // would wait forever. Its own handler has already failed a running turn;
+  // end the bridge too, so the host reports the Agent as stopped and the
+  // user restarts it, as when a bridge-owned ds4-server dies.
+  harness.exited.then((e) => {
+    if (shuttingDown) return;
+    out.notice(`${harnessName} stopped unexpectedly (${e.code ?? e.signal}); start Agent again to continue`);
+    shutdown(1);
+  });
   out.idle();
   async function turn(text) {
     if (text.startsWith('/') && !text.includes('\n')) {

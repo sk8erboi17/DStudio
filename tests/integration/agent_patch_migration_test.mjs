@@ -49,10 +49,13 @@ try {
   command('git', ['init', '-q', fragmentWork]);
   const fragmentFile = path.join(fragmentWork, bases.migration.sharedInclude);
   fs.copyFileSync(path.join(assets, bases.migration.sharedInclude), fragmentFile);
-  // Saved remote sessions are the newest additive first-party adaptation, the
-  // structured tool-call preview the one before, then image delivery. Restore
-  // each exact predecessor before the older recorded deltas; never change the
-  // v86 oracle.
+  // Tool receipts on the remote DSML path are the newest additive first-party
+  // adaptation, saved remote sessions the one before, then the structured
+  // tool-call preview, then image delivery. Restore each exact predecessor
+  // before the older recorded deltas; never change the v86 oracle.
+  const receiptsFix = path.join(assets, 'remote-dsml-tool-receipts.patch');
+  command('git', ['apply', '-R', '--check', receiptsFix], fragmentWork);
+  command('git', ['apply', '-R', receiptsFix], fragmentWork);
   const sessionFix = path.join(assets, 'remote-session.patch');
   command('git', ['apply', '-R', '--check', sessionFix], fragmentWork);
   command('git', ['apply', '-R', sessionFix], fragmentWork);
@@ -80,6 +83,8 @@ try {
   command('git', ['apply', previewFix], fragmentWork);
   command('git', ['apply', '--check', sessionFix], fragmentWork);
   command('git', ['apply', sessionFix], fragmentWork);
+  command('git', ['apply', '--check', receiptsFix], fragmentWork);
+  command('git', ['apply', receiptsFix], fragmentWork);
   assert.deepEqual(fs.readFileSync(fragmentFile), fs.readFileSync(path.join(assets, bases.migration.sharedInclude)));
   const visionWork = path.join(run, 'image-adaptation'); fs.mkdirSync(visionWork);
   command('git', ['init', '-q', visionWork]);
@@ -89,6 +94,8 @@ try {
   };
   for (const name of Object.keys(visionBases)) fs.copyFileSync(path.join(assets, name), path.join(visionWork, name));
   fs.writeFileSync(path.join(visionWork, 'unrelated.txt'), 'Preserve unrelated checkout data.');
+  command('git', ['apply', '-R', '--check', receiptsFix], visionWork);
+  command('git', ['apply', '-R', receiptsFix], visionWork);
   command('git', ['apply', '-R', '--check', sessionFix], visionWork);
   command('git', ['apply', '-R', sessionFix], visionWork);
   command('git', ['apply', '-R', '--check', previewFix], visionWork);
@@ -105,9 +112,13 @@ try {
   command('git', ['apply', '--check', sessionFix], visionWork);
   command('git', ['apply', sessionFix], visionWork);
   command('git', ['apply', '--check', sessionFix], visionWork, false);
+  command('git', ['apply', '--check', receiptsFix], visionWork);
+  command('git', ['apply', receiptsFix], visionWork);
+  command('git', ['apply', '--check', receiptsFix], visionWork, false);
   for (const name of Object.keys(visionBases)) assert.deepEqual(fs.readFileSync(path.join(visionWork, name)), fs.readFileSync(path.join(assets, name)));
   receipt.toolPreviewAdaptation = { patchSHA256: hash(fs.readFileSync(previewFix)), reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true };
   receipt.remoteSessionAdaptation = { patchSHA256: hash(fs.readFileSync(sessionFix)), reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true };
+  receipt.remoteDsmlToolReceipts = { patchSHA256: hash(fs.readFileSync(receiptsFix)), reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true };
   assert.equal(fs.readFileSync(path.join(visionWork, 'unrelated.txt'), 'utf8'), 'Preserve unrelated checkout data.');
   receipt.imageAdaptation = { patchSHA256: hash(fs.readFileSync(visionFix)), baseHashes: visionBases,
     reverseApplyForwardApplyExactBytes: true, duplicateApplyRejected: true, unrelatedPreserved: true };

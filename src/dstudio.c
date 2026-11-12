@@ -501,6 +501,24 @@ static const engine_cfg ENGINE_DEFAULTS = {
     28000, 65536, 90, 24576, 128, 1, 0, SSD_STREAMING_OFF, "max"
 };
 
+/* The engine port this host owns: DS4UI_ENGINE_PORT for an isolated host (a
+ * test host beside another DStudio), otherwise the shared default. The /v1
+ * relay, launches that name no port (the page never does), external-engine
+ * detection, the port a forced launch frees and the doctor must all use it.
+ * When only the relay honoured the override, an isolated host attached to,
+ * was blocked by or (forced) stopped whatever engine listened on 28000, and an
+ * engine its page started listened on 28000 while the relay sent requests to
+ * the isolated port. */
+static int engine_port_default(void) {
+    const char *env = getenv("DS4UI_ENGINE_PORT");
+    if (env && env[0]) {
+        char *end = NULL;
+        long port = strtol(env, &end, 10);
+        if (end && !*end && port >= 1024 && port <= 65535) return (int)port;
+    }
+    return ENGINE_DEFAULTS.port;
+}
+
 /* ---- global engine state ---- */
 static int       g_mode = ENGINE_NONE;
 static pid_t     g_child = -1;
@@ -1761,11 +1779,17 @@ typedef struct {
     /* llama-server's final timings: prompt tokens reused from its cache and
      * processed. -1: not reported (other servers, or no final chunk). */
     long long cache_tokens, prompt_tokens;
+    /* The request offered no tool schemas: its runtime asked for text and
+     * parses tool markup itself (DSML). Set before the response is read. */
+    int text_request;
+    int text_tool_calls; /* the response nevertheless reported tool calls */
+    int content_relayed; /* at least one content delta reached the runtime */
 } model_rpc_job;
 
 static void model_rpc_sse_line(model_rpc_job *job, const char *line);
 static int model_rpc_complete(model_rpc_job *job, char *err, size_t errsz);
 static void model_rpc_release(model_rpc_job *job);
+static int model_rpc_request_offers_tools(const char *body);
 
 static int model_rpc_parse_base(const char *base, char *host, size_t hostsz, int *port) {
     if (!base || strncmp(base, "http://", 7) != 0) return 0;
@@ -2050,6 +2074,7 @@ stage_fail:
 #endif
 }
 static int model_rpc_http_stream(model_rpc_job *job, char *err, size_t errsz) {
+    job->text_request = !model_rpc_request_offers_tools(job->body);
     if (!strncmp(job->base_url, "https://", 8))
         return model_rpc_curl_stream(job, err, errsz);
     int fd = model_rpc_connect(job->base_url, err, errsz);
@@ -2178,6 +2203,11 @@ static int g_dl_progress_fd = -1, g_dl_phase = 0, g_dl_stop_requested = 0;
  * whose encoder is the current download (status only). */
 static char g_dl_next[48] = "";
 static char g_dl_companion_of[48] = "";
+/* The log the running download writes, and the last line it wrote when it
+ * failed (for example "[Errno 28] No space left on device"): the reason the
+ * user can act on, read once when the child exits; never a success signal. */
+static char g_dl_log_path[128] = "";
+static char g_dl_error[256] = "";
 #ifndef _WIN32
 typedef struct {
     const char *status;            /* HTTP status line */
@@ -2192,6 +2222,36 @@ static const char *model_download_phase(void) {
     if (g_dl_pid <= 0) return g_dl_result > 0 ? "complete" :
         g_dl_result < 0 ? (g_dl_stop_requested ? "stopped" : "failed") : "";
     return g_dl_phase == 'I' ? "installing" : g_dl_phase == 'V' ? "verifying" : "downloading";
+}
+
+/* Bounded: the last 2 KiB of the download's log, one line of at most 255
+ * bytes, control characters blanked and a split UTF-8 sequence dropped. */
+static void model_download_read_failure(void) {
+    g_dl_error[0] = '\0';
+#ifndef _WIN32
+    if (!g_dl_log_path[0]) return;
+    int fd = open(g_dl_log_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return;
+    char tail[2049];
+    off_t end = lseek(fd, 0, SEEK_END);
+    off_t from = end > 2048 ? end - 2048 : 0;
+    ssize_t n = end > 0 ? pread(fd, tail, (size_t)(end - from), from) : 0;
+    close(fd);
+    if (n <= 0) return;
+    tail[n] = '\0';
+    while (n > 0 && (tail[n - 1] == '\n' || tail[n - 1] == '\r' || tail[n - 1] == ' ')) tail[--n] = '\0';
+    const char *line = tail + n;   /* curl progress lines end in \r, not \n */
+    while (line > tail && line[-1] != '\n' && line[-1] != '\r') line--;
+    while (((unsigned char)*line & 0xC0) == 0x80) line++;   /* cut at the 2 KiB start */
+    size_t j = 0;
+    for (; line[j] && j < sizeof g_dl_error - 1; j++)
+        g_dl_error[j] = (unsigned char)line[j] < 0x20 || line[j] == 0x7f ? ' ' : line[j];
+    if (line[j]) while (j > 0 && ((unsigned char)g_dl_error[j - 1] & 0x80)) {
+        unsigned char c = (unsigned char)g_dl_error[--j];
+        if ((c & 0xC0) == 0xC0) break;   /* a lead byte whose sequence was cut */
+    }
+    g_dl_error[j] = '\0';
+#endif
 }
 
 static void model_download_progress_tick(void) {
@@ -4465,9 +4525,12 @@ static void reap_child(void) {
         if (waitpid(g_dl_pid, &dst, WNOHANG) == g_dl_pid) {
             int code = WIFEXITED(dst) ? WEXITSTATUS(dst) : -1;
             printf("model: download of %s finished (exit %d)\n", g_dl_variant, code);
+            if (code != 0 && !g_dl_stop_requested) model_download_read_failure();
             if (g_active_download_task) {
+                char failed[300];
+                snprintf(failed, sizeof failed, "model download failed%s%s", g_dl_error[0] ? ": " : "", g_dl_error);
                 if (code == 0) task_mark_completed(g_active_download_task, "model download completed");
-                else task_mark_failed(g_active_download_task, "model download failed", g_dl_variant);
+                else task_mark_failed(g_active_download_task, failed, g_dl_variant);
                 g_active_download_task = 0;
             }
             g_dl_result = code == 0 ? 1 : -1;
@@ -6184,11 +6247,11 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
      * (api_start calls stop_child first). If the server port still responds,
      * there is an EXTERNAL ds4-server: ds4's instance-lock forbids two large
      * processes together, so we refuse with a clear message. */
-    if (!remote_model && port_listening(ENGINE_DEFAULTS.port)) {
+    if (!remote_model && port_listening(engine_port_default())) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to %s — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port,
+                 engine_port_default(),
                  runtime_label);
         return 0;
     }
@@ -6484,11 +6547,11 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
     const char *design_url = owned_model ? owned_url : g_remote_base_url;
     const char *design_model = owned_model ? resident_served_model() : g_remote_model[0] ? g_remote_model : "ds4";
     int remote_model = g_remote_base_url[0] != '\0' || owned_model;
-    if (!remote_model && port_listening(ENGINE_DEFAULTS.port)) {
+    if (!remote_model && port_listening(engine_port_default())) {
         snprintf(err, errsz,
                  "a ds4-server is running outside the launcher (port %d): close it before "
                  "switching to the design — the instance-lock forbids two large processes",
-                 ENGINE_DEFAULTS.port);
+                 engine_port_default());
         return 0;
     }
 #ifdef _WIN32
@@ -6935,6 +6998,7 @@ static int model_download_begin(const char *target, unsigned long long *task_out
     if (progress[1] >= 0) close(progress[1]);
     g_dl_pid = pid;
     g_dl_progress_fd = progress[0]; g_dl_phase = q27 ? 'I' : 'D'; g_dl_stop_requested = 0;
+    cstr_copy(g_dl_log_path, sizeof g_dl_log_path, log_path); g_dl_error[0] = '\0';
     cstr_copy(g_dl_directory, sizeof g_dl_directory, ds4_abs);
     g_dl_result = 0;
     g_active_download_task = task_id;
@@ -7274,7 +7338,10 @@ static void api_status(int fd) {
         if (paused_pct > 99) paused_pct = 99;
     }
 
-    char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100];
+    char d4_esc[2100], web_esc[2100], err_esc[600], line_esc[600], mf_esc[1100], dl_error_esc[1600];
+    /* The failed download's own reason, only while "failed" is the phase. */
+    const char *dl_error = !strcmp(model_download_phase(), "failed") ? g_dl_error : "";
+    json_escape_into(dl_error_esc, sizeof dl_error_esc, dl_error, strlen(dl_error));
     const char *effective_dir = resident_running() ? g_resident.spec.directory : g_ds4_dir;
     const char *effective_model = resident_running() ? g_resident.spec.model : current_model_rel();
     json_escape_into(d4_esc, sizeof d4_esc, effective_dir, strlen(effective_dir));
@@ -7298,7 +7365,7 @@ static void api_status(int fd) {
         "\"variants\":{\"flash\":%s,\"pro\":%s},\"variant\":\"%s\","
         "\"download\":%s,\"downloadVariant\":\"%s\",\"downloadPct\":%lld,"
         "\"downloadBytes\":%lld,\"downloadExpectedBytes\":%lld,\"downloadPhase\":\"%s\","
-        "\"downloadCompanionOf\":\"%s\","
+        "\"downloadCompanionOf\":\"%s\",\"downloadError\":\"%s\","
         "\"pausedDownload\":%s,\"pausedDownloadVariant\":\"%s\","
         "\"pausedDownloadBytes\":%lld,\"pausedDownloadExpectedBytes\":%lld,\"pausedDownloadPct\":%lld,"
         "\"engineError\":\"%s\",\"engineLine\":\"%s\",\"modelFile\":\"%s\",\"skill\":\"%s\",\"designSystem\":\"%s\","
@@ -7316,7 +7383,7 @@ static void api_status(int fd) {
         file_present(MODEL_FLASH) ? "true" : "false", file_present(MODEL_PRO) ? "true" : "false",
         g_variant, g_dl_variant[0] ? "true" : "false", g_dl_variant, dl_pct,
         dl_bytes, g_dl_expected_bytes, model_download_phase(),
-        g_dl_variant[0] ? g_dl_companion_of : "",
+        g_dl_variant[0] ? g_dl_companion_of : "", dl_error_esc,
         paused ? "true" : "false", paused_variant, paused_bytes, paused_expected, paused_pct,
         err_esc, line_esc, mf_esc, g_skill, g_design_system,
         native_glm_vision_installed() ? "true" : "false",
@@ -7391,8 +7458,8 @@ static void api_doctor(int fd) {
                                rel_exists("ds4_design.c"));
     int web_ok = ds4_ok && agent_src_ok && chrome_available();
     int engine_port_owned = g_child > 0;
-    int engine_port_busy = port_listening(ENGINE_DEFAULTS.port) && !engine_port_owned;
-    int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(ENGINE_DEFAULTS.port);
+    int engine_port_busy = port_listening(engine_port_default()) && !engine_port_owned;
+    int server_ok = (g_mode == ENGINE_SERVER && g_child > 0 && g_ready) || port_listening(engine_port_default());
 
     char ds4_msg[1400];
     if (ds4_ok) snprintf(ds4_msg, sizeof ds4_msg, "Using %s", g_ds4_dir);
@@ -8387,6 +8454,7 @@ static void api_start(int fd, const char *body) {
     }
 
     engine_cfg cfg = ENGINE_DEFAULTS;
+    cfg.port = engine_port_default();   /* the page never names a port */
     int bad = 0;
     parse_cfg(body, &cfg, &bad);
     if (bad) {
@@ -8611,8 +8679,8 @@ static void launch_commit(launch_job *j) {
      * port first. REMOTE agent/design never touch the local engine or its
      * lock (spawn_agent/spawn_design already skip their own port checks when
      * remote) — blocking them on an unrelated local server was a bug. */
-    if (!remote_engine && !j->resident && port_listening(ENGINE_DEFAULTS.port)) {
-        if (requested_mode == ENGINE_SERVER && ds4_server_compatible(ENGINE_DEFAULTS.port)) {
+    if (!remote_engine && !j->resident && port_listening(engine_port_default())) {
+        if (requested_mode == ENGINE_SERVER && ds4_server_compatible(engine_port_default())) {
             reuse_external_ds4(&cfg, 1, 0);
             dstudio_task *t = task_find(task_id);
             if (t) t->pid = 0;
@@ -8630,11 +8698,11 @@ static void launch_commit(launch_job *j) {
                 "{\"ok\":false,\"taskId\":%llu,\"code\":\"external_server\",\"port\":%d,"
                 "\"error\":\"a ds4-server is running outside the launcher (port %d). "
                 "Stop it to free the instance-lock, or let the launcher restart it.\"}",
-                task_id, ENGINE_DEFAULTS.port, ENGINE_DEFAULTS.port);
+                task_id, engine_port_default(), engine_port_default());
             send_json(fd, "409 Conflict", out);
             return;
         }
-        if (port_listening(ENGINE_DEFAULTS.port)) {
+        if (port_listening(engine_port_default())) {
             task_mark_failed(task_id, "could not free the engine port", "external ds4-server still listening");
             char out[180];
             snprintf(out, sizeof out,
@@ -11161,30 +11229,35 @@ static void api_web_search_run(int fd, const char *body) {
     /* Google occasionally serves an anti-bot page to the browser helper. A
      * successful helper response with zero links is not a successful search:
      * transparently use DuckDuckGo HTML and merge its result links. */
-    int google_blocked = prefer_fallback || !search_md ||
+    int google_blocked = search_md && (
         web_find_ci(search_md, "google.com/sorry/") ||
         web_find_ci(search_md, "unusual traffic") ||
-        web_find_ci(search_md, "detected unusual traffic");
-    int fallback_used = google_blocked || sources.len < 3;
+        web_find_ci(search_md, "detected unusual traffic"));
+    int fallback_used = prefer_fallback || !search_md || google_blocked || sources.len < 3;
     char primary_err[256] = "";
     char fallback_err[256] = "";
     char secondary_err[256] = "";
+    int brave_down = 0, duck_down = 0, bing_down = 0;
     const char *fallback_provider = "Brave fallback";
     if (fallback_used) {
-        int brave_ok = web_brave_search(query, &sources, primary_err, sizeof primary_err);
+        int brave_ok = web_brave_search(query, &sources, primary_err, sizeof primary_err, &brave_down);
         if (!brave_ok || sources.len < 3) {
-            int duck_ok = web_duckduckgo_search(query, &sources, fallback_err, sizeof fallback_err);
+            int duck_ok = web_duckduckgo_search(query, &sources, fallback_err, sizeof fallback_err, &duck_down);
             if (duck_ok) fallback_provider = brave_ok ? "Brave + DuckDuckGo fallback" : "DuckDuckGo fallback";
         }
         if (sources.len < 3) {
-            if (web_bing_rss_search(query, &sources, secondary_err, sizeof secondary_err)) {
+            if (web_bing_rss_search(query, &sources, secondary_err, sizeof secondary_err, &bing_down)) {
                 fallback_provider = sources.len > 10 ? "Multi-provider fallback" : "Bing RSS fallback";
             }
         }
     }
     if (sources.len == 0) {
-        char msg[768];
-        snprintf(msg, sizeof msg, "%s%s%s%s%s%s%s%s%s",
+        /* Every provider failed at the transfer itself (offline, DNS, proxy,
+         * refused): say so first instead of reporting an empty result list. */
+        int offline = brave_down && duck_down && bing_down;
+        char msg[1024];
+        snprintf(msg, sizeof msg, "%s%s%s%s%s%s%s%s%s%s",
+                 offline ? "No web search provider could be reached; check the internet connection. Details: " : "",
                  search_err && search_err[0] ? search_err :
                  (!search_json || !search_json[0] ? "web search helper failed to start" : "browser search returned no links"),
                  primary_err[0] ? "; primary fallback failed: " : "",
@@ -11291,12 +11364,14 @@ static void api_web_read_run(int fd, const char *body) {
         if (visit_md) {
             fallback_used = 1;
         } else {
+            /* The page's own failure (unreachable, HTTP 403/404/5xx) leads;
+             * the browser reader's reason follows as context. */
             char msg[768];
             snprintf(msg, sizeof msg, "%s%s%s",
+                     curl_err[0] ? curl_err : "the page could not be read",
+                     "; browser reader: ",
                      visit_err && visit_err[0] ? visit_err :
-                     (visit_json && visit_json[0] ? "visit_page returned no markdown" : "web read helper failed to start"),
-                     curl_err[0] ? "; curl fallback failed: " : "",
-                     curl_err[0] ? curl_err : "");
+                     (visit_json && visit_json[0] ? "visit_page returned no markdown" : "web read helper failed to start"));
             free(visit_json); free(visit_err);
             web_json_error(fd, st == 0 ? "502 Bad Gateway" : "500 Internal Server Error", msg);
             return;
@@ -11488,7 +11563,7 @@ static void api_v1_proxy(int client_fd, const char *method, const char *path,
             return;
         }
     }
-    int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : ENGINE_DEFAULTS.port;
+    int eport = (g_mode == ENGINE_SERVER) ? g_cfg.port : engine_port_default();
     if (owned_qwen) eport = g_resident.spec.cfg.port;
     /* A completion outside the model relay rewrites the slot unseen. */
     if (owned_qwen && !strcmp(method, "POST")) kvs_completion_admitted(0);
@@ -11601,6 +11676,19 @@ static int read_request_body_alloc(int fd, const char *req, size_t got, size_t h
     return 1;
 }
 
+/* GSA and RSA advance only on the native runtime's structured gsa_phase event
+ * (its gsa_submit_phase tool). pi and OpenCode have no such tool, so a run
+ * started on them could never save a phase: refuse it before any preparation. */
+static int workflow_needs_dstudio_agent(int fd) {
+    if (g_mode != ENGINE_AGENT || g_child <= 0 || !g_harness[0]) return 0;
+    char out[400];
+    snprintf(out, sizeof out, "{\"ok\":false,\"code\":\"workflow_needs_dstudio_agent\",\"error\":"
+             "\"GSA and RSA need DStudio's own Agent: %s cannot submit their structured phase results. "
+             "Choose DStudio in Settings > Harnesses and start Agent again.\"}", g_harness);
+    send_json(fd, "409 Conflict", out);
+    return 1;
+}
+
 static int route_post_api(int fd, const char *path, const char *body) {
     /* Launch preparation reads these exact assets/checkouts. Other engine
      * mutations wait for that attempt; status and the current model keep working. */
@@ -11641,9 +11729,9 @@ static int route_post_api(int fd, const char *path, const char *body) {
     if (!strcmp(path, "/api/gsa/tools/install")) { api_gsa_tools_install(fd); return 200; }
     if (!strcmp(path, "/api/updates/run")) { api_updates_run(fd, body); return 200; }
     if (!strcmp(path, "/api/iogpu-wired-limit")) { api_iogpu_wired_limit(fd, body); return 200; }
-    if (!strcmp(path, "/api/gsa/start"))   { api_gsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/gsa/start"))   { if (workflow_needs_dstudio_agent(fd)) return 409; api_gsa_start(fd, body); return 200; }
     if (!strcmp(path, "/api/gsa/phase"))   { api_gsa_phase(fd, body); return 200; }
-    if (!strcmp(path, "/api/rsa/start"))   { api_rsa_start(fd, body); return 200; }
+    if (!strcmp(path, "/api/rsa/start"))   { if (workflow_needs_dstudio_agent(fd)) return 409; api_rsa_start(fd, body); return 200; }
     if (!strcmp(path, "/api/rsa/phase"))   { api_rsa_phase(fd, body); return 200; }
     if (!strcmp(path, "/api/stop"))        { api_stop(fd); return 200; }
     if (!strcmp(path, "/api/agent/send"))  { api_agent_send(fd, body); return 200; }
@@ -12349,18 +12437,21 @@ int main(int argc, char **argv)
          * us that the selected family is GLM or Laguna. */
         set_stage("Applying saved engine settings…", 2);
         printf("engine: waiting for the native loading page to apply saved launch settings\n");
-    } else if (port_listening(ENGINE_DEFAULTS.port)) {
-        if (ds4_server_compatible(ENGINE_DEFAULTS.port)) {
-            reuse_external_ds4(&ENGINE_DEFAULTS, 1, 0);
-            printf("engine: reusing compatible ds4-server already listening on :%d\n", ENGINE_DEFAULTS.port);
+    } else if (port_listening(engine_port_default())) {
+        engine_cfg shared = ENGINE_DEFAULTS;
+        shared.port = engine_port_default();
+        if (ds4_server_compatible(shared.port)) {
+            reuse_external_ds4(&shared, 1, 0);
+            printf("engine: reusing compatible ds4-server already listening on :%d\n", shared.port);
         } else {
             snprintf(g_engine_err, sizeof g_engine_err,
-                     "port %d is occupied by a service that is not DS4", ENGINE_DEFAULTS.port);
+                     "port %d is occupied by a service that is not DS4", shared.port);
             snprintf(g_stage, sizeof g_stage, "Engine port is busy");
             printf("engine: %s\n", g_engine_err);
         }
     } else {
         engine_cfg boot = ENGINE_DEFAULTS;
+        boot.port = engine_port_default();
         char err[256];
         /* Gate on the model the server ACTUALLY loads — the selected variant
          * (variant_rel(g_variant), e.g. flash), the same check spawn_server makes

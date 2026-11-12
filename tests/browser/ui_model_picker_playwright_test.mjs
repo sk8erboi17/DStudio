@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
-// Real browser interactions with a simulated launcher. No weights or inference.
+// Real browser interactions with a simulated launcher and SIMULATED (authored)
+// chat answers. No weights or inference.
 const browserName = process.env.DSTUDIO_TEST_BROWSER || 'chromium';
 const playwright = await import('playwright');
 assert.ok(['chromium', 'webkit', 'firefox'].includes(browserName));
@@ -41,12 +42,14 @@ catalog.push({ file: 'Qwen3.6-35B-A3B-nvfp4', path: 'mlx/Qwen3.6-35B-A3B-nvfp4',
 let current = catalog[0];
 let engineDir = main;
 let ready = true;
+let launchesBecomeReady = false; // the mid-conversation switch loads instantly
 let config = { ctx: 131072, power: 90, ssdStreaming: 'on' };
 let downloadPct = 16;
 let catalogFailure = false;
 let catalogHold = null;
 let catalogCalls = 0;
 const writes = [];
+const completions = [];
 const pageErrors = [];
 
 function json(res, data, status = 200) {
@@ -61,12 +64,20 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
     if (/^\/api\/(?:start|stop|engine\/checkout|model\/download)/.test(url.pathname)) writes.push({ url: url.pathname, body });
+    // SIMULATED answer: it names the model the request was addressed to.
+    if (url.pathname === '/v1/chat/completions') {
+      completions.push(body);
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `Answer ${completions.length} from ${body.model}.` }, finish_reason: null }] })}\n\n`);
+      res.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     if (url.pathname === '/api/engine/checkout') { engineDir = body.dir; json(res, { ok: true, dir: engineDir }); return; }
     if (url.pathname === '/api/start') {
       current = catalog.find(g => g.path === body.gguf && g.engineDir === engineDir);
       assert.ok(current, 'selected model must be launched with its own engine');
       config = body;
-      ready = false;
+      ready = launchesBecomeReady;
       json(res, { ok: true, mode: 'server', taskId: 1 });
       return;
     }
@@ -358,9 +369,48 @@ try {
   assert.equal(await page.locator('#set-ctx').inputValue(), '65536');
   await page.screenshot({ path: path.join(artifacts, 'qwen27-performance-dark.png') });
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  // Switch models in the middle of a conversation: the next message goes to
+  // the newly loaded model and carries the whole conversation so far.
+  const saved = () => page.evaluate(() => {
+    const id = JSON.parse(localStorage.getItem('ds4web.active.v2')).ids.chat;
+    return JSON.parse(localStorage.getItem('ds4web.chats.v2')).chats.find(chat => chat.id === id);
+  });
+  const answer = page.locator('.msg--assistant').last();
+  // The declined 64k restart above still applies the saved context at the
+  // next send, so that send relaunches 27B first.
+  launchesBecomeReady = true;
+  await page.locator('#composer-input').fill('Remember the code word: heliotrope.');
+  await page.locator('#btn-send').click();
+  await answer.locator('.md').filter({ hasText: 'Answer 1 from qwen3.8-27b.' }).waitFor({ timeout: 8000 });
+  await page.locator('#btn-stop').waitFor({ state: 'hidden' });
+  assert.equal(completions[0].model, 'qwen3.8-27b');
+  const startsBeforeSwitch = writes.filter(w => w.url === '/api/start').length;
+  await trigger.click();
+  await search.fill('35b');
+  await rows.filter({ hasText: qwenFile }).click();
+  await trigger.filter({ hasText: 'Qwen3.6-35B-A3B' }).waitFor({ timeout: 8000 });
+  await page.locator('#loading-overlay').waitFor({ state: 'hidden', timeout: 8000 });
+  assert.deepEqual(writes.slice(startsBeforeSwitch).filter(w => w.url === '/api/start').map(w => w.body.gguf), [`gguf/${qwenFile}`]);
+  await page.locator('#composer-input').fill('Which code word did I give you?');
+  await page.locator('#btn-send').click();
+  await answer.locator('.md').filter({ hasText: 'Answer 2 from qwen3.6-35b-a3b.' }).waitFor({ timeout: 8000 });
+  await page.locator('#btn-stop').waitFor({ state: 'hidden' });
+  assert.equal(completions.length, 2, 'one request per message');
+  assert.equal(completions[1].model, 'qwen3.6-35b-a3b', 'the next message goes to the new model');
+  assert.deepEqual(completions[1].messages.filter(m => m.role !== 'system'), [
+    { role: 'user', content: 'Remember the code word: heliotrope.' },
+    { role: 'assistant', content: 'Answer 1 from qwen3.8-27b.' },
+    { role: 'user', content: 'Which code word did I give you?' },
+  ], 'the conversation reaches the new model intact');
+  assert.deepEqual((await saved()).messages.map(m => [m.role, m.content]), [
+    ['user', 'Remember the code word: heliotrope.'], ['assistant', 'Answer 1 from qwen3.8-27b.'],
+    ['user', 'Which code word did I give you?'], ['assistant', 'Answer 2 from qwen3.6-35b-a3b.']]);
+  assert.equal(await page.locator('.msg--assistant').count(), 2, 'the earlier answer stays on screen');
+  await page.screenshot({ path: path.join(artifacts, 'switched-mid-conversation.png') });
   assert.deepEqual(pageErrors, []);
   fs.writeFileSync(path.join(artifacts, 'result.json'), JSON.stringify({ browser: browserName, simulatedLauncher: true,
-    inference: false, passed: true, launchWrites: writes }, null, 2));
+    inference: false, passed: true, launchWrites: writes, completions }, null, 2));
   console.log(`ui_model_picker_playwright_test: ok (${browserName}; simulated launcher, no inference)`);
 } catch (error) {
   await page?.screenshot({ path: path.join(artifacts, 'failure.png') }).catch(() => {});

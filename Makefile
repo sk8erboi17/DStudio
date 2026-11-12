@@ -410,6 +410,19 @@ test-ui-learn-notes:
 	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
 	@DSTUDIO_TEST_LEARN_NOTES=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
 
+.PHONY: test-ui-learn-sources test-ui-learn-engine-error test-ui-learn-large
+test-ui-learn-sources:
+	@DSTUDIO_TEST_LEARN_SOURCES=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_SOURCES=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
+test-ui-learn-engine-error:
+	@DSTUDIO_TEST_LEARN_ENGINE_ERROR=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_ENGINE_ERROR=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
+test-ui-learn-large:
+	@DSTUDIO_TEST_LEARN_LARGE=1 DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_roadmap_playwright_test.mjs
+	@DSTUDIO_TEST_LEARN_LARGE=1 DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_roadmap_playwright_test.mjs
+
 test-real-roadmap-audit: $(BIN)
 	@DSTUDIO_LIVE_ROADMAP_AUDIT=1 node tests/live/real_roadmap_audit_test.mjs $(BIN)
 
@@ -443,6 +456,16 @@ test-launch-control: $(TEST_SERVER)
 test-ui-launch:
 	@node tests/browser/ui_launch_control_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_launch_control_playwright_test.mjs
+
+# Settings Connection: DeepSeek key, Server URL, the provider's 401/402 errors,
+# a missing key, and switching back to the local model (Chromium and WebKit).
+# SIMULATED DeepSeek API, remote endpoint, host and engine; no network.
+.PHONY: test-ui-cloud-backend
+test-ui-cloud-backend:
+	@node tests/browser/ui_cloud_backend_playwright_test.mjs
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_cloud_backend_playwright_test.mjs
+
+check-fast: test-ui-cloud-backend
 
 test-quality-baseline:
 	@node tests/unit/quality_baseline_test.mjs
@@ -578,6 +601,14 @@ test-remote-turn-error: $(TEST_BUILD)/remote-turn-error-unit
 test-remote-structured-tools: $(TEST_BUILD)/remote-turn-error-unit
 	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
 	@node tests/integration/remote_structured_tools_test.mjs "$(REMOTE_TOOL_AGENT)"
+
+# A remote ds4 model's DSML tool call through the real client host, a second
+# host's /v1 proxy and a scripted ds4-server (simulated model, no weights).
+# The supplied Agent's build directory is copied, never written.
+.PHONY: test-remote-ds4-text-tools
+test-remote-ds4-text-tools: $(TEST_SERVER)
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
+	@node tests/integration/remote_ds4_text_tools_test.mjs $(TEST_SERVER) "$(REMOTE_TOOL_AGENT)"
 
 check-fast: test-remote-turn-error
 
@@ -741,6 +772,15 @@ test-harness-patches:
 
 check-fast: test-harness-bridge test-harness-patches
 
+# pi/OpenCode as the Agent runtime through the real host, launch preparation
+# and bridge: a missing harness, a harness or runtime dying mid-turn, GSA/RSA
+# refused on a harness. pi, OpenCode and their replies are SIMULATED; no model.
+.PHONY: test-harness-host
+test-harness-host: $(TEST_SERVER)
+	@node tests/integration/harness_host_test.mjs $(TEST_SERVER)
+
+check-fast: test-harness-host
+
 # MLX runtime (bundled wheels in src/engines/mlx): installer helpers with
 # simulated interpreters (check-fast), and a real offline installation with
 # outbound network denied (explicit; macOS 26, Python 3.12-3.14, no model).
@@ -763,6 +803,22 @@ test-mlx-model-ui:
 
 check-fast: test-mlx-install-unit test-mlx-download-host test-mlx-model-ui
 
+# Model downloads and disk space, in the production page against the real host
+# (Chromium and WebKit; macOS, task-owned HFS+ volumes made with hdiutil).
+# test-download-disk-full: the production Qwen downloader and curl hit a real
+# ENOSPC; the Hugging Face server is a SIMULATED loopback fixture. test-partial-
+# download-delete: Delete partial frees a stopped download's measured bytes;
+# the transfer and Laguna cache partials are SIMULATED. No network or model.
+.PHONY: test-download-disk-full test-partial-download-delete
+test-download-disk-full: $(TEST_SERVER)
+	@node tests/browser/ui_download_disk_full_playwright_test.mjs "$(TEST_SERVER)"
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_download_disk_full_playwright_test.mjs "$(TEST_SERVER)"
+test-partial-download-delete: $(TEST_SERVER)
+	@node tests/browser/ui_partial_download_delete_playwright_test.mjs "$(TEST_SERVER)"
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_partial_download_delete_playwright_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-download-disk-full test-partial-download-delete
+
 # Upgrade, interruption and recovery of the engine installations (PLAN.MD P5):
 # the production installers, host CLI, launch worker, guard and HTTP host as
 # real processes in task-owned profiles with spaces, network denied. Toolchains
@@ -776,6 +832,22 @@ test-install-recovery: $(TEST_SERVER)
 	@node tests/integration/install_recovery_host_test.mjs "$(TEST_SERVER)"
 
 check-fast: test-install-recovery
+
+# Engine installation on a full disk (task-owned HFS+ volumes via hdiutil): the
+# production main source installer and the host's --install-engine llama hit a
+# real ENOSPC while copying or building, then retry. SIMULATED cmake and
+# llama.cpp fixture snapshot, network denied, no model; macOS, under a minute.
+.PHONY: test-install-disk-full
+test-install-disk-full: $(TEST_SERVER)
+	@python3 tests/integration/install_disk_full_test.py "$(TEST_SERVER)"
+
+# Force quit (SIGKILL to the host) while a SCRIPTED llama-server stands in for
+# the loaded model and a Chat turn streams; then relaunch on the same profile.
+.PHONY: test-force-quit-relaunch
+test-force-quit-relaunch: $(TEST_SERVER)
+	@node tests/integration/force_quit_relaunch_test.mjs "$(TEST_SERVER)"
+
+check-fast: test-install-disk-full test-force-quit-relaunch
 
 # REAL offline upgrades over an earlier installation, network denied, no model.
 # Explicit, outside check-fast: llama.cpp compiles for a few minutes of CPU;
@@ -825,6 +897,13 @@ test-ui-persistence: $(TEST_SERVER)
 	@DSTUDIO_TEST_BROWSER=chromium DSTUDIO_TEST_LEARN_STORAGE_FAILURE=1 node tests/browser/ui_roadmap_playwright_test.mjs
 	@DSTUDIO_TEST_BROWSER=webkit DSTUDIO_TEST_LEARN_STORAGE_FAILURE=1 node tests/browser/ui_roadmap_playwright_test.mjs
 test-ui-browser: test-ui-persistence
+
+# Real host /v1 relay; a scripted engine process is killed mid-answer (no model).
+.PHONY: test-ui-chat-engine-death
+test-ui-chat-engine-death: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_chat_engine_death_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_chat_engine_death_playwright_test.mjs $(TEST_SERVER)
+check-fast: test-ui-chat-engine-death
 
 test-engine-setup-unit: $(TEST_BUILD)/engine_setup_unit
 	@$(TEST_BUILD)/engine_setup_unit
@@ -1004,6 +1083,15 @@ test-ui-research-progress:
 
 check-fast: test-ui-research-progress
 
+# Real test host serving the page, real page reads of loopback pages and a
+# network path that fails beyond loopback; simulated model and launcher.
+.PHONY: test-web-research-host
+test-web-research-host: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/integration/web_research_host_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/integration/web_research_host_test.mjs $(TEST_SERVER)
+
+check-fast: test-web-research-host
+
 .PHONY: test-search-publication test-remote-agent-workspace
 test-search-publication:
 	@node tests/unit/search_publication_test.mjs
@@ -1070,6 +1158,19 @@ test-task-graph-unit: $(TEST_TASK_GRAPH)
 test-task-graph-http: $(TEST_SERVER)
 	@bash tests/integration/task_graph_http_test.sh $(TEST_SERVER)
 
+# REAL local image model (Ideogram 4 under ~/.dstudio/ideogram4): one image
+# through the host's /api/image/generate, decoded and drawn by a browser.
+.PHONY: test-media-image-live
+test-media-image-live: $(TEST_SERVER)
+	@node tests/live/media_image_live.mjs $(TEST_SERVER)
+
+# REAL weights: one Agent turn routed by the production automatic Task Graph;
+# the graph must succeed and the written file hold the independently computed
+# total. DSTUDIO_GRAPH_MODEL selects the model (default Qwen3.6 UD-Q6_K_XL).
+.PHONY: test-task-graph-real-turn-live
+test-task-graph-real-turn-live: $(TEST_SERVER)
+	@node tests/live/task_graph_real_turn_live.mjs $(TEST_SERVER)
+
 test-task-graph-bench-validate:
 	@command -v node >/dev/null 2>&1 || (echo "node missing: Task Graph benchmark validation requires node" && exit 1)
 	@node extension/task-graph/bench/validate.mjs
@@ -1084,6 +1185,43 @@ test-agent-lane-cases:
 	@node tests/unit/agent_lane_cases_test.mjs
 
 check-fast: test-agent-lane-cases
+
+# The six-agent lane runner without a model. test-agent-lane-plan executes
+# `run-agent-lane.mjs --plan` on a stated machine (stand-in engine files and
+# pi/OpenCode/Codex shims that only record their calls): the printed and
+# written attempt list, availability and BLOCKED reasons, and that nothing ran.
+# test-agent-lane-publication publishes and plots (Matplotlib) the six agents
+# and both lanes from SYNTHETIC receipts written by the test; its figures stay
+# in tests/.artifacts. Need node, python3 and git; the second also Matplotlib.
+.PHONY: test-agent-lane-plan test-agent-lane-publication test-agent-lane-mechanics
+test-agent-lane-plan:
+	@node tests/unit/agent_lane_plan_test.mjs
+test-agent-lane-publication:
+	@python3 -c 'import matplotlib, numpy' 2>/dev/null || (echo "matplotlib missing: NOT RUN agent lane publication test (python3 with matplotlib and numpy)" && exit 1)
+	@node tests/unit/agent_lane_publication_test.mjs
+
+check-fast: test-agent-lane-plan test-agent-lane-publication
+
+# The installed pi, OpenCode and Codex CLIs through the six-agent lane runner
+# (plan rows, fresh workspaces, isolated configuration and preflight, the
+# one-prompt, two-sessions and Codex Stop/resume drivers, the cases' own
+# oracles, result rows) against scripted model servers behind the lane's pin
+# proxy. No model and nothing outside 127.0.0.1. A CLI that is not installed
+# is BLOCKED and the test fails. Explicit, like test-codex-protocol: the broad
+# gate does not depend on third-party CLIs that update on their own.
+test-agent-lane-mechanics:
+	@command -v node >/dev/null 2>&1 || (echo "node missing: NOT RUN agent lane mechanics test" && exit 1)
+	@node tests/integration/agent_lane_mechanics_test.mjs
+
+# REAL six-agent lane (real model, many hours, sequential): the runner's
+# options in AGENT_LANE_ARGS, for example
+#   make test-agent-lane-real AGENT_LANE_ARGS='--lane equivalent --set all'
+# Build the clean upstream agent first (node extension/task-graph/bench/build-upstream-agent.mjs);
+# without it, and for any CLI not installed, the rows stay BLOCKED. Check the
+# attempt list with `node extension/task-graph/bench/run-agent-lane.mjs --plan ...`.
+.PHONY: test-agent-lane-real
+test-agent-lane-real: $(TEST_SERVER)
+	@RUN_HEAVY=1 node extension/task-graph/bench/run-agent-lane.mjs $(AGENT_LANE_ARGS) $(TEST_SERVER)
 
 test-task-graph-real: $(TEST_SERVER)
 	@RUN_HEAVY=1 node extension/task-graph/bench/run-heavy.mjs $(TEST_SERVER)
@@ -1235,6 +1373,15 @@ test-cowork-http: $(TEST_SERVER)
 
 test-cowork: test-cowork-unit test-cowork-browser test-cowork-http test-document-table-scale
 
+# Generated DOCX/PPTX/XLSX/PDF opened by readers that share no code with the
+# helper: Quick Look, textutil, poppler and a strict OOXML package check.
+# Word, Excel and PowerPoint are GUI-only here and NOT RUN. macOS; no model.
+.PHONY: test-cowork-office-open
+test-cowork-office-open:
+	@python3 tests/integration/cowork_office_files_open_test.py
+
+check-fast: test-cowork-office-open
+
 # A table at its bounds (100,000 cells, 512 sources) through the real helper;
 # synthetic data, no model. Records timings in tests/.artifacts.
 test-document-table-scale:
@@ -1256,6 +1403,13 @@ test-design-archive-build: $(TEST_SERVER)
 
 test-design-tool-recovery: test-design-self
 	@node tests/integration/design_tool_recovery_test.mjs
+
+# question(), propose() and the artifact layout gate in the real runtime
+# (remote mode, simulated model frames; the installed Chrome renders the page).
+.PHONY: test-design-turn-gates
+test-design-turn-gates: test-design-self
+	@node tests/integration/design_turn_gates_test.mjs
+test-design-runtime: test-design-turn-gates
 
 # Live tool-stanza events (Open IDE preview): real runtime, simulated model.
 .PHONY: test-design-tool-stream
@@ -1444,6 +1598,15 @@ test-pdf-evidence: $(TEST_SERVER) $(OCR_HELPER)
 test-pdf-complete: $(TEST_SERVER) test-pdf-ocr
 	@node tests/integration/pdf_complete_read_test.mjs $(TEST_SERVER)
 
+# Real reader and Poppler on run-time generated password-protected and
+# 2,500-page PDFs, then the page's attach flow; simulated model replies.
+.PHONY: test-pdf-limits
+test-pdf-limits: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/integration/pdf_limits_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/integration/pdf_limits_test.mjs $(TEST_SERVER)
+
+check-fast: test-pdf-limits
+
 # PDF library benchmark tooling: the benchmark HTTP client, the report builder
 # and the published Matplotlib charts, on controlled inputs. No model or network.
 .PHONY: test-pdf-benchmark-tools
@@ -1467,12 +1630,24 @@ test-vision-corpus: $(TEST_SERVER)
 
 check-fast: test-vision-corpus
 
-# SIMULATED and unfinished: the corpus run loop against the real test host and
-# its page in headless Chromium, with a scripted engine and status overlay.
-# One Chat scenario so far; not in a broad gate.
+# SIMULATED: the corpus run loop against the real test host and its page in
+# headless Chromium with a scripted engine (OCR, page not sent, hallucination,
+# engine error, Stop, text-only isolation), and a dry run of the real-model
+# runner in which the host launches a fixture engine (launch, identities,
+# vision -> text -> vision, resume, retention). Chat only; not in a broad gate.
+# The OCR scenario needs the macOS OCR helper and fails as NOT RUN without it.
 .PHONY: test-vision-corpus-runner
-test-vision-corpus-runner: $(TEST_SERVER)
-	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER)
+test-vision-corpus-runner: $(TEST_SERVER) $(OCR_HELPER)
+	@node tests/integration/vision_corpus_runner_test.mjs $(TEST_SERVER) $(OCR_HELPER)
+
+# REAL inference: the frozen vision corpus on one model through the production
+# host and page (tests/live/vision_corpus_live.mjs; options in
+# VISION_CORPUS_ARGS, e.g. "--ocr off --only p20,i21", "--expect text-only",
+# "--switch-sequence", "--resume RUN_DIR"). Loads real weights, refuses beside
+# another engine, no wall-clock cutoff; not in check-fast or check-real.
+.PHONY: test-vision-corpus-live
+test-vision-corpus-live: $(TEST_SERVER) $(OCR_HELPER)
+	@node tests/live/vision_corpus_live.mjs --binary $(TEST_SERVER) $(VISION_CORPUS_ARGS)
 
 # Real helper and Vision OCR on generated scans; no model. macOS only.
 test-pdf-ocr: $(TEST_SERVER) $(OCR_HELPER)
@@ -1553,6 +1728,17 @@ test-ui-agent-ide: $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_ide_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 test-ui-browser: test-ui-agent-ide
+# Live Task Graph dialog and the Skills editor: real browser + real host
+# (Task Graph scheduler/journal with its synthetic executor; skill files);
+# the Agent session around them is simulated. No model.
+.PHONY: test-ui-task-graph test-ui-skills-editor
+test-ui-task-graph: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_task_graph_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_task_graph_playwright_test.mjs $(TEST_SERVER)
+test-ui-skills-editor: $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_skills_editor_playwright_test.mjs $(TEST_SERVER)
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_skills_editor_playwright_test.mjs $(TEST_SERVER)
+test-ui-browser: test-ui-task-graph test-ui-skills-editor
 # Full-window screens under the native macOS title-bar strip (simulated inset).
 .PHONY: test-ui-native-titlebar
 test-ui-native-titlebar:
@@ -1565,6 +1751,13 @@ test-ui-blueprint: $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_blueprint_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
 test-ui-browser: test-ui-blueprint
+# Design after the brief (questions above the composer, proposals, zip export):
+# real browser + real host project handlers; simulated Design stream.
+.PHONY: test-ui-design-flow
+test-ui-design-flow: $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=webkit node tests/browser/ui_design_flow_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+	@DSTUDIO_TEST_BROWSER=chromium node tests/browser/ui_design_flow_playwright_test.mjs $(TEST_BUILD)/agent_workspace_host
+test-ui-browser: test-ui-design-flow
 # REAL inference (DeepSeek weights, one instance): explicit and sequential.
 .PHONY: test-blueprint-live
 test-blueprint-live: $(BIN)

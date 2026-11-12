@@ -24,6 +24,22 @@ all workbook sheets or semantic verification. Output is bounded both to 750,000
 characters and below the bridge's 1 MiB UTF-8 byte limit. These are file/tool
 regressions; run the separate real Qwen tools gate below to assess that workflow.
 
+### Generated Office files open without repair
+
+`make test-cowork-office-open` (`tests/integration/cowork_office_files_open_test.py`,
+macOS) runs the production Office helper through its command line, as the
+native bridge does, to write a DOCX, a PPTX, an XLSX (then edited and
+appended) and a PDF, and opens them with readers that share no code with it:
+Quick Look renders each, `textutil` (the Cocoa Word importer) reads the DOCX
+text in order, poppler reports no syntax warning or repair for the PDF, and a
+strict OOXML package check covers the structures Office repairs (content
+types, relationships, sheet names, row and cell order, style and string
+indexes, slide ids and the layout/master/theme chain). A negative control
+shows the package check and `textutil` reject damaged copies; Quick Look is
+lenient and only shows that the content renders. Word, Excel and PowerPoint
+are not driven (only Excel is installed, and it is GUI-only), so this is
+weaker evidence than opening the files in Office.
+
 ### Qwen3.6 and Qwen3.8-27B on llama.cpp
 
 Both models run on DStudio's bundled llama.cpp `b11836` (`f5027fb`), built
@@ -373,6 +389,26 @@ real `git apply` on private copies: apply, repeat-apply rejection, exact
 reverse, drift rejection without changes, the receipt rule (a different patch
 set, pin or entry point is not current) and the bundled snapshots' identity.
 
+`make test-harness-host` (in `check-fast`) runs the real test host, its launch
+preparation (`install-harness.py --status`, the bridge copy) and the real bridge
+on a remote-model fixture that no turn contacts. pi and OpenCode are simulated
+programs with receipts for the bundled pins, so the production status check
+accepts them; their replies are authored. It checks that a selected harness
+that is not installed fails the start with the Settings message and starts
+nothing; that pi or OpenCode exiting mid-turn fails that turn, keeps its
+partial answer, ends the bridge so the host reports the Agent stopped and
+refuses further prompts, and that a restarted Agent completes a turn; that the
+Agent runtime (the bridge) and a Design runtime fixture killed mid-turn leave
+an incomplete task, the partial transcript and the stop reason, and start
+again; that a multi-line Plan contract reaches pi intact and its question form
+returns; and that GSA and RSA starts are refused while pi runs, because only
+the native runtime's `gsa_submit_phase` tool can advance a phase. Before the
+November 12, 2026 fixes the crashed-harness bridge kept running and a later
+prompt stayed `working` indefinitely, and a GSA/RSA run was admitted on a
+harness although the page advances a phase only on the native `gsa_phase`
+event. Whether a real model under pi or OpenCode follows the Plan contract is
+not covered here.
+
 `make test-harness-live` (explicit, real weights, sequential) runs pi and
 OpenCode through the production host with Qwen3.6 and Qwen3.8-27B (llama.cpp)
 and DeepSeek V4 Flash (bridge-owned ds4-server): a CSV total written to a file,
@@ -389,7 +425,11 @@ no read, so confinement was not exercised there (not a pass and not an
 escape). Both Laguna rows failed at startup: the runner did not select
 Laguna's checkout before the launch as the app does, so the bridge started
 main's `ds4-server` on Laguna's weights and it exited. The runner now selects
-the checkout the host's model catalog names; Laguna is to be run again.
+the checkout the host's model catalog names. Rerun on November 12 on the
+patched Laguna engine (`run-mzSRwo`): 3/6 pass. pi passed the file and recall
+cases, OpenCode the recall case; OpenCode wrote 1520.25 where the total is
+1261.10 (an answer failure); both confinement cases are BLOCKED, the model
+attempting no read.
 October 3, 2026: 18/18 on all six combinations. Retained failures:
 `run-Q00iea` (a stale host binary ran the native Agent; the target now
 rebuilds the host) and `run-qIhfpz` (OpenCode read beside the workspace; fixed
@@ -412,6 +452,25 @@ A native ownership regression keeps a separate process alive while cancelling
 the blocked installer; the download must not inherit the host's model-stop
 signal handler. New cold owner state is 4,108 bytes, with a fixed two-file scan
 and at most four one-byte downloader phase notifications. No hot layout changes.
+
+`make test-download-disk-full` (Chromium and WebKit, macOS) drives Settings ->
+Models in the production page against the real host, whose model store is on
+a small task-owned HFS+ volume (`hdiutil`). The production
+`scripts/download-qwen-variant.py` and its real `curl` fill the volume: the
+failure toast names `[Errno 28] No space left on device` (the host reports the
+downloader's last line as `downloadError`; before November 12, 2026 only
+"Download or verification failed" was shown), the partial is byte-exact and
+shown as Paused, and Resume after freeing space continues with an HTTP range.
+**Simulated:** the Hugging Face server (a loopback fixture passed with the
+downloader's test-only `--base-url`) and the llama.cpp installer stub.
+
+`make test-partial-download-delete` (Chromium and WebKit, macOS) deletes the
+partial files of a stopped download from Settings: refused while the download
+runs and without confirmation, then a stopped ds4 `.part` and the Laguna
+Hugging Face cache partials are removed through the real host, and the volume
+regains exactly those bytes; the completed model is untouched. The transfer
+(`download_model.sh` in the fixture checkout) and the cache files are
+simulated.
 
 `make test-qwen27-download` executes the real Python/curl downloader against tiny
 HTTP fixtures: hashes, exact-range resume, size bounds, concurrent leaders,
@@ -576,11 +635,23 @@ recorded in `docs/engine-upstream.json`, without a clone or network:
   admission checker accepts the generated reviews and still reports each
   unclassified commit; a shipped tree that differs from its pin (changed,
   extra, missing, wrong executable bit, or a runtime file declared omitted) is
-  refused without output.
+  refused without output;
+- Laguna's hand-written [porting review](../../docs/upstream/laguna-port-review-2026-11-12.json)
+  is bound to the inventory's SHA-256 and the pinned main and Laguna
+  revisions, gives exactly one verdict to each commit the main targets
+  integrate (in inventory order) and none to any other, a candidate says what
+  it fixes and what Laguna has, an unresolved verdict says why, and the
+  manifest carries a Laguna review only for `present` (as `equivalent`) and
+  `not-applicable` verdicts; on the synthetic history a `not-applicable`
+  verdict becomes a review citing the file, a candidate stays an admission
+  issue, the file is rendered canonically, and a missing, extra, duplicated
+  or unknown verdict, another inventory or another Laguna revision is refused
+  without output.
 
 It does not read upstream history and reviews no commit: a PASS says the
-recorded classification is the one the rules give, not that a classification
-is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review).
+recorded classification is the one the rules and the recorded porting
+verdicts give, not that a verdict is right about behaviour. [Method and limits](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#main-delta-review),
+[porting review](../../docs/ENGINE_UPSTREAM_ALIGNMENT.md#laguna-port-review).
 
 
 ### Codex CLI Responses protocol (scripted server)
@@ -622,4 +693,54 @@ variant receives them included) still match `frozen-cases.json`.
 November 11, 2026: 203 checks passed (32 oracles, 102 wrong results rejected).
 
 It proves the oracles and the selection, not any agent: the reference results
-are written for the test, and no agent has run a held-out or recovery case.
+are written for the test, no agent has run a held-out case, and no model has
+run a recovery case (the lane mechanics test below runs three recovery cases
+with the real CLIs and scripted replies).
+
+
+### Six-agent lane runner with scripted model servers
+
+`make test-agent-lane-mechanics` (explicit, not part of `check-fast`: it
+drives third-party CLIs that update on their own; needs pi, OpenCode, Codex,
+python3 and git) runs `tests/integration/agent_lane_mechanics_test.mjs`. The
+installed CLIs are driven through the six-agent lane runner's own code
+(`extension/task-graph/bench/lane-drivers.mjs`: plan rows, a fresh workspace
+checked against the plan's digest, isolated configuration and preflight, the
+one-prompt, two-sessions and Codex Stop/resume drivers, result rows) against
+scripted loopback servers behind the lane's model pin proxy (Chat Completions
+for Pi and OpenCode, Responses for Codex). Each attempt's real tool calls
+change the workspace and the case's own oracle grades it; a scripted wrong
+solution must be failed with a false completion claim, and a Stop whose point
+is never reached must be inconclusive. It also asserts that OpenCode receives
+the prompt byte for byte. A CLI that is not installed is BLOCKED by the
+runner's probe and the test fails; the clean upstream `ds4-agent` and the
+DStudio Agent (direct and checked) run the model in their own process and are
+BLOCKED here, with that reason in the receipt. November 12, 2026: 16/16 with
+pi 1.4.0, OpenCode 1.18.18 and codex-cli 0.167.1 on macOS. Every reply is
+scripted: nothing about a model or an agent is proved. Details:
+[the bench README](../../extension/task-graph/bench/README.md#six-agent-lane-run-agent-lanemjs).
+
+
+### Six-agent lane plan and publication (no agent)
+
+`make test-agent-lane-plan` (part of `check-fast`; needs node, python3 and
+git) executes `run-agent-lane.mjs --plan` as a program on a stated machine
+(stand-in engine files, a one-byte stand-in GGUF, CLI shims that record their
+calls) and checks the printed and written attempt list (70 x 6 x 3 = 1,260
+for `--set all`, counterbalanced positions and successions, frozen workspace
+digests, BLOCKED and NOT_COMPARABLE rows with reasons, the product lane
+BLOCKED), byte-identical repeats, invalid options, and that nothing ran: the
+CLIs were only asked `--version` and no workspace or run directory exists.
+
+`make test-agent-lane-publication` (part of `check-fast`; needs Matplotlib)
+runs `publish-cli-comparison.mjs --lanes` and `plot-cli-comparison.py` on
+SYNTHETIC lane receipts written by the test with the runner's own plan and
+result-row functions: every cell's denominator against an independent count,
+BLOCKED and NOT_COMPARABLE cells with reasons and no rate, development,
+held-out and recovery kept apart, time only on cases every measured agent
+completed, refusals (a dropped row, an unknown outcome, a reason missing, a
+synthetic receipt beside a measured one, another machine, the same cases
+twice), and the PNGs. The plotter must refuse to write a synthetic figure into
+the published images directory, and nothing under `docs/` or `assets/` may
+change. The figures stay in `tests/.artifacts/agent-lane-publication`; they
+are synthetic and are not evidence of anything.

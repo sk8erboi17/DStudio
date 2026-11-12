@@ -59,15 +59,33 @@ export async function doubleRenderedText(page) {
   });
 }
 
+// Text a page hides on purpose is not text that failed to reflow. It is
+// recognised by how it is rendered, not by a class name: the standard
+// visually-hidden box (at most 1px, clipping its content; `.sr-only` and
+// `.visually-hidden` are two names for it), and a positioned element placed
+// wholly outside the page, as a skip link waits off screen until it is focused
+// (above the page, as the original packs do, or beside it). Text that is only
+// partly outside the page or cut by an ordinary container is still reported,
+// and anything that widens the page is reported as page overflow.
 export async function renderedReflow(page) {
   return page.evaluate(() => {
     const issues = [], width = document.documentElement.clientWidth;
     if (document.documentElement.scrollWidth > width + 1)
       issues.push({kind: 'page-overflow', width, scrollWidth: document.documentElement.scrollWidth});
+    const zeroClip = /^rect\(\s*0(?:px)?,?\s*0(?:px)?,?\s*0(?:px)?,?\s*0(?:px)?\s*\)$/;
+    const visuallyHidden = (node) => {
+      for (let p = node; p && p !== document.body; p = p.parentElement) {
+        const ps = getComputedStyle(p), pb = p.getBoundingClientRect();
+        if (pb.width <= 1 && pb.height <= 1 && (zeroClip.test(ps.clip) || ps.clipPath === 'inset(50%)')) return true;
+      }
+      return false;
+    };
+    const parkedOffPage = (node, box, style) => ['absolute', 'fixed'].includes(style.position) && (box.right <= 0 || box.left >= width);
     for (const el of document.body.querySelectorAll('*')) {
       const r = el.getBoundingClientRect(), s = getComputedStyle(el);
       if (!r.width || !r.height || r.bottom < 0 || s.visibility !== 'visible' ||
-          el.closest('[hidden],.sr-only') || el.closest('dialog:not([open])')) continue;
+          el.closest('[hidden],.sr-only') || el.closest('dialog:not([open])') ||
+          visuallyHidden(el) || parkedOffPage(el, r, s)) continue;
       for (const text of [...el.childNodes].filter(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim())) {
         const range = document.createRange(); range.selectNodeContents(text);
         for (const t of range.getClientRects()) {
