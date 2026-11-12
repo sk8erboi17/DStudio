@@ -363,10 +363,16 @@ already implemented; they are not new implementation tasks.
    clicks, cancellation during build/load, active tools, window closure and
    restart. Rejected/stale launches must preserve the working model, settings,
    pending input and earlier effects, without orphans or double publication.
-3. Investigate the retained isolated WebKit Design gallery-filter clearing
-   failure. It did not reproduce in unchanged focused or later complete
-   simulated runs; no causal fix is established. Preserve the failing receipt
-   and reproduce before changing production or weakening the test.
+3. Done November 12: the retained WebKit Design gallery-filter clearing
+   failure (`run-D07v39`, October 1, receipt kept) was a page defect already
+   fixed on October 2 (`171bb2a5`): each idle Agent poll moved the caret into
+   the composer, so a key or text Playwright sent to the search after focusing
+   it could land in the composer. Replays of the committed October 1 page
+   (`d2a0cf04`) reproduced it in WebKit and Chromium; every failure followed
+   a poll focusing the composer. A poll forced between selecting the search
+   and pressing Delete fails there and passes on the current page; removing
+   the fix fails the unchanged suite in both browsers. Page and test unchanged
+   ([details](tests/docs/ui.md#complete-simulated-ui-matrix), end of section).
 
 Acceptance: responsive control, exact ownership and terminal task states on the
 final app. Simulated browser successes do not close native/model races.

@@ -785,14 +785,47 @@ reviewed. `make test-frontend-unit test-macos-window-theme test-macos-bundle
 test-ui-document-policy` passed against that version and rebuilt the app without
 launching it. Earlier complete runs with 52/54 results remain in artifacts.
 One earlier WebKit Design gallery-filter clearing failure did not reproduce in
-an unchanged focused replay or either later complete passing matrix; no causal
-fix is claimed for that isolated failure. Direct Chrome mouse/wheel checks
-also preserved Chat, Agent, Cowork and Tutor selections with simulated streams.
-The complete receipt, recordings, failed-run links and visual review manifest
+an unchanged focused replay or either later complete passing matrix; its cause
+was established on November 12, 2026 (next paragraph). Direct Chrome
+mouse/wheel checks also preserved Chat, Agent, Cowork and Tutor selections with
+simulated streams. The complete receipt, recordings, failed-run links and visual review manifest
 are retained in ignored `tests/.artifacts/ui-simulated/run-jxwQp1/` and
 `tests/.artifacts/ui-audit-visual/final-review/`. The recorded GIFs are sampled
 interaction evidence, not a performance benchmark or proof of every possible
 UI state. All engines, generations, tools and downloads were simulated.
+
+That gallery-filter failure, kept in complete run
+`tests/.artifacts/ui-simulated/run-D07v39/` (October 1: after the Agent/Design
+test cleared the Design gallery search, the Folio card did not reappear within
+5 seconds), was a page defect. While the Design brief was idle, every Agent poll
+response (every 500 ms with the test fixture) ran `setAgentBusy(false)`, which
+put the caret back in the composer. Playwright's `fill('')` focuses and selects
+the search, then presses Delete as a separate step; `fill('Signal')` inserts its
+text the same way. A poll between the two steps sent the key or the text to the
+composer, and the search kept "Signal". The fix landed on October 2 (`171bb2a5`:
+idle Agent polls no longer move the caret into the composer) after the same
+symptom appeared while the gallery was redesigned: three Chromium runs that day
+(`tests/.artifacts/agent-design-browser/chromium-Bbrv9K`, `-7AIV8f`, `-je0sJg`)
+left the search holding the previous system name with the caret in the composer.
+The fix was not linked to the October 1 failure at the time. That run's page was
+never committed; the committed pages before (`5b3e6a0c`) and after it
+(`d2a0cf04`) both focus the composer on every idle poll. On November 12, replays
+of the `d2a0cf04` page ran the unchanged test up to the gallery, then repeated
+its filter and clear steps with page-side focus, key and input traces, at load
+averages between about 6 and 20. In WebKit, 32 of 8,349 clears failed with the
+receipt's timeout and 51 of 8,400 filters typed "Signal" into the composer; in
+Chromium, 6 of 1,987 and 13 of 2,000. Each of these 102 failures followed a poll
+response that focused the composer through `processRes`, `syncComposerBusy`,
+`setAgentBusy` and `focusComposerInput`. Forcing the order (select the search,
+wait until two polls are served, press Delete) failed 5 of 5 times on that page
+in both browsers. The current page passed the forced case 5 of 5 times and 2,000
+unforced repetitions per browser without a failure. With its `typingElsewhere()`
+guard removed, the forced case failed 3 of 3 times per browser and the unchanged
+suite failed at "an idle poll keeps the caret in the search" in both browsers.
+That check, added with the fix, already waits for three more poll requests with
+the caret in the search before typing on, so the page and the test are
+unchanged. All engines and polls were simulated. The replay harness, results and
+traces are in ignored `tests/.artifacts/gallery-filter-repro/`.
 
 ## Cloud and remote backends
 
