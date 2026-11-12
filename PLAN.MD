@@ -643,8 +643,12 @@ running (a SIGTERM to the real `cmake --build` alone leaves its `make`
 building), so the whole group is now signalled. The launch error now carries the
 installer's reason instead of its first echoed command (by inspection; no
 failing receipt was kept).
-The real offline llama.cpp upgrade (`make test-llama-upgrade-real`) passed once
-before the final rebase; `make test-mlx-upgrade-real` has not run. Still open:
+The real offline upgrades passed on November 12 on main: `make
+test-llama-upgrade-real` 3/3 (real CMake build killed while compiling, earlier
+runtime kept, next run publishes the pinned server, a further run reuses it)
+and, for the first time, `make test-mlx-upgrade-real` 4/4 (a real earlier
+patch-set installation, pip killed mid-install, offline reinstall of the
+current patch set, reuse), network denied and no model. Still open:
 item 3, the final relocated bundle for MLX and the repeat against the final
 build (items 1 and 6), Laguna upgrade (no earlier pin), main/Laguna build
 interruption and owner death, and the partially applied managed adaptations
