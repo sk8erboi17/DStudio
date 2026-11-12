@@ -183,9 +183,16 @@ one). For each model three Agent sessions with the same two turns run in new
 production hosts with their own KV stores: *live* (the second turn reuses the
 slot in memory), *restore* (snapshot saved after the first turn, engine
 restarted, session switched back and restored from disk) and *reprefill* (the
-same with snapshots off). The first turn must be identical in all three; the
-restored second turn must equal the live one exactly, with the restored tokens
-as its cache and only the new message processed. The re-prefilled second turn
+same with snapshots off). The hosts run with `DSTUDIO_AGENT_GREEDY=1`
+(evaluation only: the Agent, Cowork and Design runtimes sample with
+temperature 0 and top-p 1 on a model DStudio serves; the test reads it back
+from the runtime's arguments). The first turn must be identical in all three;
+the restored second turn must equal the live one exactly, with the restored
+tokens as its cache and only the new message processed. A first run on
+November 12 with the published Qwen sampling (`run-jo7oJk`, retained) wrote
+different first turns in each session and is therefore uninterpretable; it
+did show the mechanics on both models (3,321 and 3,421 tokens restored and
+used as the next completion's cache, 36 new tokens processed). The re-prefilled second turn
 is recorded but not judged: a batched prefill runs other kernels than
 token-by-token decode. Until it passes on both Qwen models the store stays off
 by default; the hybrid recurrent layers are the specific risk.

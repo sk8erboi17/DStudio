@@ -467,10 +467,17 @@ models and the MLX Qwen3.6, with development checks only.
    `/api/status` and turn metadata. Verified only model-free: `make
    test-llama-kv-snapshot` (unit + 24 host cases against a scripted
    llama-server) and the real runtimes' announcements
-   (`make test-llama-kv-snapshot-runtime`). Remaining: write and pass the
-   real-weight check on Qwen3.6 and Qwen3.8-27B (continuation equal to a normal
-   re-prefill; the hybrid recurrent layers are the specific risk) before turning
-   it on; UI text in the working label; deletion of a snapshot when its
+   (`make test-llama-kv-snapshot-runtime`). The real-weight check is written
+   (`make test-llama-kv-snapshot-live`: the restored second turn must equal the
+   live one exactly). Its first run (November 12, `run-jo7oJk`) is
+   uninterpretable: with the published Qwen sampling each session already
+   wrote a different first turn. It showed the mechanics on real weights
+   (Qwen3.6 3,321 and Qwen3.8-27B 3,421 tokens restored and used as the next
+   completion's cache, 36 new tokens processed), and each restored session
+   quoted its own first turn correctly. The check now runs the runtimes
+   greedily (`DSTUDIO_AGENT_GREEDY=1`, evaluation only) and is queued again.
+   Remaining: pass it on Qwen3.6 and Qwen3.8-27B (the hybrid recurrent layers
+   are the specific risk) before turning snapshots on; UI text in the working label; deletion of a snapshot when its
    conversation is deleted while the engine is stopped; a binary-identity check
    beside the receipt; Agent/Cowork announcements are stdout lines a model
    could imitate (bounded to a wrong cache entry the server's prefix check
