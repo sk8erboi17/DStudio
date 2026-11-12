@@ -9185,6 +9185,18 @@
               "target": "test-model-rpc-input",
               "evidence": "simulated",
               "covers": "A 100,000-repetition Unicode request passes from the runtime through the host worker to a loopback peer intact (cases in model_rpc_input_test.c)."
+            },
+            {
+              "file": "tests/integration/remote_ds4_text_tools_test.mjs",
+              "target": "test-remote-ds4-text-tools",
+              "evidence": "simulated",
+              "covers": "The real client host and built Agent, through a second host's /v1 proxy, against a scripted ds4-server that sends the DSML write as text and again as tool_calls: the file is written once and the turn completes."
+            },
+            {
+              "file": "tests/integration/model_rpc_stream_test.mjs",
+              "target": "test-model-rpc-stream",
+              "evidence": "simulated",
+              "covers": "A request without tool schemas (DSML runtime): the relay delivers ds4-server's DSML text and finish reason, publishes none of its tool_calls copy, and refuses tool calls that arrive without any text."
             }
           ]
         },

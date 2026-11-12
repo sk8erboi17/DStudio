@@ -602,6 +602,14 @@ test-remote-structured-tools: $(TEST_BUILD)/remote-turn-error-unit
 	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
 	@node tests/integration/remote_structured_tools_test.mjs "$(REMOTE_TOOL_AGENT)"
 
+# A remote ds4 model's DSML tool call through the real client host, a second
+# host's /v1 proxy and a scripted ds4-server (simulated model, no weights).
+# The supplied Agent's build directory is copied, never written.
+.PHONY: test-remote-ds4-text-tools
+test-remote-ds4-text-tools: $(TEST_SERVER)
+	@test -n "$(REMOTE_TOOL_AGENT)" || (echo 'Set REMOTE_TOOL_AGENT to a built native Agent binary' && exit 1)
+	@node tests/integration/remote_ds4_text_tools_test.mjs $(TEST_SERVER) "$(REMOTE_TOOL_AGENT)"
+
 check-fast: test-remote-turn-error
 
 test-runtime-patch-migration:

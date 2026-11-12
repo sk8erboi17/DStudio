@@ -15,6 +15,15 @@ static void runtime_delta(void *ud, const char *kind, const char *text, size_t l
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--model-rpc-worker")) return dstudio_embedded_main(argc, argv);
+    /* A structured runtime's request offers its tool schemas; a DSML runtime's
+     * (--text-request, last argument) offers none and parses tool markup in
+     * the text itself. */
+    int text_request = argc > 2 && !strcmp(argv[argc - 1], "--text-request");
+    if (text_request) argc--;
+    const char *body = text_request
+        ? "{\"model\":\"fixture-qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":true}"
+        : "{\"model\":\"fixture-qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":true,"
+          "\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"write\",\"parameters\":{\"type\":\"object\"}}}]}";
     if (argc != 2 && argc != 3) return 2;
     signal(SIGPIPE, SIG_IGN);
     if (argc == 3 && !strcmp(argv[2], "--owner-relay")) {
@@ -24,8 +33,11 @@ int main(int argc, char **argv) {
         set_nonblock(runtime[0]);
         g_child = getpid(); g_mode = ENGINE_AGENT; g_in_fd = runtime[1]; g_agent_working = 1;
         cstr_copy(g_remote_base_url, sizeof g_remote_base_url, argv[1]);
-        const char request[] = "\x1e{\"type\":\"model_request\",\"id\":17,\"body\":\"{\\\"model\\\":\\\"fixture-qwen\\\",\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"test\\\"}],\\\"stream\\\":true}\"}\n";
-        if (drain_child_stdout_data(request, sizeof request - 1) != sizeof request - 1 || !g_model_rpc) return 2;
+        json_dyn_buf request = {0};
+        if (!json_dyn_puts(&request, "\x1e{\"type\":\"model_request\",\"id\":17,\"body\":") ||
+            !json_dyn_put_escaped(&request, body) || !json_dyn_puts(&request, "}\n")) return 2;
+        if (drain_child_stdout_data(request.ptr, request.len) != request.len || !g_model_rpc) return 2;
+        free(request.ptr);
         pid_t worker = g_model_rpc->worker;
         int terminal = 0, failed = 0;
         json_dyn_buf line = {0};
@@ -78,7 +90,7 @@ int main(int argc, char **argv) {
     job.id = 17;
     job.in_fd = STDOUT_FILENO;
     cstr_copy(job.base_url, sizeof job.base_url, argv[1]);
-    job.body = "{\"model\":\"fixture-qwen\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"stream\":true}";
+    job.body = (char *)body;
     char err[512] = "";
     int ok = model_rpc_http_stream(&job, err, sizeof err);
     model_rpc_write_frame(&job, ok ? "model_done" : "model_error", ok ? "finish_reason" : NULL, ok ? job.finish_reason : err);

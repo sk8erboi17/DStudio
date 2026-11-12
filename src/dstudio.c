@@ -1779,11 +1779,17 @@ typedef struct {
     /* llama-server's final timings: prompt tokens reused from its cache and
      * processed. -1: not reported (other servers, or no final chunk). */
     long long cache_tokens, prompt_tokens;
+    /* The request offered no tool schemas: its runtime asked for text and
+     * parses tool markup itself (DSML). Set before the response is read. */
+    int text_request;
+    int text_tool_calls; /* the response nevertheless reported tool calls */
+    int content_relayed; /* at least one content delta reached the runtime */
 } model_rpc_job;
 
 static void model_rpc_sse_line(model_rpc_job *job, const char *line);
 static int model_rpc_complete(model_rpc_job *job, char *err, size_t errsz);
 static void model_rpc_release(model_rpc_job *job);
+static int model_rpc_request_offers_tools(const char *body);
 
 static int model_rpc_parse_base(const char *base, char *host, size_t hostsz, int *port) {
     if (!base || strncmp(base, "http://", 7) != 0) return 0;
@@ -2068,6 +2074,7 @@ stage_fail:
 #endif
 }
 static int model_rpc_http_stream(model_rpc_job *job, char *err, size_t errsz) {
+    job->text_request = !model_rpc_request_offers_tools(job->body);
     if (!strncmp(job->base_url, "https://", 8))
         return model_rpc_curl_stream(job, err, errsz);
     int fd = model_rpc_connect(job->base_url, err, errsz);
