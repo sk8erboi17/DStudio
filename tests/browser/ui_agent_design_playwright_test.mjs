@@ -42,6 +42,9 @@ let agentPollCaughtUp = 0;
 let agentPollCount = 0;
 let holdNextNewSession = false;
 let releaseHeldNewSession = null;
+// The engine writes each stdout line whole; the /list fixture delivers one in
+// two halves. Output the test emits itself must not land between them.
+let splitSessionFrameOpen = false;
 let failNextNativeNewSession = false;
 let designStartupAt = 0;
 let designAnnotationFixture = false;
@@ -152,7 +155,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/agent/send' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req) || '{}');
-    sends.push({ mode: currentMode, body });
+    sends.push({ mode: currentMode, body, newSessionHeld: !!releaseHeldNewSession });
     if (body.orchestration === 'goal') {
       goalGraph = { graphId: 'ui-goal-fixture', goal: body.goalObjective, workspace: currentWorkdir,
         revision: 1, lastEventSeq: 1, state: 'running', nodes: [{ id: 'goal', action: 'agent.goal', attemptsStarted: 1, maxAttempts: 8 }] };
@@ -353,23 +356,26 @@ const server = http.createServer(async (req, res) => {
       const splitAt = Math.floor(frame.length / 2);
       setTimeout(() => {
         agentPollText += frame.slice(0, splitAt);
+        splitSessionFrameOpen = true;
       }, 350);
       setTimeout(() => {
         agentPollText += frame.slice(splitAt);
+        splitSessionFrameOpen = false;
         agentPollWorking = false;
         agentPollSessionWorking = false;
       }, 1100);
     } else if (body.action === 'new' && holdNextNewSession) {
+      // Only the test settles this /new. A timed fallback settled it while a
+      // loaded host was still running the gallery steps, and the page then
+      // (correctly) sent the prompt at once, which read as a race.
       holdNextNewSession = false;
       agentPollSessionWorking = true;
       agentPollWorking = true;
-      const release = () => {
+      releaseHeldNewSession = () => {
         agentPollWorking = false;
         agentPollSessionWorking = false;
-        if (releaseHeldNewSession === release) releaseHeldNewSession = null;
+        releaseHeldNewSession = null;
       };
-      releaseHeldNewSession = release;
-      setTimeout(release, 15000);
     } else if (body.action === 'new') {
       const failed = failNextNativeNewSession;
       failNextNativeNewSession = false;
@@ -1245,19 +1251,25 @@ try {
     'Design gallery should render inline rather than opening a modal');
   assert.equal(await page.locator('#design-preview-dialog').evaluate((dialog) => !!dialog.open), false);
 
+  assert.equal(typeof releaseHeldNewSession, 'function',
+    'the held Design /new must still be unsettled when the first prompt is sent');
   const queuedPrompt = 'Design prompt queued behind fresh context';
+  const queuedSent = () => sends.some((entry) => entry.body?.displayPrompt === queuedPrompt);
   await page.locator('#composer-input').fill(queuedPrompt);
   await page.locator('#btn-send').click();
-  await delay(250);
-  assert.equal(sends.some((entry) => entry.body?.displayPrompt === queuedPrompt), false,
-    'the first Design prompt must not race a fresh-session context prefill');
-  assert.equal(typeof releaseHeldNewSession, 'function', 'the delayed Design session fixture should still be active');
+  // Barrier: the page shows this notice only from the send that is waiting
+  // behind the unsettled session command, so the decision has been taken.
+  await page.locator('#toasts .toast', {
+    hasText: 'Preparing the fresh Design context; your prompt will start automatically.',
+  }).waitFor({ timeout: 5000 }).catch(() => assert.fail(
+    `the first Design prompt was not queued behind the unsettled /new (sent: ${queuedSent()})`));
+  assert.equal(queuedSent(), false, 'the first Design prompt must not race a fresh-session context prefill');
   releaseHeldNewSession();
-  await waitFor(
-    () => sends.some((entry) => entry.mode === 'design' && entry.body?.displayPrompt === queuedPrompt),
-    'the queued Design prompt should start automatically after /new settles',
-    debugDetails,
-  );
+  await waitFor(queuedSent, 'the queued Design prompt should start automatically after /new settles', debugDetails);
+  assert.deepEqual(
+    sends.filter((entry) => entry.body?.displayPrompt === queuedPrompt).map((entry) => [entry.mode, entry.newSessionHeld]),
+    [['design', false]],
+    'the queued Design prompt is sent once, and only after /new settled');
   await page.waitForFunction(() => document.querySelector('#btn-stop')?.hidden === true, null, { timeout: 5000 });
   failNextAgentSend = true;
   await page.locator('#composer-input').fill('Trigger send failure');
@@ -1268,6 +1280,9 @@ try {
   // sandboxed, select one exact DOM target, place the comment beside it and
   // send bounded structured evidence without leaking it into the user bubble.
   designAnnotationFixture = true;
+  // A /list refresh can be in flight here. Emit the proposal at a line
+  // boundary: the check and the write run without yielding to its timers.
+  await waitFor(() => !splitSessionFrameOpen, 'the split /list frame was never completed', debugDetails);
   agentPollText += '\x1e' + JSON.stringify({
     type: 'proposal',
     directions: [{

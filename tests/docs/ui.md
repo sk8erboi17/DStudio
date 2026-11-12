@@ -411,6 +411,33 @@ thread identity stay in their existing owners; the domain callback revalidates
 the displayed conversation before rendering. All five modes run the same mouse,
 keyboard, completion, reading-position and persistence regressions.
 
+The Agent/Design suite (`ui_agent_design`, Chromium and WebKit in
+`make test-ui-browser`) holds the simulated Design `/new` session command until
+the test releases it; nothing releases it on a timer. A prompt sent meanwhile
+must be queued. The barrier is the page's "Preparing the fresh Design context;
+your prompt will start automatically." notice, which only a send waiting behind
+the unsettled session command shows. No `/api/agent/send` with that prompt may
+arrive before the release; afterwards it arrives exactly once, and the fixture
+records that the hold had ended. A page that sends without waiting for the
+session command fails this check. Until November 12, 2026 the fixture released
+the hold after 15 seconds and the check waited 250 ms. With a load average
+near 20, the gallery steps between the hold and the prompt took about
+16 seconds in both browsers, so the hold had already ended, the page rightly
+sent the prompt at once and the test reported a race. The WebKit failure
+recorded on November 10 has the same message and also ran under load; its
+timeline was not recorded. The same fixture delivers one `/list` engine line
+in two halves, as two polls can. The annotation step now writes its own
+`proposal` event only between whole lines: written between the halves, it
+formed a stream no engine produces, the page dropped the proposal and showed
+the second half as text. That happened in two of four loaded WebKit runs once
+the first correction let the test reach that step, and again when the write
+was forced between the halves. Both corrections are to the simulated host; the
+page is unchanged, and no real Design prefill runs. One loaded Chromium run of
+the corrected file failed earlier, in Agent, with "selection fixture should
+start selected": the programmatic selection of the written diff was empty when
+read back. Sixteen traced replays of that step kept the selection; its cause is
+not established and no fix is claimed.
+
 The Learn fixture also holds its first source-read HTTP response until the
 current URL appears in the loading panel. It checks real trace updates, elapsed
 and quiet-interval feedback, and the single shared composer Stop. A simulated
