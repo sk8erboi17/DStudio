@@ -6123,6 +6123,16 @@ static int run_ext_script(const char *script, const char *action) {
     return run_ext_script_for_dir(script, action, g_ds4_dir);
 }
 
+/* Evaluation only: DSTUDIO_AGENT_GREEDY=1 makes the Agent, Cowork and Design
+ * runtimes sample greedily (temperature 0, top-p 1) on a model DStudio serves
+ * itself, so that two sessions given the same prompts can be compared token
+ * for token (tests/live/llama_kv_snapshot_live_test.mjs). Unset, the
+ * published Qwen sampling applies; the page never sets it. */
+static int agent_greedy_requested(void) {
+    const char *value = getenv("DSTUDIO_AGENT_GREEDY");
+    return value && !strcmp(value, "1");
+}
+
 /* Engine-source patches that every ds4 build (Chat PLD, Agent/Cowork, Design)
  * applies to the active checkout before compiling, in this order. Each script
  * is idempotent and skips a checkout it does not adapt: the Laguna prefill
@@ -6477,8 +6487,9 @@ static int spawn_agent_prepared(const engine_cfg *cfg, const char *workdir,
             if (owned_model) {
                 /* Qwen's published sampling for its thinking and non-thinking
                  * modes; the DeepSeek defaults (1.0 / 1.0 / 0.05) are not Qwen's. */
-                argv[n++] = "--temp"; argv[n++] = cfg->think ? "0.6" : "0.7";
-                argv[n++] = "--top-p"; argv[n++] = cfg->think ? "0.95" : "0.8";
+                const int greedy = agent_greedy_requested();
+                argv[n++] = "--temp"; argv[n++] = greedy ? "0" : cfg->think ? "0.6" : "0.7";
+                argv[n++] = "--top-p"; argv[n++] = greedy ? "1" : cfg->think ? "0.95" : "0.8";
                 argv[n++] = "--min-p"; argv[n++] = "0";
             }
         } else {
@@ -6706,8 +6717,9 @@ static int spawn_design_prepared(const engine_cfg *cfg, const char *workdir,
             argv[n++] = "--remote-model"; argv[n++] = (char *)design_model;
             if (owned_model) {
                 /* Qwen's published sampling, as for the Agent frontend. */
-                argv[n++] = "--temp"; argv[n++] = cfg->think ? "0.6" : "0.7";
-                argv[n++] = "--top-p"; argv[n++] = cfg->think ? "0.95" : "0.8";
+                const int greedy = agent_greedy_requested();
+                argv[n++] = "--temp"; argv[n++] = greedy ? "0" : cfg->think ? "0.6" : "0.7";
+                argv[n++] = "--top-p"; argv[n++] = greedy ? "1" : cfg->think ? "0.95" : "0.8";
                 argv[n++] = "--min-p"; argv[n++] = "0";
             }
         } else {

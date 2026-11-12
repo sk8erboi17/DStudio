@@ -68,11 +68,16 @@ export async function exerciseDesignDomain(id,scope,page,{limits=false}={}) {
     assert.equal(await scope.locator('#basket-total').textContent(),'Total €0');
     assert.equal(await scope.locator('#basket-empty').isVisible(),true);
     await page.keyboard.press('Escape');
+    // Focus returns to the opener when the dialog has closed; wait for that
+    // element instead of reading whatever holds focus at once (gate run
+    // check-fast-8d19c255, WebKit under load, retained).
+    await scope.getByRole('button',{name:/^Basket ·/}).and(scope.locator(':focus')).waitFor();
     assert.match(await scope.locator(':focus').textContent(),/^Basket ·/);
     await scope.getByRole('button',{name:'Add Task lamp to basket',exact:true}).click();
     await scope.getByRole('button',{name:/^Basket ·/}).click();
     await scope.getByRole('button',{name:'Decrease Task lamp Ink',exact:true}).click();
     assert.equal(await scope.locator('#basket-total').textContent(),'Total €0');
+    await scope.getByRole('button',{name:'Close basket',exact:true}).and(scope.locator(':focus')).waitFor();
     assert.equal(await scope.locator(':focus').getAttribute('aria-label'),'Close basket','removing the last row must retain dialog focus');
     await page.keyboard.press('Escape');
   } else if(id==='commons') {
@@ -98,6 +103,7 @@ export async function exerciseDesignDomain(id,scope,page,{limits=false}={}) {
     await scope.getByRole('button',{name:"View Ada's profile",exact:true}).click();
     await scope.getByRole('dialog').waitFor();
     await page.keyboard.press('Escape');
+    await scope.getByRole('button',{name:"View Ada's profile",exact:true}).and(scope.locator(':focus')).waitFor();
     assert.equal(await scope.locator(':focus').textContent(),"View Ada's profile");
     await scope.getByRole('button',{name:'Review queue',exact:true}).click();
     await scope.getByRole('button',{name:'Resolve Duplicate workshop announcement',exact:true}).click();

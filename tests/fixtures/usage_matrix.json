@@ -8287,7 +8287,7 @@
               "file": "tests/live/task_graph_real_turn_live.mjs",
               "target": "test-task-graph-real-turn-live",
               "evidence": "real-model",
-              "covers": "A workspace-write request on real weights takes the automatic Task Graph route; the graph read back from its journal must end succeeded and total.txt must hold the independently computed total. Not yet run."
+              "covers": "A workspace-write request on real weights takes the automatic Task Graph route; the graph read back from its journal must end succeeded and total.txt must hold the independently computed total. Passed on November 12 on Qwen3.6 UD-Q6_K_XL (run-AEamdN)."
             }
           ]
         },

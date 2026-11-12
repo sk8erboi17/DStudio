@@ -13,11 +13,23 @@ case "$action" in apply|build|check|restore) ;; *)
     exit 2 ;;
 esac
 ds4_dir=${DS4_DIR:-}
-if [ -z "$ds4_dir" ] || [ ! -f "$ds4_dir/ds4.c" ] || [ -L "$ds4_dir/ds4.c" ] ||
-   [ ! -f "$ds4_dir/ds4_help.c" ] || [ -L "$ds4_dir/ds4_help.c" ]; then
+if [ -z "$ds4_dir" ] || [ ! -f "$ds4_dir/ds4.c" ] || [ -L "$ds4_dir/ds4.c" ]; then
     echo "DStudio Laguna prefill chunk patch: invalid DS4_DIR" >&2
     exit 2
 fi
+# ds4 main and other checkouts have no Laguna graph to adapt (whatever other
+# files they hold); only a Laguna checkout must hold every file the patch edits.
+if ! grep -q '^static bool laguna_graph_alloc(' "$ds4_dir/ds4.c" &&
+   ! grep -q 'ds4_laguna_prefill_chunk(' "$ds4_dir/ds4.c"; then
+    echo "DStudio Laguna prefill chunk patch: not needed (no Laguna graph); skipped"
+    exit 0
+fi
+for file in ds4_help.c ds4_metal.m metal/laguna.metal; do
+    if [ ! -f "$ds4_dir/$file" ] || [ -L "$ds4_dir/$file" ]; then
+        echo "DStudio Laguna prefill chunk patch: invalid DS4_DIR (missing $file)" >&2
+        exit 2
+    fi
+done
 ds4_dir=$(CDPATH= cd -- "$ds4_dir" && pwd -P)
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 patch_file="$script_dir/../patch/ds4-laguna-prefill-chunk/prefill-chunk.patch"
@@ -44,10 +56,7 @@ elif apply_patch --check --whitespace=error >/dev/null 2>&1; then
 elif grep -q 'ds4_laguna_prefill_chunk(' "$ds4_dir/ds4.c"; then
     echo "DStudio Laguna prefill chunk patch: partial or edited patch; no files changed" >&2
     exit 1
-elif grep -q '^static bool laguna_graph_alloc(' "$ds4_dir/ds4.c"; then
+else
     echo "DStudio Laguna prefill chunk patch: source drift in the Laguna graph; no files changed" >&2
     exit 1
-else
-    # ds4 main and other checkouts have no Laguna graph to adapt.
-    echo "DStudio Laguna prefill chunk patch: not needed (no Laguna graph); skipped"
 fi

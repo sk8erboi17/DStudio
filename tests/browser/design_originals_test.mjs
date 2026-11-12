@@ -136,6 +136,8 @@ try {
           await page.getByRole('button',{name:'Complete preview'}).click();
           await page.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
           await page.keyboard.press('Escape');
+          // The dialog closes after Escape is handled; wait for that within a bound.
+          await page.getByRole('dialog').waitFor({state:'hidden',timeout:5000});
           assert.equal(await page.getByRole('dialog').count(),0);
           assert.equal(await page.evaluate(()=>document.activeElement?.textContent),'Try primary action');
           await page.getByRole('button',{name:'Example',exact:true}).click();
@@ -183,6 +185,8 @@ try {
             await page.getByRole('button',{name:'Complete preview'}).click();
             await page.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
             await page.keyboard.press('Escape');
+            // The dialog closes after Escape is handled; wait for that within a bound.
+            await page.getByRole('dialog').waitFor({state:'hidden',timeout:5000});
             assert.equal(await page.getByRole('dialog').count(),0);
           }
         }
@@ -202,6 +206,8 @@ try {
         await preview.getByRole('button',{name:'Complete preview'}).click();
         await preview.getByRole('status').filter({hasText:'Nothing was sent or booked.'}).waitFor();
         await page.keyboard.press('Escape');
+        // The dialog closes after Escape is handled; wait for that within a bound.
+        await preview.getByRole('dialog').waitFor({state:'hidden',timeout:5000});
         assert.equal(await preview.getByRole('dialog').count(),0);
         // Focus must return to the button that opened the dialog. Wait for that
         // state, then read it: under load WebKit was still handling Escape when the

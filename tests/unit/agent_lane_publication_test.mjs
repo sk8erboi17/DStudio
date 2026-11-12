@@ -68,6 +68,24 @@ const write = (name, value) => {
 };
 const files = { all: write('equivalent-all.json', equivalentAll), recovery: write('equivalent-recovery.json', equivalentRecovery), product: write('product-all.json', productAll) };
 
+// What this test must not touch, as it stands before the test writes anything
+// (the checkout may hold unrelated uncommitted work there): path, size, mtime.
+const GUARDED = ['docs', 'assets', 'extension/task-graph/bench/results'];
+function guardedState() {
+  const state = {};
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else { const st = fs.lstatSync(full); state[full] = `${st.size}:${st.mtimeMs}`; }
+    }
+  };
+  for (const dir of GUARDED) walk(dir);
+  return state;
+}
+const guardedBefore = guardedState();
+
 function publish(output, inputs) {
   return spawnSync(process.execPath, [PUBLISHER, '--lanes', output, ...inputs], { encoding: 'utf8', timeout: 120_000 });
 }
@@ -242,9 +260,10 @@ check('the plotter refuses to write a synthetic figure where the published figur
 });
 
 check('nothing synthetic was written under docs/ or assets/', () => {
-  const listed = spawnSync('git', ['status', '--porcelain', '--', 'docs', 'assets', 'extension/task-graph/bench/results'], { encoding: 'utf8' });
-  assert.equal(listed.status, 0, listed.stderr);
-  assert.equal(listed.stdout.trim(), '');
+  // Compared with this test's own starting point, not with Git: unrelated
+  // uncommitted files there (a run being published) are not this test's
+  // writes (gate run check-fast-4e6bae7d-0303 failed on one, retained).
+  assert.deepEqual(guardedState(), guardedBefore, 'a file under docs/, assets/ or the bench results was added or changed');
 });
 
 console.log(`agent_lane_publication: ${checks - failures}/${checks} checks passed · SYNTHETIC receipts only; figures in ${scratch}`);
