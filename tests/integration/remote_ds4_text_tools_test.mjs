@@ -180,6 +180,17 @@ const cases = [
       assert.equal(row.requests.length, 2, 'one call, one result, one answer');
       assert.equal(row.task.status, 'completed', JSON.stringify(row.task));
     } },
+  // The live test's own path: no orchestration given, so a workspace write
+  // runs as the automatic correctness graph, which accepts the turn only from
+  // a tool_result receipt followed by its marker; a rejected turn is retried.
+  { name: 'the automatic correctness graph accepts the DSML write without retrying it',
+    answer: 'done\n\n[[DSTUDIO_CORRECTNESS_COMPLETE]]',
+    verify(row, workspace) {
+      assertWrittenOnce(row, workspace);
+      assert.equal(row.send.orchestration, 'automatic-task-graph', JSON.stringify(row.send));
+      assert.equal(row.requests.length, 2, 'no retried turn: one call, one result, one answer');
+      assert.equal(row.graph.state, 'succeeded', JSON.stringify(row.graph));
+    } },
 ];
 
 try {

@@ -9190,7 +9190,7 @@
               "file": "tests/integration/remote_ds4_text_tools_test.mjs",
               "target": "test-remote-ds4-text-tools",
               "evidence": "simulated",
-              "covers": "The real client host and built Agent, through a second host's /v1 proxy, against a scripted ds4-server that sends the DSML write as text and again as tool_calls: the file is written once and the turn completes."
+              "covers": "The real client host and built Agent, through a second host's /v1 proxy, against a scripted ds4-server that sends the DSML write as text and again as tool_calls: the file is written once, a plain turn completes and the automatic correctness graph succeeds without retrying the turn."
             },
             {
               "file": "tests/integration/model_rpc_stream_test.mjs",

@@ -140,9 +140,18 @@ the runtime's build directory into its own run directory and fails if the
 launch rebuilt the runtime. A plain (`native`) turn must write the file once,
 send the result back as one `tool` message, get one answer and complete. With
 the previous host binary it failed exactly as the live receipt did; with the fix
-it passes 1/1 (November 12, 2026, Agent built from `src/engines/ds4` into a
-task-owned folder). Model frames are simulated: this is transport and tool
-evidence, not a real-model result, which `make test-real-remote` still owns.
+it passes. The second case sends the prompt as the live test does, so it runs
+as the automatic correctness graph: the same single write and answer, and the
+graph must succeed without a retried turn. With the fixed host but the previous
+runtime the write ran once, yet the graph failed and retried the turn (a third
+request): the remote DSML path published no `tool_call`/`tool_result` records,
+so the graph saw no tool result. With the runtime fragment fixed as well
+([remote-dsml-tool-receipts.patch](../../patch/ds4-agent-jsonl/remote-dsml-tool-receipts.patch))
+both cases pass, 2/2 (November 12, 2026, Agent built from `src/engines/ds4`
+into a task-owned folder). Design sends the same text-protocol request through
+the same relay, but this target runs only the Agent; Cowork shares the Agent's
+fragment. Model frames are simulated: this is transport and tool evidence, not
+a real-model result, which `make test-real-remote` still owns.
 
 The **18 input scenarios** exercise the first-party request writer, native
 stdout parser and exec'd worker, not a source-code contract. A real peer checks
